@@ -6,6 +6,8 @@
 > Base: `cleanup/resident-memory-only`  
 > Scope: 研究性架构设计；**本提案不构成已实现、已部署或通过生产验收的声明**。
 
+后续讨论见：[运行机制讨论记录：观察、决策、抢占与上下文换代（2026-11-17）](master-worker-runtime-discussion-20261117.md)。该记录区分了本轮已确认决定与尚未回答的问题，作为继续细化本提案的依据。
+
 ## 0. 摘要
 
 提议以 **一个持久主体（Persistent AI Agent）+ 多个 Worker Agent + 一个 Master Agent** 的形式组织长期运行的智能体。
