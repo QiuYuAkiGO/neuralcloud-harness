@@ -6,7 +6,9 @@
 > Base: `cleanup/resident-memory-only`  
 > Scope: 研究性架构设计；**本提案不构成已实现、已部署或通过生产验收的声明**。
 
-后续讨论见：[运行机制讨论记录：观察、决策、抢占与上下文换代（2026-11-17）](master-worker-runtime-discussion-20261117.md)。该记录区分了本轮已确认决定与尚未回答的问题，作为继续细化本提案的依据。
+后续讨论见：[运行机制讨论记录：观察、决策、抢占与上下文换代（2026-11-17）](master-worker-runtime-discussion-20261117.md)。
+
+**P0 模型候选决定（2026-11-17）**：首先将 `Qwen/Qwen3.5-9B-Base` 作为 Master 的原始预训练基线，先测再决定后训练方案；暂不部署或替换现有运行时。详见 [Qwen3.5-9B-Base Master baseline 实验方案](master-qwen35-9b-base-baseline-20261117.md)。该记录区分了本轮已确认决定与尚未回答的问题，作为继续细化本提案的依据。
 
 ## 0. 摘要
 
