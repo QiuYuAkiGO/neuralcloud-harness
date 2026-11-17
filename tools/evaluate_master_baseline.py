@@ -99,7 +99,7 @@ def main() -> None:
                 args.endpoint, args.model, prompt, args.max_tokens, args.timeout
             )
             raw = response["choices"][0]["text"]
-            first_line = raw.lstrip().splitlines()[0].strip().strip(" \"'\`") if raw.strip() else ""
+            first_line = raw.lstrip().splitlines()[0].strip() if raw.strip() else ""
             correct = first_line.casefold() == case["expected"].casefold()
             by_category[case["category"]].append(correct)
             result = {
