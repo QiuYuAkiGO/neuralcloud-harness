@@ -19,13 +19,17 @@ public final class Master {
     private static final Gson JSON = new GsonBuilder().setStrictness(Strictness.STRICT).create();
 
     private final HttpClient client;
-    private final URI endpoint;
-    private final String model;
+    private final Settings settings;
 
-    public Master(HttpClient client, URI endpoint, String model) {
+    public record Settings(
+            URI endpoint, String model, HttpClient.Version httpVersion,
+            Duration connectTimeout, Duration requestTimeout,
+            String probePrompt, int probeMaxTokens, double probeTemperature) {
+    }
+
+    public Master(HttpClient client, Settings settings) {
         this.client = client;
-        this.endpoint = endpoint;
-        this.model = model;
+        this.settings = settings;
     }
 
     /**
@@ -33,15 +37,14 @@ public final class Master {
      */
     public void probeStartup() throws IOException, InterruptedException {
         JsonObject payload = new JsonObject();
-        payload.addProperty("model", model);
-        payload.addProperty("prompt", "1, 2, 3,");
-        payload.addProperty("max_tokens", 8);
-        payload.addProperty("temperature", 0);
-        HttpRequest request = HttpRequest.newBuilder(endpoint)
-                // 本机 vLLM 的 HTTP 端点使用 HTTP/1.1，JDK 默认的 h2c 升级会被拒绝。
-                .version(HttpClient.Version.HTTP_1_1)
+        payload.addProperty("model", settings.model());
+        payload.addProperty("prompt", settings.probePrompt());
+        payload.addProperty("max_tokens", settings.probeMaxTokens());
+        payload.addProperty("temperature", settings.probeTemperature());
+        HttpRequest request = HttpRequest.newBuilder(settings.endpoint())
+                .version(settings.httpVersion())
                 .header("Content-Type", "application/json")
-                .timeout(Duration.ofSeconds(30))
+                .timeout(settings.requestTimeout())
                 .POST(HttpRequest.BodyPublishers.ofString(JSON.toJson(payload)))
                 .build();
 
@@ -62,7 +65,7 @@ public final class Master {
             throw new IOException("推理端点未返回有效的 JSON 对象", error);
         }
         // HTTP 200 只代表请求成功，实际模型标识和续写正文才能证明探测通过。
-        if (result == null || !model.equals(stringField(result, "model"))) {
+        if (result == null || !settings.model().equals(stringField(result, "model"))) {
             throw new IOException("推理响应中的 model 与配置不符");
         }
         JsonElement choices = result.get("choices");

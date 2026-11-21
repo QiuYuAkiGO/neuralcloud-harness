@@ -11,6 +11,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
@@ -23,8 +24,9 @@ public class MasterStartupTest {
         AtomicReference<JsonObject> request = new AtomicReference<>();
         probe("{\"model\":\"test-master\",\"choices\":[{\"text\":\" 4\"}]}", request);
         assertEquals("test-master", request.get().get("model").getAsString());
-        assertEquals(8, request.get().get("max_tokens").getAsInt());
-        assertEquals(0, request.get().get("temperature").getAsInt());
+        assertEquals("继续数列", request.get().get("prompt").getAsString());
+        assertEquals(12, request.get().get("max_tokens").getAsInt());
+        assertEquals(0.25, request.get().get("temperature").getAsDouble(), 0);
     }
 
     @Test
@@ -54,7 +56,9 @@ public class MasterStartupTest {
         server.start();
         try (HttpClient client = HttpClient.newHttpClient()) {
             URI endpoint = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/v1/completions");
-            new Master(client, endpoint, "test-master").probeStartup();
+            var settings = new Master.Settings(endpoint, "test-master", HttpClient.Version.HTTP_1_1,
+                    Duration.ofSeconds(2), Duration.ofSeconds(3), "继续数列", 12, 0.25);
+            new Master(client, settings).probeStartup();
         } finally {
             server.stop(0);
         }
