@@ -26,9 +26,15 @@ public final class Master {
     private final Settings settings;
 
     public record Settings(
-            URI endpoint, String model, HttpClient.Version httpVersion,
-            Duration connectTimeout, Duration requestTimeout,
-            String probePrompt, int probeMaxTokens, double probeTemperature, Boolean enableThinking) {
+            URI endpoint,
+            String model,
+            HttpClient.Version httpVersion,
+            Duration connectTimeout,
+            Duration requestTimeout,
+            String probePrompt,
+            int probeMaxTokens,
+            double probeTemperature,
+            Boolean enableThinking) {
         public boolean usesChat() {
             return enableThinking != null;
         }
