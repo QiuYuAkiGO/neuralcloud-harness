@@ -12,11 +12,11 @@ mvn -f java/pom.xml verify
 
 ## 启动试验
 
-启动入口先读取并校验外部配置，再由 Master 发起一次真实的短续写请求。从仓库根目录运行时，默认读取 [java/config/master.properties](config/master.properties)。也可用 `--config` 指定另一份文件。更改配置后再次运行即可生效。
+启动入口先读取并校验外部配置，再由 Master 发起一次真实的短续写请求。从仓库根目录运行时，默认读取 [java/src/java/resources/master.properties](src/java/resources/master.properties)。也可用 `--config` 指定另一份文件。更改配置后再次运行即可生效。
 
 ```powershell
 java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar
-java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --config java/config/master.properties
+java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --config java/src/java/resources/master.properties
 ```
 
 配置文件使用 UTF-8。所有字段均为必填项，未知字段会被拒绝。

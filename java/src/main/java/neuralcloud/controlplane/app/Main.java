@@ -7,7 +7,7 @@ import java.net.http.HttpClient;
 import java.nio.file.Path;
 
 public final class Main {
-    private static final Path DEFAULT_CONFIG = Path.of("java", "config", "master.properties");
+    private static final Path DEFAULT_CONFIG = Path.of("java", "src", "java", "resources", "master.properties");
 
     private Main() {
     }
