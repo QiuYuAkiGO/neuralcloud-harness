@@ -64,11 +64,19 @@ public class MasterEvaluationTest {
     }
 
     @Test
-    public void withholdsOutputMarkedAsReasoning() throws Exception {
-        List<JsonObject> events = evaluate("paired-sunday", 1, "<think>内部文本</think>");
-        assertEquals("reasoning_markup",
-                event(events, "model_output").getAsJsonObject("data").get("withheld").getAsString());
+    public void filtersMarkedReasoningAndKeepsTheDecisionLinked() throws Exception {
+        List<JsonObject> events = evaluate("paired-sunday", 0, "<think>内部文本</think>\n" + QUERIES,
+                "内部前缀</think>\n" + DECISION + "<think>内部尾部");
+        var filters = events.stream().filter(e -> e.get("type").getAsString().equals("reasoning_filtered")).toList();
+        assertEquals(2, filters.size());
+        assertEquals(2, filters.getFirst().getAsJsonObject("data").get("markerCount").getAsInt());
+        assertEquals(1, filters.getLast().getAsJsonObject("data").get("unclosedOpenings").getAsInt());
+        assertEquals(1, filters.getLast().getAsJsonObject("data").get("unexpectedClosings").getAsInt());
+        assertEquals(filters.getFirst().get("eventId"), event(events, "model_output").get("causedBy"));
         assertFalse(events.toString().contains("内部文本"));
+        assertFalse(events.toString().contains("内部前缀"));
+        assertFalse(events.toString().contains("内部尾部"));
+        assertEquals("REVIEW_REQUIRED", event(events, "case_result").getAsJsonObject("data").get("category").getAsString());
     }
 
     private List<JsonObject> evaluate(String caseId, int expectedExit, String... responses) throws Exception {
@@ -89,11 +97,11 @@ public class MasterEvaluationTest {
         Path trace = directory.resolve("trace.jsonl");
         var scripted = new ArrayDeque<>(List.of(responses));
         var settings = new Master.Settings(URI.create("http://localhost/v1/completions"),
-                "test-master", HttpClient.Version.HTTP_1_1, Duration.ofSeconds(2), Duration.ofSeconds(3), "test", 1, 0);
+                "test-master", HttpClient.Version.HTTP_1_1, Duration.ofSeconds(2), Duration.ofSeconds(3), "test", 1, 0, null);
         String rolePrompt = "你是 Master。先查证，再判断。";
         var evaluation = new MasterEvaluation((prompt, maxTokens, temperature, stop) -> {
             assertTrue(prompt.startsWith(rolePrompt + "\n\n"));
-            return new Master.Completion(scripted.removeFirst(), "stop");
+            return new Master.Completion(scripted.removeFirst(), "stop", false);
         }, fixtures, rolePrompt);
         assertEquals(expectedExit, evaluation.run(trace, settings));
         assertEquals(0, scripted.size());

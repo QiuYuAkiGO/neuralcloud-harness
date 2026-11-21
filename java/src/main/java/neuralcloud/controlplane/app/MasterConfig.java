@@ -25,15 +25,17 @@ final class MasterConfig {
             throw new IllegalArgumentException("配置文件格式无效 " + path, error);
         }
 
+        URI endpoint = endpoint(required(properties, "endpoint"));
+        Boolean enableThinking = endpoint.getPath().endsWith("/v1/chat/completions") ? thinking(properties) : null;
         Master.Settings settings = new Master.Settings(
-                endpoint(required(properties, "endpoint")),
+                endpoint,
                 required(properties, "model"),
                 httpVersion(required(properties, "httpVersion")),
                 Duration.ofSeconds(positiveInteger(properties, "connectTimeoutSeconds")),
                 Duration.ofSeconds(positiveInteger(properties, "requestTimeoutSeconds")),
                 required(properties, "probePrompt"),
                 positiveInteger(properties, "probeMaxTokens"),
-                temperature(required(properties, "probeTemperature")));
+                temperature(required(properties, "probeTemperature")), enableThinking);
         if (!properties.isEmpty()) {
             throw new IllegalArgumentException("未知配置项 " + properties.stringPropertyNames());
         }
@@ -58,10 +60,19 @@ final class MasterConfig {
         if (!("http".equalsIgnoreCase(endpoint.getScheme()) || "https".equalsIgnoreCase(endpoint.getScheme()))
                 || endpoint.getHost() == null || endpoint.getPort() == 0 || endpoint.getPort() > 65535
                 || endpoint.getRawUserInfo() != null || endpoint.getRawQuery() != null
-                || endpoint.getRawFragment() != null || !endpoint.getPath().endsWith("/v1/completions")) {
-            throw new IllegalArgumentException("endpoint 须为以 /v1/completions 结尾且无凭据、查询或片段的 HTTP(S) URL");
+                || endpoint.getRawFragment() != null
+                || !(endpoint.getPath().endsWith("/v1/completions") || endpoint.getPath().endsWith("/v1/chat/completions"))) {
+            throw new IllegalArgumentException("endpoint 须指向 /v1/completions 或 /v1/chat/completions，且无凭据、查询或片段");
         }
         return endpoint;
+    }
+
+    private static boolean thinking(Properties properties) {
+        return switch (required(properties, "enableThinking")) {
+            case "true" -> true;
+            case "false" -> false;
+            default -> throw new IllegalArgumentException("enableThinking 须为 true 或 false");
+        };
     }
 
     private static HttpClient.Version httpVersion(String value) {

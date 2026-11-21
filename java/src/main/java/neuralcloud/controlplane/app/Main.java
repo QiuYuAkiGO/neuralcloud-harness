@@ -41,7 +41,7 @@ public final class Main {
             return 2;
         }
 
-        // 启动入口负责组装和释放资源。只有推理端点完成一次续写，才报告 Master 模型接入通过。
+        // 启动入口负责组装和释放资源。只有推理端点返回探测正文，才报告 Master 模型接入通过。
         try (HttpClient client = HttpClient.newBuilder().connectTimeout(settings.connectTimeout()).build()) {
             var master = new Master(client, settings);
             if (tracePath != null) {
@@ -50,7 +50,7 @@ public final class Main {
             }
             System.out.println("配置已校验，正在启动 Master：" + settings.model());
             master.probeStartup();
-            System.out.println("Master 启动试验通过，模型已完成续写：" + settings.model());
+            System.out.println("Master 启动试验通过，模型已返回探测正文：" + settings.model());
             return 0;
         } catch (IOException error) {
             String operation = tracePath == null ? "启动" : "挡板运行";

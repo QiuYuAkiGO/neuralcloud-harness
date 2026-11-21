@@ -24,7 +24,7 @@ public final class MasterEvaluation {
     private static final Pattern CITATIONS = Pattern.compile("我引用证据([1-9][0-9]*(?:、[1-9][0-9]*)*)。");
     private static final Pattern IMPRESSION = Pattern.compile("我暂无印象。|我的印象是.+。");
     private static final Pattern INTENT = Pattern.compile("请.+。");
-    private static final Pattern REASONING_MARKUP = Pattern.compile("(?i)</?think(?:\\s[^>]*)?>");
+    private static final Pattern REASONING_MARKUP = Pattern.compile("(?i)<(/?)think(?:\\s[^>]*)?(?:>|\\z)");
 
     private enum Kind {
         FACT("事实"), IMPRESSION("印象");
@@ -67,6 +67,9 @@ public final class MasterEvaluation {
     private record Result(String category, String detail) {
     }
 
+    private record FilteredOutput(String text, int markerCount, int unclosedOpenings, int unexpectedClosings) {
+    }
+
     @FunctionalInterface
     interface Inference {
         Master.Completion complete(String prompt, int maxTokens, double temperature, List<String> stop)
@@ -107,7 +110,9 @@ public final class MasterEvaluation {
             int runEvent = trace.write(null, null, "run_started", Map.of(
                     "fixtureVersion", suite.version(), "model", settings.model(), "endpoint", settings.endpoint().toString(),
                     "maxTokens", suite.maxTokens(), "temperature", suite.temperature(), "stop", STOP,
-                    "promptVersion", "meeting-transcript-v1-role-v1", "httpVersion", settings.httpVersion().name()));
+                    "promptVersion", "meeting-transcript-v1-role-v1", "httpVersion", settings.httpVersion().name(),
+                    "inference", settings.usesChat() ? Map.of("mode", "chat", "enableThinking", settings.enableThinking())
+                            : Map.of("mode", "completion")));
             for (Scenario scenario : suite.cases()) {
                 Result result = evaluate(scenario, trace, runEvent);
                 if (result.category().equals("REVIEW_REQUIRED")) {
@@ -132,7 +137,7 @@ public final class MasterEvaluation {
         var returned = new LinkedHashMap<Integer, ReturnedEvidence>();
         List<Integer> resultEvents = new ArrayList<>();
         var conversation = new StringBuilder(prompt(scenario));
-        // 两类查询每类一次，加一轮决策。非法输出留在原始轨迹，挡板不给模型代查或补写。
+        // 两类查询每类一次，加一轮决策。挡板只处理模型实际提交的可见正文。
         for (int turn = 0; turn <= Kind.values().length; turn++) {
             String input = conversation.toString();
             int inputEvent = trace.write(id, event, "model_input", Map.of(
@@ -145,14 +150,18 @@ public final class MasterEvaluation {
                 error.printStackTrace(System.err);
                 return finish(trace, id, inputEvent, "MODEL_TRANSPORT", error.getMessage());
             }
-            if (REASONING_MARKUP.matcher(response.text()).find()) {
-                // 决策轨迹只收集对外正文。含推理标记的输出按协议失败记录，不保存正文。
-                int withheld = trace.write(id, inputEvent, "model_output", Map.of(
-                        "withheld", "reasoning_markup", "finishReason", response.finishReason()));
-                return finish(trace, id, withheld, "OUTPUT_CONTRACT", "输出包含推理标记");
+            FilteredOutput visible = filterReasoning(response.text());
+            event = inputEvent;
+            if (visible.markerCount() > 0 || response.reasoningFieldPresent()) {
+                // 审计保留过滤动作及因果关系，推理正文既不写轨迹，也不回传给模型。
+                event = trace.write(id, inputEvent, "reasoning_filtered", Map.of(
+                        "markerCount", visible.markerCount(), "unclosedOpenings", visible.unclosedOpenings(),
+                        "unexpectedClosings", visible.unexpectedClosings(),
+                        "reasoningFieldPresent", response.reasoningFieldPresent()));
             }
-            event = trace.write(id, inputEvent, "model_output", response);
-            List<String> lines = response.text().lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
+            event = trace.write(id, event, "model_output", Map.of(
+                    "text", visible.text(), "finishReason", response.finishReason()));
+            List<String> lines = visible.text().lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
             List<Kind> requests = new ArrayList<>();
             for (String line : lines) {
                 for (Kind kind : Kind.values()) {
@@ -202,6 +211,35 @@ public final class MasterEvaluation {
             return finish(trace, id, decision, result.category(), result.detail());
         }
         return finish(trace, id, event, "RETRIEVAL", "查询后没有提交决策");
+    }
+
+    private static FilteredOutput filterReasoning(String text) {
+        var tags = REASONING_MARKUP.matcher(text);
+        var visible = new StringBuilder();
+        int previous = 0;
+        int depth = 0;
+        int markerCount = 0;
+        int unexpectedClosings = 0;
+        while (tags.find()) {
+            markerCount++;
+            if (depth == 0) {
+                visible.append(text, previous, tags.start());
+            }
+            if (tags.group(1).isEmpty()) {
+                depth++;
+            } else if (depth == 0) {
+                // 孤立闭合标记前的内容可能是后端省略了起始标记的推理片段。
+                visible.setLength(0);
+                unexpectedClosings++;
+            } else if (--depth == 0 && !visible.isEmpty()) {
+                visible.append('\n');
+            }
+            previous = tags.end();
+        }
+        if (depth == 0) {
+            visible.append(text, previous, text.length());
+        }
+        return new FilteredOutput(visible.toString(), markerCount, depth, unexpectedClosings);
     }
 
     private static boolean isDecision(List<String> lines) {

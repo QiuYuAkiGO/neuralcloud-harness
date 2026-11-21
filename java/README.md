@@ -19,17 +19,18 @@ java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar
 java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --config java/src/java/resources/master.properties
 ```
 
-配置文件使用 UTF-8。所有字段均为必填项，未知字段会被拒绝。
+配置文件使用 UTF-8。下列字段按所选接口校验，未知字段会被拒绝。
 
 | 字段 | 取值 |
 | --- | --- |
-| `endpoint` | 以 `/v1/completions` 结尾的完整 HTTP(S) 地址 |
+| `endpoint` | 以 `/v1/completions` 或 `/v1/chat/completions` 结尾的完整 HTTP(S) 地址 |
+| `enableThinking` | 聊天接口必填，`true` 或 `false`。续写接口省略此字段 |
 | `model` | 推理服务返回的模型标识 |
 | `httpVersion` | `HTTP_1_1` 或 `HTTP_2`。本机 vLLM 使用 `HTTP_1_1` |
 | `connectTimeoutSeconds`、`requestTimeoutSeconds` | 连接超时和请求超时，以秒为单位的正整数 |
 | `probePrompt`、`probeMaxTokens`、`probeTemperature` | 合成探测文本、最大生成 token 数（正整数）和采样温度（非负有限数值） |
 
-端点须以 HTTP 200 返回 JSON，并提供与配置一致的 `model` 和非空的 `choices[0].text`。试验成功后退出码为 `0`，配置错误为 `2`，连接或推理响应失败为 `1`。这一步只验收 Master 的模型接入，完整会话流程还需要记忆查询、Worker、Router 和编排器。
+端点须以 HTTP 200 返回 JSON，并提供与配置一致的 `model`。续写模式读取 `choices[0].text`，聊天模式读取 `choices[0].message.content`。启动探测要求正文非空。试验成功后退出码为 `0`，配置错误为 `2`，连接或推理响应失败为 `1`。
 
 ## Master 职责挡板
 
@@ -39,10 +40,16 @@ java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --config java
 java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --master-eval java/src/test/resources/fixtures/master-meeting-evaluation.json java/target/master-eval-01.jsonl
 ```
 
+本机 Qwen3.8 可使用 [master-qwen38.properties](src/java/resources/master-qwen38.properties)。它连接 `127.0.0.1:18081` 上模型名为 `qwen3.8-27b` 的 llama.cpp 聊天服务，关闭思考。服务就绪后运行：
+
+```powershell
+java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --master-eval java/src/test/resources/fixtures/master-meeting-evaluation.json java/target/master-eval-qwen38-01.jsonl --config java/src/java/resources/master-qwen38.properties
+```
+
 挡板把合成的 Router 上报交给真实模型。每次只接受约定的查询句或五句决策。模型自行发出事实和印象查询，挡板按当前会话返回获准引用且仍有效的证据。评分规则与标准答案留在挡板内。配对用例使用相同的 Router 上报和不同的更正结果，分别检验周六 10 时和周日 14 时。
 
 挡板从 [master-role-prompt.txt](src/java/resources/master-role-prompt.txt) 读取 Master 的通用职责，再拼接当前场景的输出约定。修改职责文件后直接重跑即可，轨迹会保留实际发送给模型的提示词。
 
-JSONL 轨迹按 `runId`、`caseId` 和 `eventId` 定位。顺着 `causedBy` 可回溯上报、模型输入输出、查询和装配后的决策。模型输入还列出实际纳入的工具返回事件；决策引用记录证据 ID、版本和对应的返回事件 ID。带有推理标记的输出只记录协议失败和结束原因。首期轨迹使用合成会话，行动意图留在轨迹中供复核。
+JSONL 轨迹按 `runId`、`caseId` 和 `eventId` 定位。顺着 `causedBy` 可回溯上报、模型输入输出、查询和装配后的决策。模型输入还列出实际纳入的工具返回事件，决策引用记录证据 ID、版本和对应的返回事件 ID。遇到思考标签或独立推理字段时，`reasoning_filtered` 记录过滤信息并连接该轮输入与过滤后的输出。轨迹与评分只使用过滤后的可见正文；正文为空时按输出契约失败处理。首期轨迹使用合成会话，行动意图留在轨迹中供复核。
 
 退出码 `0` 表示全部用例通过自动检查，证据语义、印象归属和行动依赖仍需人工复核。`1` 表示至少有一例自动检查或挡板运行失败，`2` 表示命令行或 Master 配置错误。用例及评分条件见 [会议改期测试数据](src/test/resources/fixtures/master-meeting-evaluation.json)。

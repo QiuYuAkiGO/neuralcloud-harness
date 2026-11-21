@@ -16,6 +16,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 public final class Master {
     private static final Gson JSON = new GsonBuilder().setStrictness(Strictness.STRICT).create();
@@ -26,10 +27,14 @@ public final class Master {
     public record Settings(
             URI endpoint, String model, HttpClient.Version httpVersion,
             Duration connectTimeout, Duration requestTimeout,
-            String probePrompt, int probeMaxTokens, double probeTemperature) {
+            String probePrompt, int probeMaxTokens, double probeTemperature, Boolean enableThinking) {
+        public boolean usesChat() {
+            return enableThinking != null;
+        }
     }
 
-    public record Completion(String text, String finishReason) {
+    // 聊天接口的独立推理字段只保留是否存在，供挡板记录过滤事件。
+    public record Completion(String text, String finishReason, boolean reasoningFieldPresent) {
     }
 
     public Master(HttpClient client, Settings settings) {
@@ -43,7 +48,7 @@ public final class Master {
     public void probeStartup() throws IOException, InterruptedException {
         Completion completion = complete(settings.probePrompt(), settings.probeMaxTokens(), settings.probeTemperature(), List.of());
         if (completion.text().isBlank()) {
-            throw new IOException("推理响应缺少非空的 choices[0].text");
+            throw new IOException("推理响应缺少非空的 " + textFieldPath());
         }
     }
 
@@ -52,7 +57,12 @@ public final class Master {
             throws IOException, InterruptedException {
         JsonObject payload = new JsonObject();
         payload.addProperty("model", settings.model());
-        payload.addProperty("prompt", prompt);
+        if (settings.usesChat()) {
+            payload.add("messages", JSON.toJsonTree(List.of(Map.of("role", "user", "content", prompt))));
+            payload.add("chat_template_kwargs", JSON.toJsonTree(Map.of("enable_thinking", settings.enableThinking())));
+        } else {
+            payload.addProperty("prompt", prompt);
+        }
         payload.addProperty("max_tokens", maxTokens);
         payload.addProperty("temperature", temperature);
         if (!stop.isEmpty()) {
@@ -86,11 +96,36 @@ public final class Master {
             throw new IOException("推理响应中的 model 与配置不符");
         }
         if (!(result.get("choices") instanceof JsonArray choices) || choices.isEmpty()
-                || !(choices.get(0) instanceof JsonObject choice)
-                || !(choice.get("text") instanceof JsonPrimitive text) || !text.isString()) {
-            throw new IOException("推理响应不符合 choices[0].text 字符串契约");
+                || !(choices.get(0) instanceof JsonObject choice)) {
+            throw invalidText();
         }
-        return new Completion(text.getAsString(), stringField(choice, "finish_reason"));
+        JsonObject body = choice;
+        String fieldName = "text";
+        if (settings.usesChat()) {
+            if (!(choice.get("message") instanceof JsonObject message)) {
+                throw invalidText();
+            }
+            body = message;
+            fieldName = "content";
+        }
+        boolean reasoningPresent = settings.usesChat() && !stringField(body, "reasoning_content").isBlank();
+        JsonElement content = body.get(fieldName);
+        String finishReason = stringField(choice, "finish_reason");
+        if (content instanceof JsonPrimitive text && text.isString()) {
+            return new Completion(text.getAsString(), finishReason, reasoningPresent);
+        }
+        if (reasoningPresent && (content == null || content.isJsonNull())) {
+            return new Completion("", finishReason, true);
+        }
+        throw invalidText();
+    }
+
+    private IOException invalidText() {
+        return new IOException("推理响应不符合 " + textFieldPath() + " 字符串契约");
+    }
+
+    private String textFieldPath() {
+        return settings.usesChat() ? "choices[0].message.content" : "choices[0].text";
     }
 
     private static String stringField(JsonObject object, String name) {
