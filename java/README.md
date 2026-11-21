@@ -33,10 +33,10 @@ java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --config java
 
 ## Master 职责挡板
 
-先构建 JAR 并启动已配置的推理服务，再从仓库根目录运行以下命令。可在轨迹路径后加 `--config <文件路径>`。每次运行请使用新的输出文件名。
+先构建 JAR 并启动已配置的推理服务，再从仓库根目录运行以下命令。`--master-eval` 后依次传入样例 JSON 路径和新的轨迹 JSONL 路径。可在轨迹路径后加 `--config <文件路径>`。
 
 ```powershell
-java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --master-eval java/target/master-eval-01.jsonl
+java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --master-eval java/src/test/resources/fixtures/master-meeting-evaluation.json java/target/master-eval-01.jsonl
 ```
 
 挡板把合成的 Router 上报交给真实模型。每次只接受约定的查询句或五句决策。模型自行发出事实和印象查询，挡板按当前会话返回获准引用且仍有效的证据。评分规则与标准答案留在挡板内。配对用例使用相同的 Router 上报和不同的更正结果，分别检验周六 10 时和周日 14 时。

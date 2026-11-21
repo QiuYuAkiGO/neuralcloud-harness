@@ -10,8 +10,6 @@ import java.util.Arrays;
 
 public final class Main {
     private static final Path DEFAULT_CONFIG = Path.of("java", "src", "java", "resources", "master.properties");
-    private static final Path EVALUATION_FIXTURES = Path.of(
-            "java", "src", "test", "resources", "fixtures", "master-meeting-evaluation.json");
 
     private Main() {
     }
@@ -22,14 +20,18 @@ public final class Main {
 
     private static int run(String[] args) {
         Master.Settings settings;
+        Path fixturesPath = null;
         Path tracePath = null;
         try {
             if (args.length > 0 && args[0].equals("--master-eval")) {
-                if (args.length < 2 || args[1].isBlank() || args[1].startsWith("--")) {
-                    throw new IllegalArgumentException("请使用 --master-eval <新的 JSONL 文件路径>");
+                // 挡板场景由调用方选择，正式入口在常规启动时无需测试资源。
+                if (args.length < 3 || args[1].isBlank() || args[1].startsWith("--")
+                        || args[2].isBlank() || args[2].startsWith("--")) {
+                    throw new IllegalArgumentException("请使用 --master-eval <样例 JSON 路径> <新的轨迹 JSONL 路径>");
                 }
-                tracePath = Path.of(args[1]);
-                args = Arrays.copyOfRange(args, 2, args.length);
+                fixturesPath = Path.of(args[1]);
+                tracePath = Path.of(args[2]);
+                args = Arrays.copyOfRange(args, 3, args.length);
             }
             settings = MasterConfig.load(configPath(args));
         } catch (IOException | IllegalArgumentException error) {
@@ -41,7 +43,7 @@ public final class Main {
         try (HttpClient client = HttpClient.newBuilder().connectTimeout(settings.connectTimeout()).build()) {
             var master = new Master(client, settings);
             if (tracePath != null) {
-                return new MasterEvaluation(master, EVALUATION_FIXTURES).run(tracePath, settings);
+                return new MasterEvaluation(master, fixturesPath).run(tracePath, settings);
             }
             System.out.println("配置已校验，正在启动 Master：" + settings.model());
             master.probeStartup();
