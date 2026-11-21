@@ -12,6 +12,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
@@ -34,6 +35,16 @@ public class MasterStartupTest {
         IOException error = assertThrows(IOException.class,
                 () -> probe("{\"model\":\"test-master\",\"choices\":[{\"text\":\" \"}]}", new AtomicReference<>()));
         assertTrue(error.getMessage().contains("choices[0].text"));
+    }
+
+    @Test
+    public void reportsTheSameContractErrorForInvalidCompletionShapes() {
+        for (String fields : List.of("", ",\"choices\":{}", ",\"choices\":[]", ",\"choices\":[null]",
+                ",\"choices\":[{}]", ",\"choices\":[{\"text\":1}]")) {
+            String response = "{\"model\":\"test-master\"" + fields + "}";
+            IOException error = assertThrows(IOException.class, () -> probe(response, new AtomicReference<>()));
+            assertEquals("推理响应不符合 choices[0].text 字符串契约", error.getMessage());
+        }
     }
 
     private static void probe(String json, AtomicReference<JsonObject> request)

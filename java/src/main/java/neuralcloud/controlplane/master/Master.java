@@ -6,6 +6,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
+import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
 
 import java.io.IOException;
@@ -84,18 +85,10 @@ public final class Master {
         if (result == null || !settings.model().equals(stringField(result, "model"))) {
             throw new IOException("推理响应中的 model 与配置不符");
         }
-        JsonElement choices = result.get("choices");
-        if (choices == null || !choices.isJsonArray()) {
-            throw new IOException("推理响应缺少 choices 数组");
-        }
-        JsonArray items = choices.getAsJsonArray();
-        if (items.isEmpty() || !items.get(0).isJsonObject()) {
-            throw new IOException("推理响应缺少 choices[0]");
-        }
-        JsonObject choice = items.get(0).getAsJsonObject();
-        JsonElement text = choice.get("text");
-        if (text == null || !text.isJsonPrimitive() || !text.getAsJsonPrimitive().isString()) {
-            throw new IOException("推理响应缺少字符串 choices[0].text");
+        if (!(result.get("choices") instanceof JsonArray choices) || choices.isEmpty()
+                || !(choices.get(0) instanceof JsonObject choice)
+                || !(choice.get("text") instanceof JsonPrimitive text) || !text.isString()) {
+            throw new IOException("推理响应不符合 choices[0].text 字符串契约");
         }
         return new Completion(text.getAsString(), stringField(choice, "finish_reason"));
     }

@@ -141,6 +141,8 @@ public final class MasterEvaluation {
             try {
                 response = inference.complete(input, suite.maxTokens(), suite.temperature(), STOP);
             } catch (IOException error) {
+                System.err.println("Master 推理调用失败，挡板用例 " + id);
+                error.printStackTrace(System.err);
                 return finish(trace, id, inputEvent, "MODEL_TRANSPORT", error.getMessage());
             }
             if (REASONING_MARKUP.matcher(response.text()).find()) {

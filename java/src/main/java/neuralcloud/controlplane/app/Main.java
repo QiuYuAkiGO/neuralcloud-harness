@@ -54,7 +54,8 @@ public final class Main {
             return 0;
         } catch (IOException error) {
             String operation = tracePath == null ? "启动" : "挡板运行";
-            System.err.println("Master " + operation + "失败 [" + settings.endpoint() + "]：" + error.getMessage());
+            System.err.println("Master " + operation + "失败 [" + settings.endpoint() + "]");
+            error.printStackTrace(System.err);
             return 1;
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
