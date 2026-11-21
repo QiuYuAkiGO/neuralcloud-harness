@@ -36,6 +36,9 @@ public final class Main {
                 args = Arrays.copyOfRange(args, 3, args.length);
             }
             settings = MasterConfig.load(configPath(args));
+            if (tracePath != null && !settings.usesChat()) {
+                throw new IllegalArgumentException("Master 挡板需要支持 tool_calls 的 /v1/chat/completions 配置");
+            }
         } catch (IOException | IllegalArgumentException error) {
             System.err.println("配置阶段失败：" + error.getMessage());
             return 2;

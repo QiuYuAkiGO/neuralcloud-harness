@@ -15,6 +15,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -37,6 +38,12 @@ public final class Master {
     public record Completion(String text, String finishReason, boolean reasoningFieldPresent) {
     }
 
+    public record ToolCall(String id, String name, String arguments) {
+    }
+
+    public record ChatTurn(Completion content, List<ToolCall> calls) {
+    }
+
     public Master(HttpClient client, Settings settings) {
         this.client = client;
         this.settings = settings;
@@ -56,18 +63,58 @@ public final class Master {
     public Completion complete(String prompt, int maxTokens, double temperature, List<String> stop)
             throws IOException, InterruptedException {
         JsonObject payload = new JsonObject();
-        payload.addProperty("model", settings.model());
         if (settings.usesChat()) {
             payload.add("messages", JSON.toJsonTree(List.of(Map.of("role", "user", "content", prompt))));
             payload.add("chat_template_kwargs", JSON.toJsonTree(Map.of("enable_thinking", settings.enableThinking())));
         } else {
             payload.addProperty("prompt", prompt);
         }
-        payload.addProperty("max_tokens", maxTokens);
-        payload.addProperty("temperature", temperature);
         if (!stop.isEmpty()) {
             payload.add("stop", JSON.toJsonTree(stop));
         }
+        JsonObject choice = request(payload, maxTokens, temperature);
+        JsonObject message = settings.usesChat() ? chatMessage(choice) : choice;
+        return completion(choice, message, false);
+    }
+
+    /** 多轮聊天只从原生 tool_calls 读取动作，普通正文不会被执行。 */
+    public ChatTurn chat(List<Map<String, Object>> messages, List<Map<String, Object>> tools,
+                         int maxTokens, double temperature) throws IOException, InterruptedException {
+        if (!settings.usesChat()) {
+            throw new IOException("工具调用需要配置 /v1/chat/completions");
+        }
+        JsonObject payload = new JsonObject();
+        payload.add("messages", JSON.toJsonTree(messages));
+        payload.add("tools", JSON.toJsonTree(tools));
+        payload.addProperty("parallel_tool_calls", false);
+        payload.add("chat_template_kwargs", JSON.toJsonTree(Map.of("enable_thinking", settings.enableThinking())));
+        JsonObject choice = request(payload, maxTokens, temperature);
+        JsonObject message = chatMessage(choice);
+        List<ToolCall> calls = new ArrayList<>();
+        JsonElement toolCalls = message.get("tool_calls");
+        if (toolCalls != null && !toolCalls.isJsonNull()) {
+            if (!(toolCalls instanceof JsonArray array)) {
+                throw new IOException("推理响应不符合 message.tool_calls 数组契约");
+            }
+            for (JsonElement item : array) {
+                if (!(item instanceof JsonObject call) || !"function".equals(stringField(call, "type"))
+                        || stringField(call, "id").isBlank()
+                        || !(call.get("function") instanceof JsonObject function)
+                        || stringField(function, "name").isBlank()
+                        || !(function.get("arguments") instanceof JsonPrimitive arguments) || !arguments.isString()) {
+                    throw new IOException("推理响应缺少有效的工具调用标识、函数名或参数");
+                }
+                calls.add(new ToolCall(stringField(call, "id"), stringField(function, "name"), arguments.getAsString()));
+            }
+        }
+        return new ChatTurn(completion(choice, message, true), List.copyOf(calls));
+    }
+
+    private JsonObject request(JsonObject payload, int maxTokens, double temperature)
+            throws IOException, InterruptedException {
+        payload.addProperty("model", settings.model());
+        payload.addProperty("max_tokens", maxTokens);
+        payload.addProperty("temperature", temperature);
         HttpRequest request = HttpRequest.newBuilder(settings.endpoint())
                 .version(settings.httpVersion())
                 .header("Content-Type", "application/json")
@@ -99,23 +146,25 @@ public final class Master {
                 || !(choices.get(0) instanceof JsonObject choice)) {
             throw invalidText();
         }
-        JsonObject body = choice;
-        String fieldName = "text";
-        if (settings.usesChat()) {
-            if (!(choice.get("message") instanceof JsonObject message)) {
-                throw invalidText();
-            }
-            body = message;
-            fieldName = "content";
+        return choice;
+    }
+
+    private JsonObject chatMessage(JsonObject choice) throws IOException {
+        if (choice.get("message") instanceof JsonObject message) {
+            return message;
         }
+        throw invalidText();
+    }
+
+    private Completion completion(JsonObject choice, JsonObject body, boolean allowEmptyChat) throws IOException {
         boolean reasoningPresent = settings.usesChat() && !stringField(body, "reasoning_content").isBlank();
-        JsonElement content = body.get(fieldName);
+        JsonElement content = body.get(settings.usesChat() ? "content" : "text");
         String finishReason = stringField(choice, "finish_reason");
         if (content instanceof JsonPrimitive text && text.isString()) {
             return new Completion(text.getAsString(), finishReason, reasoningPresent);
         }
-        if (reasoningPresent && (content == null || content.isJsonNull())) {
-            return new Completion("", finishReason, true);
+        if ((reasoningPresent || allowEmptyChat) && (content == null || content.isJsonNull())) {
+            return new Completion("", finishReason, reasoningPresent);
         }
         throw invalidText();
     }

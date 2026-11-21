@@ -1,7 +1,12 @@
 package neuralcloud.controlplane.evaluation;
 
+import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
+import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
 import neuralcloud.controlplane.master.Master;
 
@@ -16,14 +21,9 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 public final class MasterEvaluation {
-    private static final String END = "本轮结束。";
-    private static final List<String> STOP = List.of("\n" + END);
-    private static final String UNKNOWN_TIME = "我暂时无法确认会议时间。";
-    private static final String NO_CITATIONS = "本轮无可引用证据。";
-    private static final Pattern TIME = Pattern.compile("我确认会议(?:定在|改到)(周[一二三四五六日] ?[0-9]{1,2} ?时)。");
-    private static final Pattern CITATIONS = Pattern.compile("我引用证据([1-9][0-9]*(?:、(?:证据)?[1-9][0-9]*)*)。");
-    private static final Pattern IMPRESSION = Pattern.compile("我暂无印象。|我的印象是.+。");
-    private static final Pattern INTENT = Pattern.compile("请.+。");
+    private static final Gson JSON = new GsonBuilder().setStrictness(Strictness.STRICT).create();
+    private static final String QUERY = "query_memory";
+    private static final String SUBMIT = "submit_results";
     private static final Pattern REASONING_MARKUP = Pattern.compile("(?i)<(/?)think(?:\\s[^>]*)?(?:>|\\z)");
 
     private enum Kind {
@@ -44,23 +44,58 @@ public final class MasterEvaluation {
             String venue, String visibleIn, String citationScope, String topic, String text) {
     }
 
-    private record Expected(
-            String time, String reminder, List<String> requiredEvidence,
-            List<String> mustMention, List<String> forbiddenText, Map<String, String> intentPatterns) {
-        private Expected {
-            intentPatterns = intentPatterns == null ? Map.of() : intentPatterns;
-        }
+    private record Expected(Map<String, JsonElement> values, List<String> requiredEvidence,
+                            List<String> forbiddenText) {
     }
 
     private record Scenario(
             String id, String topic, String conversation, String question, String observations,
-            boolean factQueryFails, boolean javaHandlesEmpty, List<Evidence> evidence, Expected expected) {
-        String query(Kind kind) {
-            return "请查找当前会话中关于" + topic + "的" + kind.label + "。";
-        }
+            boolean factQueryFails, boolean javaHandlesEmpty, List<Evidence> evidence,
+            List<String> requiredItems, Expected expected) {
     }
 
-    private record Suite(String version, int maxTokens, double temperature, List<Scenario> cases) {
+    private record Suite(String version, int maxTokens, double temperature,
+                         Map<String, Item> resultItems, List<Scenario> cases) {
+    }
+
+    private record Item(String description, String type, List<String> allowed, String elementType) {
+        Map<String, Object> schema() {
+            Map<String, Object> schema = new LinkedHashMap<>();
+            schema.put("description", description);
+            schema.put("type", type);
+            if ("array".equals(type)) {
+                schema.put("items", allowed == null
+                        ? Map.of("type", elementType) : Map.of("type", elementType, "enum", allowed));
+            } else if (allowed != null) {
+                schema.put("enum", allowed);
+            }
+            return schema;
+        }
+
+        boolean accepts(JsonElement value) {
+            return switch (type) {
+                case "string" -> value instanceof JsonPrimitive text && text.isString()
+                        && !text.getAsString().isBlank() && (allowed == null || allowed.contains(text.getAsString()));
+                case "boolean" -> value instanceof JsonPrimitive flag && flag.isBoolean();
+                case "array" -> value instanceof JsonArray array && array.asList().stream().allMatch(this::acceptsElement)
+                        && array.asList().stream().distinct().count() == array.size();
+                default -> false;
+            };
+        }
+
+        private boolean acceptsElement(JsonElement value) {
+            if (!(value instanceof JsonPrimitive scalar)) {
+                return false;
+            }
+            if ("integer".equals(elementType)) {
+                try {
+                    return scalar.isNumber() && scalar.getAsBigDecimal().intValueExact() > 0;
+                } catch (ArithmeticException | NumberFormatException error) {
+                    return false;
+                }
+            }
+            return scalar.isString() && allowed.contains(scalar.getAsString());
+        }
     }
 
     private record ReturnedEvidence(int label, Evidence evidence, int returnEventId) {
@@ -75,10 +110,13 @@ public final class MasterEvaluation {
     private record FilteredOutput(String text, int markerCount, int unclosedOpenings, int unexpectedClosings) {
     }
 
+    private record Turn(Master.ChatTurn response, String visibleText, int event) {
+    }
+
     @FunctionalInterface
     interface Inference {
-        Master.Completion complete(String prompt, int maxTokens, double temperature, List<String> stop)
-                throws IOException, InterruptedException;
+        Master.ChatTurn chat(List<Map<String, Object>> messages, List<Map<String, Object>> tools,
+                             int maxTokens, double temperature) throws IOException, InterruptedException;
     }
 
     private final Inference inference;
@@ -86,7 +124,7 @@ public final class MasterEvaluation {
     private final String rolePrompt;
 
     public MasterEvaluation(Master master, Path fixtures, String rolePrompt) throws IOException {
-        this(master::complete, fixtures, rolePrompt);
+        this(master::chat, fixtures, rolePrompt);
     }
 
     MasterEvaluation(Inference inference, Path fixtures, String rolePrompt) throws IOException {
@@ -96,16 +134,18 @@ public final class MasterEvaluation {
         this.inference = inference;
         this.rolePrompt = rolePrompt.strip();
         try (var reader = Files.newBufferedReader(fixtures)) {
-            suite = new GsonBuilder().setStrictness(Strictness.STRICT).create().fromJson(reader, Suite.class);
+            suite = JSON.fromJson(reader, Suite.class);
         } catch (JsonParseException error) {
             throw new IOException("挡板样例文件格式无效 " + fixtures, error);
         }
-        if (suite == null || suite.version() == null || suite.version().isBlank() || suite.maxTokens() <= 0
-                || !Double.isFinite(suite.temperature()) || suite.temperature() < 0 || suite.cases() == null
-                || suite.cases().isEmpty() || suite.cases().stream().anyMatch(
-                        scenario -> scenario == null || scenario.id() == null || scenario.id().isBlank())
+        if (suite == null || !"meeting-v3".equals(suite.version()) || suite.maxTokens() <= 0
+                || !Double.isFinite(suite.temperature()) || suite.temperature() < 0 || suite.resultItems() == null
+                || suite.cases() == null || suite.cases().isEmpty()
+                || suite.cases().stream().anyMatch(scenario -> scenario == null || scenario.id() == null
+                        || scenario.id().isBlank() || scenario.requiredItems() == null || scenario.requiredItems().isEmpty()
+                        || !suite.resultItems().keySet().containsAll(scenario.requiredItems()))
                 || suite.cases().stream().map(Scenario::id).distinct().count() != suite.cases().size()) {
-            throw new IOException("挡板样例须声明版本、推理参数和非空且唯一的用例标识 " + fixtures);
+            throw new IOException("挡板样例须满足 meeting-v3 版本、推理参数与必交事项契约 " + fixtures);
         }
     }
 
@@ -115,10 +155,9 @@ public final class MasterEvaluation {
         try (var trace = new EvaluationTrace(tracePath)) {
             int runEvent = trace.write(null, null, "run_started", Map.of(
                     "fixtureVersion", suite.version(), "model", settings.model(), "endpoint", settings.endpoint().toString(),
-                    "maxTokens", suite.maxTokens(), "temperature", suite.temperature(), "stop", STOP,
-                    "promptVersion", "meeting-transcript-v2-role-v2", "httpVersion", settings.httpVersion().name(),
-                    "inference", settings.usesChat() ? Map.of("mode", "chat", "enableThinking", settings.enableThinking())
-                            : Map.of("mode", "completion")));
+                    "maxTokens", suite.maxTokens(), "temperature", suite.temperature(),
+                    "promptVersion", "meeting-tools-v1-role-v2", "httpVersion", settings.httpVersion().name(),
+                    "inference", Map.of("mode", "chat", "enableThinking", settings.enableThinking())));
             for (Scenario scenario : suite.cases()) {
                 Result result = evaluate(scenario, trace, runEvent);
                 if (result.category().equals("REVIEW_REQUIRED")) {
@@ -139,96 +178,264 @@ public final class MasterEvaluation {
     private Result evaluate(Scenario scenario, EvaluationTrace trace, int runEvent)
             throws IOException, InterruptedException {
         String id = scenario.id();
-        int event = trace.write(id, runEvent, "router_report", Map.of("conversation", scenario.conversation(),
-                "topic", scenario.topic(), "question", scenario.question(), "observations", scenario.observations()));
+        String report = "当前会话：" + scenario.conversation() + "。事项：" + scenario.topic()
+                + "。用户问：" + scenario.question() + "\n" + scenario.observations();
+        int event = trace.write(id, runEvent, "router_report", Map.of("text", report,
+                "conversation", scenario.conversation(), "topic", scenario.topic()));
+        var messages = new ArrayList<Map<String, Object>>();
+        messages.add(Map.of("role", "system", "content", rolePrompt));
+        messages.add(Map.of("role", "user", "content", report
+                + "\n先调用 query_memory 查询本事项的 FACT（事实）和 IMPRESSION（印象），可一次查询两类。"));
         var queried = EnumSet.noneOf(Kind.class);
-        var empty = EnumSet.noneOf(Kind.class);
         var returned = new LinkedHashMap<Integer, ReturnedEvidence>();
         List<Integer> resultEvents = new ArrayList<>();
-        var conversation = new StringBuilder(prompt(scenario));
-        // 两类查询每类一次，加一轮决策。挡板只处理模型实际提交的可见正文。
-        for (int turn = 0; turn <= Kind.values().length; turn++) {
-            String input = conversation.toString();
-            int inputEvent = trace.write(id, event, "model_input", Map.of(
-                    "text", input, "memoryResultEventIds", resultEvents));
-            Master.Completion response;
-            try {
-                response = inference.complete(input, suite.maxTokens(), suite.temperature(), STOP);
-            } catch (IOException error) {
-                System.err.println("Master 推理调用失败，挡板用例 " + id);
-                error.printStackTrace(System.err);
-                return finish(trace, id, inputEvent, "MODEL_TRANSPORT", error.getMessage());
+        List<Map<String, Object>> queryTools = List.of(tool(QUERY, "读取当前事项的可用记忆",
+                Map.of("sources", Map.of("type", "array", "minItems", 1, "uniqueItems", true,
+                        "items", Map.of("type", "string", "enum", List.of("FACT", "IMPRESSION")))),
+                List.of("sources")));
+        int emptyCount = 0;
+        // 查询由模型发起，工具只在当前会话内提供实际获准使用的记录。
+        for (int turnNumber = 1; turnNumber <= Kind.values().length && queried.size() < Kind.values().length; turnNumber++) {
+            Turn turn = exchange(scenario, trace, event, messages, queryTools, "retrieval", turnNumber);
+            if (turn.response() == null) {
+                return finish(trace, id, turn.event(), "MODEL_TRANSPORT", turn.visibleText());
             }
-            FilteredOutput visible = filterReasoning(response.text());
-            event = inputEvent;
-            if (visible.markerCount() > 0 || response.reasoningFieldPresent()) {
-                // 审计保留过滤动作及因果关系，推理正文既不写轨迹，也不回传给模型。
-                event = trace.write(id, inputEvent, "reasoning_filtered", Map.of(
-                        "markerCount", visible.markerCount(), "unclosedOpenings", visible.unclosedOpenings(),
-                        "unexpectedClosings", visible.unexpectedClosings(),
-                        "reasoningFieldPresent", response.reasoningFieldPresent()));
-            }
-            event = trace.write(id, event, "model_output", Map.of(
-                    "text", visible.text(), "finishReason", response.finishReason()));
-            List<String> lines = visible.text().lines().map(String::strip).filter(line -> !line.isEmpty()).toList();
-            List<Kind> requests = new ArrayList<>();
-            for (String line : lines) {
-                for (Kind kind : Kind.values()) {
-                    if (line.equals(scenario.query(kind))) {
-                        requests.add(kind);
-                    }
-                }
-            }
-            if (!requests.isEmpty()) {
-                if (requests.size() != lines.size()) {
-                    return finish(trace, id, event, "OUTPUT_CONTRACT", "查询与其他正文混合");
-                }
-                conversation.append(String.join("\n", lines)).append("\n");
-                int modelOutput = event;
-                for (Kind kind : requests) {
-                    if (!queried.add(kind)) {
-                        return finish(trace, id, event, "RETRIEVAL", "重复查询" + kind.label);
-                    }
-                    int requestEvent = trace.write(id, modelOutput, "memory_query", Map.of(
-                            "kind", kind.label, "conversation", scenario.conversation(), "text", scenario.query(kind)));
-                    ToolAnswer answer = lookup(scenario, kind, returned.size());
-                    if (answer.outcome() == QueryOutcome.EMPTY) {
-                        empty.add(kind);
-                    }
-                    List<Map<String, Object>> records = new ArrayList<>();
-                    int next = returned.size();
-                    for (Evidence item : answer.evidence()) {
-                        records.add(Map.of("label", ++next, "id", item.id(), "revision", item.revision(),
-                                "sourceEvent", item.event(), "visibleIn", item.visibleIn(),
-                                "citationScope", item.citationScope(), "state", item.state()));
-                    }
-                    event = trace.write(id, requestEvent, "memory_result", Map.of(
-                            "outcome", answer.outcome(), "text", answer.text(), "evidence", records));
-                    resultEvents.add(event);
-                    for (Evidence item : answer.evidence()) {
-                        int label = returned.size() + 1;
-                        returned.put(label, new ReturnedEvidence(label, item, event));
-                    }
-                    conversation.append(answer.text()).append("\n");
-                }
-                // 只有纯查询用例可由 Java 结束。权限用例仍要求 Master 给出自己的结论。
-                if (scenario.javaHandlesEmpty() && empty.size() == Kind.values().length) {
-                    int handled = trace.write(id, event, "java_no_data", Map.of(
-                            "memoryResultEventIds", resultEvents, "outcome", QueryOutcome.EMPTY));
-                    return finish(trace, id, handled, "JAVA_HANDLED", "两类查询无可用数据，Java 结束本次查询");
-                }
-                conversation.append("Master：\n");
+            event = turn.event();
+            Master.ToolCall call = onlyCall(turn, QUERY);
+            JsonObject args = arguments(call);
+            EnumSet<Kind> sources = querySources(args);
+            if (sources.isEmpty() || sources.stream().anyMatch(queried::contains)) {
+                event = trace.write(id, event, "query_retry", Map.of("alreadyQueried", queried));
+                appendVisible(messages, turn.visibleText());
+                messages.add(Map.of("role", "user", "content",
+                        "请调用 query_memory，只提交还没查询的来源。已查询：" + queried));
                 continue;
             }
-            if (lines.size() != 5 || !isDecision(lines)) {
-                return finish(trace, id, event, "OUTPUT_CONTRACT", "输出未满足查询或五句决策契约");
+
+            List<String> answers = new ArrayList<>();
+            for (Kind kind : sources) {
+                queried.add(kind);
+                int request = trace.write(id, turn.event(), "memory_query", Map.of(
+                        "kind", kind.label, "conversation", scenario.conversation(), "toolCallId", call.id()));
+                ToolAnswer answer = lookup(scenario, kind, returned.size());
+                if (answer.outcome() == QueryOutcome.EMPTY) {
+                    emptyCount++;
+                }
+                List<Map<String, Object>> records = new ArrayList<>();
+                int label = returned.size();
+                for (Evidence item : answer.evidence()) {
+                    records.add(Map.of("label", ++label, "id", item.id(), "revision", item.revision(),
+                            "sourceEvent", item.event(), "visibleIn", item.visibleIn(),
+                            "citationScope", item.citationScope(), "state", item.state()));
+                }
+                event = trace.write(id, request, "memory_result", Map.of(
+                        "outcome", answer.outcome(), "text", answer.text(), "evidence", records));
+                resultEvents.add(event);
+                for (Evidence item : answer.evidence()) {
+                    int number = returned.size() + 1;
+                    returned.put(number, new ReturnedEvidence(number, item, event));
+                }
+                answers.add(answer.text());
             }
-            int decision = trace.write(id, event, "decision", Map.of("conclusion", lines.get(0),
-                    "reminder", lines.get(1), "citation", lines.get(2), "impression", lines.get(3), "intent", lines.get(4)));
-            Result result = assess(scenario.expected(), queried, lines, returned, trace, id, decision);
-            return finish(trace, id, decision, result.category(), result.detail());
+            appendToolExchange(messages, turn.visibleText(), call, args, String.join("\n", answers));
         }
-        return finish(trace, id, event, "RETRIEVAL", "查询后没有提交决策");
+        if (queried.size() != Kind.values().length) {
+            return finish(trace, id, event, "RETRIEVAL", "未完成事实与印象查询");
+        }
+        if (scenario.javaHandlesEmpty() && emptyCount == Kind.values().length) {
+            int handled = trace.write(id, event, "java_no_data", Map.of(
+                    "memoryResultEventIds", resultEvents, "outcome", QueryOutcome.EMPTY));
+            return finish(trace, id, handled, "JAVA_HANDLED", "两类查询无可用数据，Java 结束本次查询");
+        }
+
+        var submitted = new LinkedHashMap<String, JsonElement>();
+        List<String> pending = scenario.requiredItems();
+        // 第二轮只收缺项。已接收的字段保持原值，两个回合通过事件 ID 关联。
+        for (int round = 1; round <= 2; round++) {
+            var fields = new LinkedHashMap<String, Object>();
+            pending.forEach(name -> fields.put(name, suite.resultItems().get(name).schema()));
+            event = trace.write(id, event, round == 1 ? "required_results" : "submission_retry",
+                    Map.of("round", round, "items", pending));
+            messages.add(Map.of("role", "user", "content", (round == 1 ? "请调用 submit_results 逐项提交必交结果："
+                    : "上一轮还有缺项。请调用 submit_results，仅补交这些事项：") + String.join("、", pending)));
+            Turn turn = exchange(scenario, trace, event, messages, List.of(tool(SUBMIT,
+                    "提交 Master 的判断、证据和行动意图。各字段均须给出。", fields, pending)), "submission", round);
+            if (turn.response() == null) {
+                return finish(trace, id, turn.event(), "MODEL_TRANSPORT", turn.visibleText());
+            }
+            Master.ToolCall call = onlyCall(turn, SUBMIT);
+            JsonObject input = arguments(call);
+            JsonObject accepted = new JsonObject();
+            List<String> invalid = new ArrayList<>();
+            List<String> requested = pending;
+            int unexpected = input == null ? 0 : (int) input.keySet().stream()
+                    .filter(field -> !requested.contains(field)).count();
+            if (unexpected > 0) {
+                // 越界字段和已提交字段都由调用方修正，不能在第二轮覆盖。
+                input = null;
+            }
+            for (String field : pending) {
+                if (input == null || !input.has(field)) {
+                    continue;
+                }
+                JsonElement value = input.get(field);
+                if (value instanceof JsonPrimitive scalar && scalar.isString()) {
+                    FilteredOutput visible = filterReasoning(scalar.getAsString());
+                    if (visible.markerCount() > 0) {
+                        trace.write(id, turn.event(), "reasoning_filtered", Map.of(
+                                "toolArgumentField", field, "markerCount", visible.markerCount(),
+                                "unclosedOpenings", visible.unclosedOpenings(), "unexpectedClosings", visible.unexpectedClosings()));
+                    }
+                    value = new JsonPrimitive(visible.text().strip());
+                }
+                if (!suite.resultItems().get(field).accepts(value)) {
+                    invalid.add(field);
+                    continue;
+                }
+                accepted.add(field, value);
+                submitted.put(field, value);
+            }
+            pending = scenario.requiredItems().stream().filter(field -> !submitted.containsKey(field)).toList();
+            event = trace.write(id, turn.event(), "result_submission", Map.of(
+                    "round", round, "toolCallId", call == null ? "" : call.id(), "accepted", accepted,
+                    "invalid", invalid, "unexpected", unexpected, "missing", pending));
+            if (pending.isEmpty()) {
+                int decision = trace.write(id, event, "decision", submitted);
+                Result result = assess(scenario.expected(), submitted, returned, trace, id, decision);
+                return finish(trace, id, decision, result.category(), result.detail());
+            }
+            if (input != null) {
+                appendToolExchange(messages, turn.visibleText(), call, accepted,
+                        "已接收：" + accepted.keySet() + "。待补交：" + pending + "。格式有误：" + invalid);
+            } else {
+                appendVisible(messages, turn.visibleText());
+                if (unexpected > 0) {
+                    messages.add(Map.of("role", "user", "content", "上轮提交包含未要求的字段，请仅提交当前待补事项。"));
+                }
+            }
+        }
+        return finish(trace, id, event, "INCOMPLETE_RESULTS", "两轮提交后仍缺少 " + pending);
+    }
+
+    private Turn exchange(Scenario scenario, EvaluationTrace trace, int cause, List<Map<String, Object>> messages,
+                          List<Map<String, Object>> tools, String phase, int round)
+            throws IOException, InterruptedException {
+        String id = scenario.id();
+        int input = trace.write(id, cause, "model_input", Map.of(
+                "phase", phase, "round", round, "messages", messages, "tools", tools));
+        Master.ChatTurn response;
+        try {
+            response = inference.chat(messages, tools, suite.maxTokens(), suite.temperature());
+        } catch (IOException error) {
+            System.err.println("Master 推理调用失败，挡板用例 " + id);
+            error.printStackTrace(System.err);
+            return new Turn(null, error.getMessage(), input);
+        }
+        var visible = filterReasoning(response.content().text());
+        int parent = input;
+        if (visible.markerCount() > 0 || response.content().reasoningFieldPresent()) {
+            parent = trace.write(id, parent, "reasoning_filtered", Map.of(
+                    "markerCount", visible.markerCount(), "unclosedOpenings", visible.unclosedOpenings(),
+                    "unexpectedClosings", visible.unexpectedClosings(),
+                    "reasoningFieldPresent", response.content().reasoningFieldPresent()));
+        }
+        int output = trace.write(id, parent, "model_output", Map.of("text", visible.text(),
+                "finishReason", response.content().finishReason(), "toolCallCount", response.calls().size()));
+        return new Turn(response, visible.text(), output);
+    }
+
+    private static Map<String, Object> tool(String name, String description, Map<String, Object> properties,
+                                            List<String> required) {
+        return Map.of("type", "function", "function", Map.of("name", name, "description", description,
+                "parameters", Map.of("type", "object", "properties", properties,
+                        "required", required, "additionalProperties", false)));
+    }
+
+    private static Master.ToolCall onlyCall(Turn turn, String name) {
+        var calls = turn.response().calls();
+        return calls.size() == 1 && name.equals(calls.getFirst().name()) ? calls.getFirst() : null;
+    }
+
+    private static JsonObject arguments(Master.ToolCall call) {
+        if (call != null) {
+            try {
+                return JSON.fromJson(call.arguments(), JsonObject.class);
+            } catch (JsonParseException error) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private static EnumSet<Kind> querySources(JsonObject input) {
+        var sources = EnumSet.noneOf(Kind.class);
+        if (input == null || input.size() != 1 || !(input.get("sources") instanceof JsonArray requested)) {
+            return sources;
+        }
+        for (JsonElement element : requested) {
+            if (!(element instanceof JsonPrimitive value) || !value.isString()
+                    || (!"FACT".equals(value.getAsString()) && !"IMPRESSION".equals(value.getAsString()))
+                    || !sources.add(Kind.valueOf(value.getAsString()))) {
+                return EnumSet.noneOf(Kind.class);
+            }
+        }
+        return sources;
+    }
+
+    private static void appendVisible(List<Map<String, Object>> messages, String text) {
+        if (!text.isBlank()) {
+            messages.add(Map.of("role", "assistant", "content", text));
+        }
+    }
+
+    private static void appendToolExchange(List<Map<String, Object>> messages, String text, Master.ToolCall call,
+                                           JsonObject safeArguments, String output) {
+        messages.add(Map.of("role", "assistant", "content", text, "tool_calls", List.of(Map.of(
+                "id", call.id(), "type", "function",
+                "function", Map.of("name", call.name(), "arguments", JSON.toJson(safeArguments))))));
+        messages.add(Map.of("role", "tool", "tool_call_id", call.id(), "content", output));
+    }
+
+    private static Result assess(Expected expected, Map<String, JsonElement> submitted,
+                                  Map<Integer, ReturnedEvidence> returned, EvaluationTrace trace, String id, int decision)
+            throws IOException {
+        var linked = new ArrayList<Map<String, Object>>();
+        if (submitted.get("evidenceLabels") instanceof JsonArray labels) {
+            for (JsonElement value : labels) {
+                ReturnedEvidence item = returned.get(value.getAsInt());
+                if (item == null) {
+                    return new Result("EVIDENCE", "引用了本轮未获准返回的证据 " + value);
+                }
+                linked.add(Map.of("label", item.label(), "id", item.evidence().id(),
+                        "revision", item.evidence().revision(), "returnEventId", item.returnEventId()));
+            }
+        }
+        trace.write(id, decision, "decision_evidence", linked);
+        String combined = normalize(submitted.toString());
+        if (expected.forbiddenText().stream().anyMatch(text -> combined.contains(normalize(text)))) {
+            return new Result("EVIDENCE", "结果包含当前会话禁止使用的内容");
+        }
+        if (!linked.stream().map(entry -> entry.get("id")).toList().containsAll(expected.requiredEvidence())) {
+            return new Result("EVIDENCE", "遗漏支撑结论的必要证据");
+        }
+        for (var expectedValue : expected.values().entrySet()) {
+            JsonElement actual = submitted.get(expectedValue.getKey());
+            if (actual == null || !normalize(expectedValue.getValue().getAsString()).equals(normalize(actual.getAsString()))) {
+                return new Result("DECISION", "提交的结果与证据不符：" + expectedValue.getKey());
+            }
+        }
+        return new Result("REVIEW_REQUIRED", "必交结果和自动检查已通过，待复核解释与勾选的行动是否一致");
+    }
+
+    private static Result finish(EvaluationTrace trace, String id, int event, String category, String detail)
+            throws IOException {
+        Result result = new Result(category, detail);
+        trace.write(id, event, "case_result", result);
+        return result;
+    }
+
+    private static String normalize(String text) {
+        return text.replaceAll("\\s+", "");
     }
 
     private static FilteredOutput filterReasoning(String text) {
@@ -258,13 +465,6 @@ public final class MasterEvaluation {
             visible.append(text, previous, text.length());
         }
         return new FilteredOutput(visible.toString(), markerCount, depth, unexpectedClosings);
-    }
-
-    private static boolean isDecision(List<String> lines) {
-        return (UNKNOWN_TIME.equals(lines.get(0)) || TIME.matcher(lines.get(0)).matches())
-                && List.of("旧提醒待核实。", "旧提醒仍存在。", "旧提醒已取消。").contains(lines.get(1))
-                && (NO_CITATIONS.equals(lines.get(2)) || CITATIONS.matcher(lines.get(2)).matches())
-                && IMPRESSION.matcher(lines.get(3)).matches() && INTENT.matcher(lines.get(4)).matches();
     }
 
     private static ToolAnswer lookup(Scenario scenario, Kind kind, int previous) {
@@ -300,111 +500,4 @@ public final class MasterEvaluation {
         return new ToolAnswer(QueryOutcome.MATCH, message.toString(), current);
     }
 
-    private static Result assess(Expected expected, EnumSet<Kind> queried, List<String> lines,
-                                 Map<Integer, ReturnedEvidence> returned, EvaluationTrace trace, String id, int decision)
-            throws IOException {
-        if (!queried.containsAll(EnumSet.allOf(Kind.class))) {
-            return new Result("RETRIEVAL", "决策之前未查询事实和印象");
-        }
-        var citations = CITATIONS.matcher(lines.get(2));
-        var linked = new ArrayList<Map<String, Object>>();
-        if (citations.matches()) {
-            for (String number : citations.group(1).replace("证据", "").split("、")) {
-                int label;
-                try {
-                    label = Integer.parseInt(number);
-                } catch (NumberFormatException error) {
-                    return new Result("EVIDENCE", "引用编号超出范围");
-                }
-                ReturnedEvidence item = returned.get(label);
-                if (item == null) {
-                    return new Result("EVIDENCE", "引用了本轮未获准返回的证据 " + label);
-                }
-                linked.add(Map.of("label", item.label(), "id", item.evidence().id(),
-                        "revision", item.evidence().revision(), "returnEventId", item.returnEventId()));
-            }
-        }
-        trace.write(id, decision, "decision_evidence", linked);
-        var time = TIME.matcher(lines.get(0));
-        String actualTime = time.matches() ? normalize(time.group(1)) : "未知";
-        if (!normalize(expected.time()).equals(actualTime)) {
-            return new Result("EVIDENCE", "会议时间或不确定状态与可用事实不一致");
-        }
-        if (!linked.stream().map(item -> item.get("id")).toList().containsAll(expected.requiredEvidence())) {
-            return new Result("EVIDENCE", "遗漏支撑结论的必要证据");
-        }
-        String actualReminder = lines.get(1);
-        if (expected.reminder() != null && !expected.reminder().equals(actualReminder)) {
-            return new Result("DECISION", "提醒状态与核对结果或回执不一致");
-        }
-        String text = normalize(String.join("\n", lines));
-        for (String forbidden : expected.forbiddenText()) {
-            if (text.contains(normalize(forbidden))) {
-                return new Result("EVIDENCE", "输出包含当前会话禁止使用的内容");
-            }
-        }
-        String intent = normalize(lines.get(4));
-        List<String> missing = expected.mustMention().stream().filter(word -> !intent.contains(normalize(word))).toList();
-        if (!missing.isEmpty()) {
-            return new Result("DECISION", "缺少当前情况对应的行动或说明 " + missing);
-        }
-        List<String> unmet = expected.intentPatterns().entrySet().stream()
-                .filter(rule -> !Pattern.compile(rule.getValue()).matcher(intent).find())
-                .map(Map.Entry::getKey).toList();
-        if (!unmet.isEmpty()) {
-            return new Result("DECISION", "行动意图未满足 " + unmet);
-        }
-        return new Result("REVIEW_REQUIRED", "自动检查通过，待复核证据语义与行动依赖");
-    }
-
-    private static Result finish(EvaluationTrace trace, String id, int event, String category, String detail)
-            throws IOException {
-        Result result = new Result(category, detail);
-        trace.write(id, event, "case_result", result);
-        return result;
-    }
-
-    private static String normalize(String text) {
-        return text.replaceAll("\\s+", "");
-    }
-
-    private String prompt(Scenario scenario) {
-        // 职责提示可独立替换，挡板阶段的句式和示范保留原样，便于比较。
-        return rolePrompt + "\n\n" + """
-                只写对外发出的查询或决策正文。
-                本次允许的查询句如下。可以在一轮内发出两句，也可每轮发出一句。
-                %s
-                %s
-                只引用本轮工具实际返回且适用的证据。Worker 印象和工具尝试不能证明取消成功。
-                决策写五句，每句一行。时间用周几几时。时间未知写“我暂时无法确认会议时间。”
-                提醒状态三选一：“旧提醒待核实。”“旧提醒仍存在。”“旧提醒已取消。”
-                引用多个编号时用顿号，可写“我引用证据1、证据2。”没有证据写“本轮无可引用证据。”
-                印象要交代提出者。没有印象写“我暂无印象。”
-                行动意图以“请”开头。更正已撤回或数据不匹配时，说明原因并针对缺失的事实提出核实。无数据由 Java 处理。
-                每轮查询或决策之后，另起一行写“本轮结束。”
-
-                以下是另一个会话的示范。
-                Router：活动群问演练改在何时，旧提醒是否取消？
-                Master：
-                请查找当前会话中关于演练改期的事实。
-                请查找当前会话中关于演练改期的印象。
-                本轮结束。
-                事实查询成功。
-                证据1来自活动群公告。演练改定为周三13时。
-                印象查询没有可用数据。
-                Master：
-                我确认会议定在周三13时。
-                旧提醒待核实。
-                我引用证据1。
-                我暂无印象。
-                请确认改期并核对旧提醒，等核对有结果后再告知提醒状态。
-                本轮结束。
-
-                现在开始新的会话，证据编号从1重新计算。
-                Router：当前是%s。用户问：“%s”
-                %s
-                Master：
-                """.formatted(scenario.query(Kind.FACT), scenario.query(Kind.IMPRESSION),
-                scenario.conversation(), scenario.question(), scenario.observations());
-    }
 }

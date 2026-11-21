@@ -40,17 +40,19 @@ java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --config java
 java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --master-eval java/src/test/resources/fixtures/master-meeting-evaluation.json java/target/master-eval-01.jsonl
 ```
 
-本机 Qwen3.8 可使用 [master-qwen38.properties](src/java/resources/master-qwen38.properties)。它连接 `127.0.0.1:18081` 上模型名为 `qwen3.8-27b` 的 llama.cpp 聊天服务，关闭思考。服务就绪后运行：
+本机 Qwen3.8 可使用 [master-qwen38.properties](src/java/resources/master-qwen38.properties)。它连接 `127.0.0.1:18081` 上模型名为 `qwen3.8-27b` 的 llama.cpp 聊天服务，关闭思考。挡板需要支持原生 `tool_calls` 的聊天端点，llama.cpp 须启用 Jinja 模板。服务就绪后运行以下命令。
 
 ```powershell
 java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --master-eval java/src/test/resources/fixtures/master-meeting-evaluation.json java/target/master-eval-qwen38-01.jsonl --config java/src/java/resources/master-qwen38.properties
 ```
 
-挡板把合成的 Router 上报交给真实模型。每次只接受约定的查询句或五句决策。模型自行发出事实和印象查询，挡板按当前会话返回获准引用且仍有效的证据。评分规则与标准答案留在挡板内。配对用例使用相同的 Router 上报和不同的更正结果，分别检验周六 10 时和周日 14 时。
+挡板把合成的 Router 上报交给真实模型。Master 用 `query_memory` 查询事实与印象，挡板按当前会话返回获准引用且仍有效的证据。取证完成后，挡板逐项发送该用例的必交字段。Master 用 `submit_results` 提交结构化结果，包括结论、证据编号及适用的行动项。标准答案留在用例内。
+
+首轮漏填或填错类型时，挡板带着已接收结果开启第二轮，只要求补交缺项。已接收字段在补交阶段锁定。两轮仍未交齐，记为 `INCOMPLETE_RESULTS`。自动评分使用字段值、枚举和证据编号，自由文本中的解释及行动意图供人工复核。配对用例用相同的 Router 上报验证不同证据能否改变结论。
 
 挡板从 [master-role-prompt.txt](src/java/resources/master-role-prompt.txt) 读取 Master 的通用职责，再拼接当前场景的输出约定。修改职责文件后直接重跑即可，轨迹会保留实际发送给模型的提示词。
 
-JSONL 轨迹按 `runId`、`caseId` 和 `eventId` 定位。顺着 `causedBy` 可回溯上报、模型输入输出、查询和装配后的决策。模型输入还列出实际纳入的工具返回事件，决策引用记录证据 ID、版本和对应的返回事件 ID。遇到思考标签或独立推理字段时，`reasoning_filtered` 记录过滤信息并连接该轮输入与过滤后的输出。轨迹与评分只使用过滤后的可见正文；正文为空时按输出契约失败处理。首期轨迹使用合成会话，行动意图留在轨迹中供复核。
+JSONL 轨迹按 `runId`、`caseId` 和 `eventId` 定位。顺着 `causedBy` 可回溯上报、工具查询、结果提交及最终决策。每次提交记录接收字段和待补字段。决策引用保留证据 ID、版本和对应的返回事件 ID。遇到思考标签或独立推理字段时，`reasoning_filtered` 记录过滤信息。轨迹只保存过滤后的可见正文和已验证的工具参数。首期轨迹使用合成会话，行动意图留在轨迹中供复核。
 
 查询无可用数据时，Java 返回空结果。纯查询样例若两类查询都为空，可由 Java 结束，轨迹记为 `JAVA_HANDLED`。查到其他事项的数据时，挡板返回 `MISMATCH`，由 Master 说明原因并提出核实动作。工具调用异常单独记录。旧样例中省略 `topic` 的证据沿用所属用例的事项。
 
