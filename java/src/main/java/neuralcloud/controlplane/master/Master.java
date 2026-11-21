@@ -38,6 +38,8 @@ public final class Master {
         payload.addProperty("max_tokens", 8);
         payload.addProperty("temperature", 0);
         HttpRequest request = HttpRequest.newBuilder(endpoint)
+                // 本机 vLLM 的 HTTP 端点使用 HTTP/1.1，JDK 默认的 h2c 升级会被拒绝。
+                .version(HttpClient.Version.HTTP_1_1)
                 .header("Content-Type", "application/json")
                 .timeout(Duration.ofSeconds(30))
                 .POST(HttpRequest.BodyPublishers.ofString(JSON.toJson(payload)))

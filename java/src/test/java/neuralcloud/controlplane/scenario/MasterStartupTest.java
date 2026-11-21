@@ -39,6 +39,11 @@ public class MasterStartupTest {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/completions", exchange -> {
             try (exchange) {
+                // 与本机推理服务一致，测试端点拒绝 HTTP/2 升级请求。
+                if (exchange.getRequestHeaders().containsKey("Upgrade")) {
+                    exchange.sendResponseHeaders(400, -1);
+                    return;
+                }
                 String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
                 request.set(JsonParser.parseString(body).getAsJsonObject());
                 byte[] response = json.getBytes(StandardCharsets.UTF_8);
