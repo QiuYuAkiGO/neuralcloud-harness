@@ -190,7 +190,7 @@ public final class MasterEvaluation {
                 .orElseThrow(() -> new IOException("找不到挡板用例 " + id));
     }
 
-    Evaluation evaluate(Scenario scenario, EvaluationTrace trace, int runEvent)
+    Evaluation evaluate(Scenario scenario, TraceSink trace, int runEvent)
             throws IOException, InterruptedException {
         String id = scenario.id();
         String report = scenario.report();
@@ -332,7 +332,7 @@ public final class MasterEvaluation {
         return finish(trace, id, event, "INCOMPLETE_RESULTS", "两轮提交后仍缺少 " + pending);
     }
 
-    private Turn exchange(Scenario scenario, EvaluationTrace trace, int cause, List<Map<String, Object>> messages,
+    private Turn exchange(Scenario scenario, TraceSink trace, int cause, List<Map<String, Object>> messages,
                           List<Map<String, Object>> tools, String phase, int round)
             throws IOException, InterruptedException {
         String id = scenario.id();
@@ -412,7 +412,7 @@ public final class MasterEvaluation {
     }
 
     private static Result assess(Expected expected, Map<String, JsonElement> submitted,
-                                  Map<Integer, ReturnedEvidence> returned, EvaluationTrace trace, String id, int decision)
+                                  Map<Integer, ReturnedEvidence> returned, TraceSink trace, String id, int decision)
             throws IOException {
         var linked = new ArrayList<Map<String, Object>>();
         if (submitted.get("evidenceLabels") instanceof JsonArray labels) {
@@ -442,7 +442,7 @@ public final class MasterEvaluation {
         return new Result("REVIEW_REQUIRED", "必交结果和自动检查已通过，待复核解释与勾选的行动是否一致");
     }
 
-    private static Evaluation finish(EvaluationTrace trace, String id, int event, String category, String detail)
+    private static Evaluation finish(TraceSink trace, String id, int event, String category, String detail)
             throws IOException {
         Result result = new Result(category, detail);
         return new Evaluation(category, detail, trace.write(id, event, "case_result", result), Map.of());

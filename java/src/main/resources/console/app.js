@@ -32,7 +32,8 @@ function el(tag, props = {}, ...children) {
 }
 
 const time = (iso) => (iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '');
-const nodeName = (id) => state.nodes.find((node) => node.id === id)?.name ?? id;
+const NODE_NAMES = { orchestrator: '编排器', 'task-worker': '任务 Worker（模拟）', memory: '记忆（样例证据）' };
+const nodeName = (id) => state.nodes.find((node) => node.id === id)?.name ?? NODE_NAMES[id] ?? id;
 
 // 各事件类型在对话和审计链里的一行摘要。
 function summary(event) {
@@ -45,9 +46,31 @@ function summary(event) {
     case 'node_failed': return `失败：${data.detail}`;
     case 'probe_requested': return '请求探测';
     case 'probe_passed': return `探测通过，${data.latencyMs} ms`;
+    case 'pipeline_completed': return data.completed
+      ? `链路完成，共 ${data.replies.length} 条回复（${data.caseId}，提醒核对模拟为 ${data.simulatedOutcome}）`
+      : `链路在中途被拒绝，原因见审计链（${data.caseId}）`;
+    case 'router_run_started': return `Router ${data.routerModel} · Master ${data.masterModel} · ${data.workerMode}`;
+    case 'router_input': case 'router_report': case 'chat_worker_draft': return data.text;
+    case 'router_rejected': return `拒绝：${data.detail}`;
+    case 'router_plan': return data.steps.map((step) => `${step.id} → ${step.worker}`
+      + (step.dependsOn.length ? `（等待 ${step.dependsOn.join('、')}）` : '')).join('\n');
+    case 'worker_dispatch': return `${data.action} → ${data.worker}：${data.text}`;
+    case 'reminder_receipt': return `模拟回执：${data.receipt.outcome}`;
+    case 'model_input': return `${data.phase} 第 ${data.round} 轮，${data.messages.length} 条消息`;
+    case 'model_output': return data.text || `工具调用 ${data.toolCallCount} 次`;
+    case 'memory_query': return `${data.kind}查询`;
+    case 'memory_result': return data.text;
+    case 'required_results': case 'submission_retry': return `须提交：${data.items.join('、')}`;
+    case 'result_submission': return data.missing.length ? `仍缺：${data.missing.join('、')}` : '必交结果已齐';
+    case 'decision': return Object.entries(data).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join('\n');
+    case 'case_result': return `${data.category} ${data.detail}`;
     default: return '';
   }
 }
+
+// 对话页只显示操作者能直接看到的往返，链路中间步骤在审计链里查看。
+const CHAT_TYPES = new Set(['operator_message', 'chat_worker_reply', 'router_route', 'master_completion',
+  'node_failed', 'chat_worker_draft', 'router_rejected', 'pipeline_completed']);
 
 function latency(event) {
   return event.data.latencyMs === undefined ? '' : ` · ${event.data.latencyMs} ms`;
@@ -99,7 +122,7 @@ async function loadChat() {
   } catch (error) {
     if (error.status !== 404) throw error;
   }
-  log.replaceChildren(...events.map((event) => {
+  log.replaceChildren(...events.filter((event) => CHAT_TYPES.has(event.type)).map((event) => {
     const operator = event.type === 'operator_message';
     const meta = operator ? `操作者 → ${nodeName(event.node)}` : `${nodeName(event.node)}${latency(event)}`;
     const extra = event.type === 'master_completion' && event.data.finishReason
@@ -172,18 +195,20 @@ function buildTree(events) {
       roots.push(event);
     }
   }
+  // 只有一个后续事件时画在同一层，出现分叉时才缩进，避免长链路逐级右移。
   const render = (event) => {
     const kids = children.get(key(event.runId, event.eventId)) ?? [];
-    return el('li', { class: `event ${event.type}` },
+    const item = el('li', { class: `event ${event.type}` },
       el('div', { class: 'event-head' },
         el('span', { class: 'badge' }, `#${event.eventId}`),
         el('span', { class: 'event-type' }, event.type),
         el('span', { class: 'muted' }, `${nodeName(event.node)} · ${time(event.recordedAt)}${latency(event)}`)),
       el('div', { class: 'event-summary' }, summary(event)),
       el('details', {}, el('summary', { class: 'muted' }, '原始事件'), el('pre', {}, JSON.stringify(event, null, 2))),
-      kids.length ? el('ul', {}, kids.map(render)) : null);
+      kids.length > 1 ? el('ul', {}, kids.flatMap(render)) : null);
+    return kids.length === 1 ? [item, ...render(kids[0])] : [item];
   };
-  return el('ul', { class: 'tree' }, roots.map(render));
+  return el('ul', { class: 'tree' }, roots.flatMap(render));
 }
 
 async function loadAudit(chain) {

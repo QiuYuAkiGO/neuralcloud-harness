@@ -11,7 +11,7 @@ import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.UUID;
 
-final class EvaluationTrace implements AutoCloseable {
+final class EvaluationTrace implements TraceSink, AutoCloseable {
     private static final Gson JSON = new GsonBuilder().disableHtmlEscaping().create();
 
     private record Event(
@@ -28,7 +28,8 @@ final class EvaluationTrace implements AutoCloseable {
     }
 
     // 每个事件记录上游事件 ID。每写一行就刷新缓冲区，保留失败前已经记录的步骤。
-    int write(String caseId, Integer causedBy, String type, Object data) throws IOException {
+    @Override
+    public int write(String caseId, Integer causedBy, String type, Object data) throws IOException {
         int id = ++eventId;
         writer.write(JSON.toJson(new Event(1, runId, id, causedBy, caseId, Instant.now().toString(), type, data)));
         writer.newLine();

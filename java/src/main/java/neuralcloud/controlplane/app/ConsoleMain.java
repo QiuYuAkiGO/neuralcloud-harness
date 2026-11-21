@@ -8,12 +8,14 @@ import neuralcloud.controlplane.console.NodeMonitor;
 import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
+import neuralcloud.controlplane.worker.ChatWorker;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
@@ -28,14 +30,27 @@ public final class ConsoleMain {
     private ConsoleMain() {
     }
 
+    // 测试场景入口通过它追加节点。组件已按控制台配置组装；正式入口不追加任何节点。
+    @FunctionalInterface
+    interface Extension {
+        List<Node> nodes(Components components) throws IOException;
+    }
+
+    record Components(ChatWorker chat, Router<Route> router, Master master, Master.Settings routerSettings,
+                      Master.Settings masterSettings) {
+    }
+
     public static void main(String[] args) {
-        int code = run(args);
+        exitOnFailure(run(Main.configPath(args, DEFAULT_CONFIG), components -> List.of()));
+    }
+
+    static void exitOnFailure(int code) {
         if (code != 0) {
             System.exit(code);
         }
     }
 
-    private static int run(String[] args) {
+    static int run(Path config, Extension extension) {
         ConsoleConfig.Settings settings;
         ChatWorkerConfig.Settings chatSettings;
         Master.Settings routerSettings;
@@ -44,7 +59,7 @@ public final class ConsoleMain {
         String chatPrompt;
         String routerPrompt;
         try {
-            settings = ConsoleConfig.load(Main.configPath(args, DEFAULT_CONFIG));
+            settings = ConsoleConfig.load(config);
             chatSettings = ChatWorkerConfig.load(settings.chatWorkerConfig());
             chatKey = chatSettings.apiKey();
             chatPrompt = Files.readString(settings.chatWorkerRolePrompt());
@@ -77,21 +92,22 @@ public final class ConsoleMain {
             var routerInference = new Master(routerClient, routerSettings);
             var router = new Router<>(routerInference, routerPrompt, Route.class);
             var master = new Master(masterClient, masterSettings);
-            var nodes = List.of(
+            var nodes = new ArrayList<>(List.of(
                     new Node("chat-worker", "Chat Worker", chatSettings.endpoint().toString(), null,
-                            text -> new Reply("chat_worker_reply", Map.of("text", chat.draftReply(text))), null),
+                            (text, trace) -> new Reply("chat_worker_reply", Map.of("text", chat.draftReply(text))), null),
                     new Node("router", "Router", routerSettings.endpoint().toString(), routerSettings.model(),
-                            text -> new Reply("router_route", Map.of("route", router.route(text).name())),
+                            (text, trace) -> new Reply("router_route", Map.of("route", router.route(text).name())),
                             routerInference::probeStartup),
                     new Node("master", "Master", masterSettings.endpoint().toString(), masterSettings.model(),
-                            text -> {
+                            (text, trace) -> {
                                 var completion = master.complete(text, settings.masterMaxTokens(),
                                         settings.masterTemperature(), List.of());
                                 return new Reply("master_completion", Map.of("text", completion.text(),
                                         "finishReason", completion.finishReason(),
                                         "reasoningFieldPresent", completion.reasoningFieldPresent()));
                             },
-                            master::probeStartup));
+                            master::probeStartup)));
+            nodes.addAll(extension.nodes(new Components(chat, router, master, routerSettings, masterSettings)));
 
             var monitor = new NodeMonitor(metricsClient, settings.metricsTimeout(), settings.gpuMetrics(),
                     Map.of("router", settings.routerMetrics(), "master", settings.masterMetrics()));
@@ -100,7 +116,7 @@ public final class ConsoleMain {
 
             var server = ConsoleServer.start(settings.listen(), audit, monitor, nodes);
             opened.push(server);
-        } catch (IOException error) {
+        } catch (IOException | IllegalArgumentException error) {
             System.err.println("控制台启动失败");
             error.printStackTrace(System.err);
             closeAll(opened);

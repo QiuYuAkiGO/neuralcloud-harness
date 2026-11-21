@@ -60,6 +60,14 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 
 **节点状态。** Router 与 Master 定时读取指标端点，以最近一次读取判断服务是否可达，并显示排队数和 KV 缓存占用等指标。“推理探测”用模型配置中的探测参数发起一次真实续写。Gemini 不提供指标与探测，以最近一次调用的结果为准。
 
+**会议改期联调。** 测试代码中的 `ConsoleScenarioMain` 在上述三个节点之外再挂一个“会议改期链路”节点，须用 `--scenario <样例 JSON> <用例 ID> <PRESENT|CANCELLED|FAILED>` 显式指定样例和模拟回执。网页正文作为用户提问交给真实 Router，Master 用样例中的报告和记忆证据提交结果，编排器按决策调度 Chat Worker（Misty 预设）和模拟的任务 Worker。各步事件以 `causedBy` 串成同一条审计链。记忆证据来自样例，提醒回执由参数模拟，Chat Worker 只生成草稿，不发送到任何渠道。默认读取 [联调配置](src/test/resources/evaluation/console-scenario.properties)：Master 为 `127.0.0.1:18081` 上以 `--metrics` 启动的 llama.cpp 27B，Router 为 `127.0.0.1:18082` 上的 vLLM 0.8B。
+
+```powershell
+java -cp 'java/target/test-classes;java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar' neuralcloud.controlplane.app.ConsoleScenarioMain --scenario java/src/test/resources/fixtures/master-meeting-evaluation.json attempt-without-receipt CANCELLED
+```
+
+vLLM 以 `--enforce-eager` 启动时，首次请求要编译内核，可能超过 Router 的请求超时。正式联调前先在节点状态页对 Router 做一次推理探测。
+
 ## 编排器
 
 调用方提交带事项标识的计划，每个步骤包含唯一标识、目标 Worker、指令正文和前置步骤标识。`Orchestrator` 在派发前校验依赖关系，收到同一事项及对应步骤的回执后才派发依赖它的步骤。执行结果按步骤标识返回，业务规则和回执解释由调用方负责。

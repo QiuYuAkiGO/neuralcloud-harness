@@ -4,7 +4,7 @@ import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.evaluation.MasterEvaluation;
 import neuralcloud.controlplane.evaluation.RouterEvaluation;
 import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Outcome;
-import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Route;
+import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 
 import java.io.IOException;

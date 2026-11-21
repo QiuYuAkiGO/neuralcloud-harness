@@ -11,8 +11,6 @@ import java.util.List;
 
 // 单会话联调场景负责会议规则和回复文案，正式编排器执行该场景提交的计划。
 public final class MeetingOrchestrator {
-    public enum Route { MEETING_RESCHEDULE, UNSUPPORTED }
-
     public enum Action {
         CONFIRM_MEETING("CHAT_WORKER"), CHECK_REMINDER("TASK_WORKER"), REPORT_REMINDER("CHAT_WORKER");
 

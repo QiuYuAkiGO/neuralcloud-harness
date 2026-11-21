@@ -4,13 +4,14 @@ import neuralcloud.controlplane.orchestration.MeetingOrchestrator;
 import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Action;
 import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Outcome;
 import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Result;
-import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Route;
 import neuralcloud.controlplane.orchestration.Orchestrator.Plan;
 import neuralcloud.controlplane.orchestration.Orchestrator.Receipt;
 import neuralcloud.controlplane.orchestration.Orchestrator.Scope;
+import neuralcloud.controlplane.router.Route;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -40,65 +41,87 @@ public final class RouterEvaluation {
         this.draftReply = draftReply;
     }
 
+    // completed 为 false 时，拒绝原因已作为 router_rejected 写入轨迹。replies 是按派发顺序交给用户的正文。
+    public record Run(boolean completed, List<String> replies) {
+    }
+
     public int run(Path tracePath, String caseId, Outcome simulatedOutcome, String routerModel, String masterModel)
             throws IOException, InterruptedException {
+        try (var trace = new EvaluationTrace(tracePath)) {
+            return run(trace, null, caseId, scenario(caseId).routeQuestion(), simulatedOutcome,
+                    routerModel, masterModel).completed() ? 0 : 1;
+        }
+    }
+
+    // question 是交给 Router 分流的当前问题；Master 取证仍使用该用例的上报与证据。
+    public Run run(TraceSink trace, Integer cause, String caseId, String question, Outcome simulatedOutcome,
+                   String routerModel, String masterModel) throws IOException, InterruptedException {
+        var scenario = scenario(caseId);
+        String workerMode = draftReply == null ? "SIMULATED" : "CHAT_DRAFT";
+        int run = trace.write(caseId, cause, "router_run_started", Map.of(
+                "routerModel", routerModel, "masterModel", masterModel, "workerMode", workerMode));
+        int input = trace.write(caseId, run, "router_input", Map.of("text", question));
+        Route route;
+        try {
+            route = classifier.route(question);
+        } catch (IOException error) {
+            trace.write(caseId, input, "router_rejected", Map.of("detail", error.getMessage()));
+            throw error;
+        }
+        int routed = trace.write(caseId, input, "router_route", Map.of("route", route));
+        if (route != Route.MEETING_RESCHEDULE) {
+            trace.write(caseId, routed, "router_rejected", Map.of("detail", "本用例应选择会议改期流程"));
+            return new Run(false, List.of());
+        }
+        // 取证仍走原有工具协议。挡板评分通过后才用接收的字段生成会议场景计划。
+        var evaluated = master.evaluate(scenario, trace, routed);
+        if (!"REVIEW_REQUIRED".equals(evaluated.category())) {
+            trace.write(caseId, evaluated.eventId(), "router_rejected", Map.of("detail", evaluated.detail()));
+            return new Run(false, List.of());
+        }
+        var values = evaluated.submitted();
+        var intent = new MeetingOrchestrator.Intent(values.get("meetingTime").getAsString(),
+                values.get("confirmMeetingNow").getAsBoolean(), values.get("verifyReminder").getAsBoolean(),
+                values.get("waitReminderResult").getAsBoolean(), values.get("reportReminderFailure").getAsBoolean());
+        var scope = new Scope(scenario.conversation(), UUID.randomUUID());
+        Plan plan;
+        try {
+            plan = MeetingOrchestrator.plan(scope, intent);
+        } catch (IllegalArgumentException error) {
+            trace.write(caseId, evaluated.eventId(), "router_rejected", Map.of("detail", error.getMessage()));
+            return new Run(false, List.of());
+        }
+        int planned = trace.write(caseId, evaluated.eventId(), "router_plan", plan);
+        var workers = new ScriptedWorkers(trace, caseId, planned, simulatedOutcome, draftReply);
+        new MeetingOrchestrator().execute(plan, intent, workers);
+        trace.write(caseId, workers.event, "router_run_completed", Map.of("workerMode", workerMode));
+        return new Run(true, List.copyOf(workers.replies));
+    }
+
+    // 用例须存在，并逐项要求生成计划所需的会议时间和四个行动字段。
+    public void requireScenario(String caseId) throws IOException {
+        scenario(caseId);
+    }
+
+    private MasterEvaluation.Scenario scenario(String caseId) throws IOException {
         var scenario = master.scenario(caseId);
         if (!scenario.requiredItems().containsAll(List.of("meetingTime", "confirmMeetingNow", "verifyReminder",
                 "waitReminderResult", "reportReminderFailure"))) {
             throw new IOException("Router 挡板用例须逐项要求会议时间和四个行动字段");
         }
-        try (var trace = new EvaluationTrace(tracePath)) {
-            String workerMode = draftReply == null ? "SIMULATED" : "CHAT_DRAFT";
-            int run = trace.write(caseId, null, "router_run_started", Map.of(
-                    "routerModel", routerModel, "masterModel", masterModel, "workerMode", workerMode));
-            int input = trace.write(caseId, run, "router_input", Map.of("text", scenario.routeQuestion()));
-            Route route;
-            try {
-                route = classifier.route(scenario.routeQuestion());
-            } catch (IOException error) {
-                trace.write(caseId, input, "router_rejected", Map.of("detail", error.getMessage()));
-                throw error;
-            }
-            int routed = trace.write(caseId, input, "router_route", Map.of("route", route));
-            if (route != Route.MEETING_RESCHEDULE) {
-                trace.write(caseId, routed, "router_rejected", Map.of("detail", "本用例应选择会议改期流程"));
-                return 1;
-            }
-            // 取证仍走原有工具协议。挡板评分通过后才用接收的字段生成会议场景计划。
-            var evaluated = master.evaluate(scenario, trace, routed);
-            if (!"REVIEW_REQUIRED".equals(evaluated.category())) {
-                trace.write(caseId, evaluated.eventId(), "router_rejected", Map.of("detail", evaluated.detail()));
-                return 1;
-            }
-            var values = evaluated.submitted();
-            var intent = new MeetingOrchestrator.Intent(values.get("meetingTime").getAsString(),
-                    values.get("confirmMeetingNow").getAsBoolean(), values.get("verifyReminder").getAsBoolean(),
-                    values.get("waitReminderResult").getAsBoolean(), values.get("reportReminderFailure").getAsBoolean());
-            var scope = new Scope(scenario.conversation(), UUID.randomUUID());
-            Plan plan;
-            try {
-                plan = MeetingOrchestrator.plan(scope, intent);
-            } catch (IllegalArgumentException error) {
-                trace.write(caseId, evaluated.eventId(), "router_rejected", Map.of("detail", error.getMessage()));
-                return 1;
-            }
-            int planned = trace.write(caseId, evaluated.eventId(), "router_plan", plan);
-            var workers = new ScriptedWorkers(trace, caseId, planned, simulatedOutcome, draftReply);
-            new MeetingOrchestrator().execute(plan, intent, workers);
-            trace.write(caseId, workers.event, "router_run_completed", Map.of("workerMode", workerMode));
-            return 0;
-        }
+        return scenario;
     }
 
     // 模拟 Worker 只存在于显式挡板入口。回复正文与执行标识分开记录。
     private static final class ScriptedWorkers implements MeetingOrchestrator.Workers {
-        private final EvaluationTrace trace;
+        private final TraceSink trace;
         private final String caseId;
         private final Outcome simulatedOutcome;
         private final DraftReply draftReply;
+        private final List<String> replies = new ArrayList<>();
         private int event;
 
-        ScriptedWorkers(EvaluationTrace trace, String caseId, int event, Outcome simulatedOutcome, DraftReply draftReply) {
+        ScriptedWorkers(TraceSink trace, String caseId, int event, Outcome simulatedOutcome, DraftReply draftReply) {
             this.trace = trace;
             this.caseId = caseId;
             this.event = event;
@@ -113,10 +136,12 @@ public final class RouterEvaluation {
                 // 真实推理只生成草稿，渠道回执只能由实际发送路径产生。
                 String draft = draftReply.generate(text);
                 event = trace.write(caseId, dispatch, "chat_worker_draft", Map.of("action", action, "text", draft));
+                replies.add(draft);
                 System.out.println(draft);
                 return;
             }
             event = trace.write(caseId, dispatch, "reply_receipt", Map.of("action", action, "simulated", true));
+            replies.add(text);
             System.out.println(text);
         }
 

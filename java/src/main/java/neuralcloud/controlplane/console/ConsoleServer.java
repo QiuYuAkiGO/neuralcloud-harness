@@ -42,7 +42,14 @@ public final class ConsoleServer implements AutoCloseable {
 
     @FunctionalInterface
     public interface Exchange {
-        Reply send(String text) throws IOException, InterruptedException;
+        Reply send(String text, Trace trace) throws IOException, InterruptedException;
+    }
+
+    // 绑定本轮会话的审计链。多步节点把中间步骤写在这里；request 是本轮操作者正文的事件 ID。
+    public interface Trace {
+        int request();
+
+        int write(Integer causedBy, String node, String type, Object data) throws IOException;
     }
 
     @FunctionalInterface
@@ -174,10 +181,21 @@ public final class ConsoleServer implements AutoCloseable {
     // 先记录操作者正文，再调用节点。调用失败同样写入审计链，并以 502 返回实际失败原因。
     private Response send(Node node, Message message) throws IOException {
         int request = audit.write(message.chain(), null, node.id(), "operator_message", Map.of("text", message.text()));
+        var trace = new Trace() {
+            @Override
+            public int request() {
+                return request;
+            }
+
+            @Override
+            public int write(Integer causedBy, String eventNode, String type, Object data) throws IOException {
+                return audit.write(message.chain(), causedBy, eventNode, type, data);
+            }
+        };
         long started = System.nanoTime();
         Reply reply;
         try {
-            reply = node.exchange().send(message.text());
+            reply = node.exchange().send(message.text(), trace);
         } catch (IOException | InterruptedException error) {
             return failure(node, message.chain(), request, started, error, monitor::recordCall);
         }

@@ -6,7 +6,7 @@ import neuralcloud.controlplane.orchestration.MeetingOrchestrator;
 import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Action;
 import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Outcome;
 import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Result;
-import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Route;
+import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.orchestration.Orchestrator.Receipt;
 import neuralcloud.controlplane.orchestration.Orchestrator.Scope;
 import org.junit.Rule;
