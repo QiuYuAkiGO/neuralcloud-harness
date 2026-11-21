@@ -20,6 +20,7 @@ import java.util.List;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public class MasterEvaluationTest {
     private static final String QUERIES = """
@@ -89,8 +90,11 @@ public class MasterEvaluationTest {
         var scripted = new ArrayDeque<>(List.of(responses));
         var settings = new Master.Settings(URI.create("http://localhost/v1/completions"),
                 "test-master", HttpClient.Version.HTTP_1_1, Duration.ofSeconds(2), Duration.ofSeconds(3), "test", 1, 0);
-        var evaluation = new MasterEvaluation((prompt, maxTokens, temperature, stop) ->
-                new Master.Completion(scripted.removeFirst(), "stop"), fixtures);
+        String rolePrompt = "你是 Master。先查证，再判断。";
+        var evaluation = new MasterEvaluation((prompt, maxTokens, temperature, stop) -> {
+            assertTrue(prompt.startsWith(rolePrompt + "\n\n"));
+            return new Master.Completion(scripted.removeFirst(), "stop");
+        }, fixtures, rolePrompt);
         assertEquals(expectedExit, evaluation.run(trace, settings));
         assertEquals(0, scripted.size());
         return Files.readAllLines(trace).stream().map(line -> JsonParser.parseString(line).getAsJsonObject()).toList();

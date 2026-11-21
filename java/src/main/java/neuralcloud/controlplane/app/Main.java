@@ -5,11 +5,13 @@ import neuralcloud.controlplane.evaluation.MasterEvaluation;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 
 public final class Main {
     private static final Path DEFAULT_CONFIG = Path.of("java", "src", "java", "resources", "master.properties");
+    private static final Path MASTER_ROLE_PROMPT = DEFAULT_CONFIG.resolveSibling("master-role-prompt.txt");
 
     private Main() {
     }
@@ -43,7 +45,8 @@ public final class Main {
         try (HttpClient client = HttpClient.newBuilder().connectTimeout(settings.connectTimeout()).build()) {
             var master = new Master(client, settings);
             if (tracePath != null) {
-                return new MasterEvaluation(master, fixturesPath).run(tracePath, settings);
+                return new MasterEvaluation(master, fixturesPath, Files.readString(MASTER_ROLE_PROMPT))
+                        .run(tracePath, settings);
             }
             System.out.println("配置已校验，正在启动 Master：" + settings.model());
             master.probeStartup();

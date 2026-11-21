@@ -75,13 +75,18 @@ public final class MasterEvaluation {
 
     private final Inference inference;
     private final Suite suite;
+    private final String rolePrompt;
 
-    public MasterEvaluation(Master master, Path fixtures) throws IOException {
-        this(master::complete, fixtures);
+    public MasterEvaluation(Master master, Path fixtures, String rolePrompt) throws IOException {
+        this(master::complete, fixtures, rolePrompt);
     }
 
-    MasterEvaluation(Inference inference, Path fixtures) throws IOException {
+    MasterEvaluation(Inference inference, Path fixtures, String rolePrompt) throws IOException {
+        if (rolePrompt.isBlank()) {
+            throw new IOException("Master 职责提示词不能为空");
+        }
         this.inference = inference;
+        this.rolePrompt = rolePrompt.strip();
         try (var reader = Files.newBufferedReader(fixtures)) {
             suite = new GsonBuilder().setStrictness(Strictness.STRICT).create().fromJson(reader, Suite.class);
         } catch (JsonParseException error) {
@@ -102,7 +107,7 @@ public final class MasterEvaluation {
             int runEvent = trace.write(null, null, "run_started", Map.of(
                     "fixtureVersion", suite.version(), "model", settings.model(), "endpoint", settings.endpoint().toString(),
                     "maxTokens", suite.maxTokens(), "temperature", suite.temperature(), "stop", STOP,
-                    "promptVersion", "meeting-transcript-v1", "httpVersion", settings.httpVersion().name()));
+                    "promptVersion", "meeting-transcript-v1-role-v1", "httpVersion", settings.httpVersion().name()));
             for (Scenario scenario : suite.cases()) {
                 Result result = evaluate(scenario, trace, runEvent);
                 if (result.category().equals("REVIEW_REQUIRED")) {
@@ -288,9 +293,10 @@ public final class MasterEvaluation {
         return text.replaceAll("\\s+", "");
     }
 
-    private static String prompt(Scenario scenario) {
-        return """
-                你是 Master。收到 Router 上报后，先查事实与印象，再向 Router 给出决策。只写对外发出的查询或决策正文。
+    private String prompt(Scenario scenario) {
+        // 职责提示可独立替换，挡板阶段的句式和示范保留原样，便于比较。
+        return rolePrompt + "\n\n" + """
+                只写对外发出的查询或决策正文。
                 本次允许的查询句如下。可以在一轮内发出两句，也可每轮发出一句。
                 %s
                 %s
