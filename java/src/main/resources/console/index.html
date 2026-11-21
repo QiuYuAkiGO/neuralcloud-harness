@@ -4,6 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>NeuralCloud 控制台</title>
+  <script>
+    // 在样式加载前确定主题，避免暗色模式下先闪一下亮色。未手动选择时跟随系统。
+    document.documentElement.dataset.theme = localStorage.getItem('neuralcloud.theme')
+      ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  </script>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
@@ -14,6 +19,7 @@
     <button class="tab" data-tab="audit">审计链</button>
     <button class="tab" data-tab="nodes">节点状态</button>
   </nav>
+  <button id="theme-toggle"></button>
 </header>
 
 <main>

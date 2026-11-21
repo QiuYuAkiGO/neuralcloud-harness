@@ -85,8 +85,7 @@ public final class EvaluationMain {
                     var router = new Router<>(new Master(routerClient, routerSettings), Files.readString(ROUTER_ROLE_PROMPT),
                             Route.class);
                     if (chatSettings != null) {
-                        try (HttpClient chatClient = HttpClient.newBuilder().version(chatSettings.httpVersion())
-                                .connectTimeout(chatSettings.connectTimeout()).build()) {
+                        try (HttpClient chatClient = chatSettings.newClient()) {
                             var chat = chatSettings.create(chatClient, geminiKey, Files.readString(CHAT_PROMPT));
                             return new RouterEvaluation(router::route, evaluation, chat::draftReply).run(
                                     tracePath, caseId, outcome, routerSettings.model(), settings.model());

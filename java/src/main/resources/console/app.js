@@ -53,6 +53,21 @@ function latency(event) {
   return event.data.latencyMs === undefined ? '' : ` · ${event.data.latencyMs} ms`;
 }
 
+/* ---------- 主题 ---------- */
+
+function renderThemeToggle() {
+  const dark = document.documentElement.dataset.theme === 'dark';
+  document.getElementById('theme-toggle').textContent = dark ? '亮色模式' : '暗色模式';
+}
+
+document.getElementById('theme-toggle').addEventListener('click', () => {
+  const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem('neuralcloud.theme', theme);
+  renderThemeToggle();
+});
+renderThemeToggle();
+
 /* ---------- 标签页 ---------- */
 
 function showTab(name) {

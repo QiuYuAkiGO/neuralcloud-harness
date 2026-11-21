@@ -63,8 +63,7 @@ public final class ConsoleMain {
         try {
             var audit = AuditLog.open(settings.auditDirectory());
             opened.push(audit);
-            var chatClient = HttpClient.newBuilder().version(chatSettings.httpVersion())
-                    .connectTimeout(chatSettings.connectTimeout()).build();
+            var chatClient = chatSettings.newClient();
             opened.push(chatClient);
             var routerClient = HttpClient.newBuilder().connectTimeout(routerSettings.connectTimeout()).build();
             opened.push(routerClient);
