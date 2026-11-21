@@ -52,4 +52,6 @@ java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --master-eval
 
 JSONL 轨迹按 `runId`、`caseId` 和 `eventId` 定位。顺着 `causedBy` 可回溯上报、模型输入输出、查询和装配后的决策。模型输入还列出实际纳入的工具返回事件，决策引用记录证据 ID、版本和对应的返回事件 ID。遇到思考标签或独立推理字段时，`reasoning_filtered` 记录过滤信息并连接该轮输入与过滤后的输出。轨迹与评分只使用过滤后的可见正文；正文为空时按输出契约失败处理。首期轨迹使用合成会话，行动意图留在轨迹中供复核。
 
-退出码 `0` 表示全部用例通过自动检查，证据语义、印象归属和行动依赖仍需人工复核。`1` 表示至少有一例自动检查或挡板运行失败，`2` 表示命令行或 Master 配置错误。用例及评分条件见 [会议改期测试数据](src/test/resources/fixtures/master-meeting-evaluation.json)。
+查询无可用数据时，Java 返回空结果。纯查询样例若两类查询都为空，可由 Java 结束，轨迹记为 `JAVA_HANDLED`。查到其他事项的数据时，挡板返回 `MISMATCH`，由 Master 说明原因并提出核实动作。工具调用异常单独记录。旧样例中省略 `topic` 的证据沿用所属用例的事项。
+
+退出码 `0` 表示所有用例通过自动检查或由 Java 处理，Master 的证据语义、印象归属和行动依赖仍需人工复核。`1` 表示至少有一例自动检查或挡板运行失败，`2` 表示命令行或 Master 配置错误。Java 直接处理的样例单列，不计入 Master 通过数。用例及评分条件见 [会议改期测试数据](src/test/resources/fixtures/master-meeting-evaluation.json)。

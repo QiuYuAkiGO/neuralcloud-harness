@@ -34,6 +34,12 @@ public class MasterEvaluationTest {
             我暂无印象。
             请核对旧提醒。
             """;
+    private static final String UNKNOWN = """
+            我暂时无法确认会议时间。
+            旧提醒待核实。
+            本轮无可引用证据。
+            我暂无印象。
+            """;
 
     @Rule
     public TemporaryFolder temporary = new TemporaryFolder();
@@ -59,8 +65,38 @@ public class MasterEvaluationTest {
         assertEquals("RETRIEVAL", event(early, "case_result").getAsJsonObject("data").get("category").getAsString());
         List<JsonObject> privateCase = evaluate("private-evidence", 1, QUERIES, DECISION);
         assertEquals("EVIDENCE", event(privateCase, "case_result").getAsJsonObject("data").get("category").getAsString());
-        assertEquals("NO_MATCH", event(privateCase, "memory_result").getAsJsonObject("data").get("outcome").getAsString());
+        assertEquals("EMPTY", event(privateCase, "memory_result").getAsJsonObject("data").get("outcome").getAsString());
         assertFalse(privateCase.toString().contains("红松"));
+        evaluate("private-evidence", 0, QUERIES, UNKNOWN + "请等待群内出现明确改期通知再确认。");
+    }
+
+    @Test
+    public void javaHandlesPureEmptyLookupButMasterExplainsMismatchedResults() throws Exception {
+        List<JsonObject> empty = evaluate("empty-facts", 0, QUERIES);
+        assertEquals("JAVA_HANDLED", event(empty, "case_result").getAsJsonObject("data").get("category").getAsString());
+        var handled = event(empty, "java_no_data").getAsJsonObject("data");
+        assertEquals(2, handled.getAsJsonArray("memoryResultEventIds").size());
+
+        List<JsonObject> mismatch = evaluate("mismatched-facts", 0, QUERIES,
+                UNKNOWN + "请核实会议最终时间，因为查询返回的培训安排与本次会议改期不匹配。");
+        var returned = event(mismatch, "memory_result").getAsJsonObject("data");
+        assertEquals("MISMATCH", returned.get("outcome").getAsString());
+        assertEquals(0, returned.getAsJsonArray("evidence").size());
+        evaluate("mismatched-facts", 1, QUERIES, UNKNOWN + "请核实会议最终时间。");
+    }
+
+    @Test
+    public void distinguishesMeetingConfirmationFromReminderOutcome() throws Exception {
+        String conclusion = """
+                我确认会议改到周六11时。
+                旧提醒待核实。
+                我引用证据1、证据2。
+                我暂无印象。
+                """;
+        evaluate("attempt-without-receipt", 0, QUERIES, conclusion
+                + "请先确认会议改期，核对旧提醒清单，等有结果后再告知提醒状态。若取消失败，也请如实告知。");
+        evaluate("attempt-without-receipt", 1, QUERIES, conclusion
+                + "请先确认会议改期，等取得成功回执后再告知提醒状态。");
     }
 
     @Test
