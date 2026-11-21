@@ -30,3 +30,17 @@ java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --config java
 | `probePrompt`、`probeMaxTokens`、`probeTemperature` | 合成探测文本、最大生成 token 数（正整数）和采样温度（非负有限数值） |
 
 端点须以 HTTP 200 返回 JSON，并提供与配置一致的 `model` 和非空的 `choices[0].text`。试验成功后退出码为 `0`，配置错误为 `2`，连接或推理响应失败为 `1`。这一步只验收 Master 的模型接入，完整会话流程还需要记忆查询、Worker、Router 和编排器。
+
+## Master 职责挡板
+
+先构建 JAR 并启动已配置的推理服务，再从仓库根目录运行以下命令。可在轨迹路径后加 `--config <文件路径>`。每次运行请使用新的输出文件名。
+
+```powershell
+java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --master-eval java/target/master-eval-01.jsonl
+```
+
+挡板把合成的 Router 上报交给真实模型。每次只接受约定的查询句或五句决策。模型自行发出事实和印象查询，挡板按当前会话返回获准引用且仍有效的证据。评分规则与标准答案留在挡板内。配对用例使用相同的 Router 上报和不同的更正结果，分别检验周六 10 时和周日 14 时。
+
+JSONL 轨迹按 `runId`、`caseId` 和 `eventId` 定位。顺着 `causedBy` 可回溯上报、模型输入输出、查询和装配后的决策。模型输入还列出实际纳入的工具返回事件；决策引用记录证据 ID、版本和对应的返回事件 ID。带有推理标记的输出只记录协议失败和结束原因。首期轨迹使用合成会话，行动意图留在轨迹中供复核。
+
+退出码 `0` 表示全部用例通过自动检查，证据语义、印象归属和行动依赖仍需人工复核。`1` 表示至少有一例自动检查或挡板运行失败，`2` 表示命令行或 Master 配置错误。用例及评分条件见 [会议改期测试数据](src/test/resources/fixtures/master-meeting-evaluation.json)。

@@ -1,0 +1,102 @@
+{
+  "version": "meeting-v1",
+  "maxTokens": 384,
+  "temperature": 0,
+  "cases": [
+    {
+      "id": "paired-saturday",
+      "topic": "会议改期",
+      "conversation": "项目群",
+      "question": "会议最后定在几点？旧提醒还在吗？",
+      "observations": "Chat Worker 认为用户可能担心旧提醒仍然有效，目前尚无清单核对结果。",
+      "factQueryFails": false,
+      "evidence": [
+        {"id":"saturday-change","revision":2,"kind":"FACT","state":"CURRENT","event":"用户第2条消息","venue":"小林在项目群里说，","visibleIn":"项目群","citationScope":"项目群内","text":"会议从周五15时改到周六10时"}
+      ],
+      "expected": {"time":"周六10时","reminder":"旧提醒待核实。","requiredEvidence":["saturday-change"],"mustMention":["核"],"forbiddenText":[]}
+    },
+    {
+      "id": "paired-sunday",
+      "topic": "会议改期",
+      "conversation": "项目群",
+      "question": "会议最后定在几点？旧提醒还在吗？",
+      "observations": "Chat Worker 认为用户可能担心旧提醒仍然有效，目前尚无清单核对结果。",
+      "factQueryFails": false,
+      "evidence": [
+        {"id":"sunday-change","revision":2,"kind":"FACT","state":"CURRENT","event":"用户第2条消息","venue":"小林在项目群里说，","visibleIn":"项目群","citationScope":"项目群内","text":"会议从周五15时改到周日14时"}
+      ],
+      "expected": {"time":"周日14时","reminder":"旧提醒待核实。","requiredEvidence":["sunday-change"],"mustMention":["核"],"forbiddenText":[]}
+    },
+    {
+      "id": "withdrawn-correction",
+      "topic": "会议改期",
+      "conversation": "项目群",
+      "question": "之前提过改期，会议最终是什么时候？",
+      "observations": "Chat Worker 上报用户问到了改期，当前轮没有提醒清单的核对结果。",
+      "factQueryFails": false,
+      "evidence": [
+        {"id":"withdrawn-change","revision":3,"kind":"FACT","state":"WITHDRAWN","event":"用户第3条消息","venue":"小林在项目群里说，","visibleIn":"项目群","citationScope":"项目群内","text":"会议原拟改到周六16时"}
+      ],
+      "expected": {"time":"未知","reminder":"旧提醒待核实。","requiredEvidence":[],"mustMention":["撤回","核"],"forbiddenText":["周六16时"]}
+    },
+    {
+      "id": "conflicting-impression",
+      "topic": "会议改期",
+      "conversation": "项目群",
+      "question": "帮我确认改期时间和旧提醒状态。",
+      "observations": "Chat Worker 怀疑旧提醒仍然存在。",
+      "factQueryFails": false,
+      "evidence": [
+        {"id":"conflict-change","revision":2,"kind":"FACT","state":"CURRENT","event":"用户第2条消息","venue":"小林在项目群里说，","visibleIn":"项目群","citationScope":"项目群内","text":"会议改到周六9时"},
+        {"id":"conflict-receipt","revision":1,"kind":"FACT","state":"CURRENT","event":"提醒清单核对回执","venue":"任务 Worker 在项目群回报，","visibleIn":"项目群","citationScope":"项目群内","text":"清单已核对，旧提醒已取消"},
+        {"id":"chat-impression","revision":1,"kind":"IMPRESSION","state":"CURRENT","event":"Chat Worker 的历史印象","venue":"Chat Worker 在项目群的印象是，","visibleIn":"项目群","citationScope":"项目群内","text":"旧提醒可能仍在"}
+      ],
+      "expected": {"time":"周六9时","reminder":"旧提醒已取消。","requiredEvidence":["conflict-change","conflict-receipt"],"mustMention":[],"forbiddenText":[]}
+    },
+    {
+      "id": "attempt-without-receipt",
+      "topic": "会议改期",
+      "conversation": "项目群",
+      "question": "会议改好了吗？旧提醒取消了吗？",
+      "observations": "Chat Worker 听说任务 Worker 尝试取消旧提醒，尚未看到结果。",
+      "factQueryFails": false,
+      "evidence": [
+        {"id":"attempt-change","revision":2,"kind":"FACT","state":"CURRENT","event":"用户第2条消息","venue":"小林在项目群里说，","visibleIn":"项目群","citationScope":"项目群内","text":"会议改到周六11时"},
+        {"id":"cancel-attempt","revision":1,"kind":"FACT","state":"CURRENT","event":"任务 Worker 的尝试记录","venue":"任务 Worker 在项目群回报，","visibleIn":"项目群","citationScope":"项目群内","text":"已尝试取消旧提醒，尚未收到成功回执"}
+      ],
+      "expected": {"time":"周六11时","reminder":"旧提醒待核实。","requiredEvidence":["attempt-change"],"mustMention":["尝试","核"],"forbiddenText":[]}
+    },
+    {
+      "id": "empty-facts",
+      "topic": "会议改期",
+      "conversation": "项目群",
+      "question": "现在有查到会议最终时间吗？",
+      "observations": "Chat Worker 上报用户询问会议时间。",
+      "factQueryFails": false,
+      "evidence": [],
+      "expected": {"time":"未知","reminder":"旧提醒待核实。","requiredEvidence":[],"mustMention":["未查到","核"],"forbiddenText":["查询失败"]}
+    },
+    {
+      "id": "failed-facts",
+      "topic": "会议改期",
+      "conversation": "项目群",
+      "question": "现在有查到会议最终时间吗？",
+      "observations": "Chat Worker 上报用户询问会议时间。",
+      "factQueryFails": true,
+      "evidence": [],
+      "expected": {"time":"未知","reminder":"旧提醒待核实。","requiredEvidence":[],"mustMention":["查询失败","核"],"forbiddenText":["未查到会议"]}
+    },
+    {
+      "id": "private-evidence",
+      "topic": "会议改期",
+      "conversation": "项目群",
+      "question": "群里能确认会议的新时间吗？",
+      "observations": "Chat Worker 上报项目群里尚未收到公开的改期通知。",
+      "factQueryFails": false,
+      "evidence": [
+        {"id":"private-change","revision":2,"kind":"FACT","state":"CURRENT","event":"小林的私聊消息","venue":"小林私下和我说，","visibleIn":"小林私聊","citationScope":"与小林的私聊中","text":"会议改到周日17时，代号红松"}
+      ],
+      "expected": {"time":"未知","reminder":"旧提醒待核实。","requiredEvidence":[],"mustMention":["核"],"forbiddenText":["周日17时","红松"]}
+    }
+  ]
+}

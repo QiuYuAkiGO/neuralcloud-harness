@@ -14,6 +14,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 
 public final class Master {
     private static final Gson JSON = new GsonBuilder().setStrictness(Strictness.STRICT).create();
@@ -27,6 +28,9 @@ public final class Master {
             String probePrompt, int probeMaxTokens, double probeTemperature) {
     }
 
+    public record Completion(String text, String finishReason) {
+    }
+
     public Master(HttpClient client, Settings settings) {
         this.client = client;
         this.settings = settings;
@@ -36,11 +40,23 @@ public final class Master {
      * 仅用合成提示验证指定模型的续写接口。业务判断需要等事实与印象查询能力接入。
      */
     public void probeStartup() throws IOException, InterruptedException {
+        Completion completion = complete(settings.probePrompt(), settings.probeMaxTokens(), settings.probeTemperature(), List.of());
+        if (completion.text().isBlank()) {
+            throw new IOException("推理响应缺少非空的 choices[0].text");
+        }
+    }
+
+    /** 发送并保留一轮模型的实际正文，调用者按该轮协议判断正文是否有效。 */
+    public Completion complete(String prompt, int maxTokens, double temperature, List<String> stop)
+            throws IOException, InterruptedException {
         JsonObject payload = new JsonObject();
         payload.addProperty("model", settings.model());
-        payload.addProperty("prompt", settings.probePrompt());
-        payload.addProperty("max_tokens", settings.probeMaxTokens());
-        payload.addProperty("temperature", settings.probeTemperature());
+        payload.addProperty("prompt", prompt);
+        payload.addProperty("max_tokens", maxTokens);
+        payload.addProperty("temperature", temperature);
+        if (!stop.isEmpty()) {
+            payload.add("stop", JSON.toJsonTree(stop));
+        }
         HttpRequest request = HttpRequest.newBuilder(settings.endpoint())
                 .version(settings.httpVersion())
                 .header("Content-Type", "application/json")
@@ -73,10 +89,15 @@ public final class Master {
             throw new IOException("推理响应缺少 choices 数组");
         }
         JsonArray items = choices.getAsJsonArray();
-        if (items.isEmpty() || !items.get(0).isJsonObject()
-                || stringField(items.get(0).getAsJsonObject(), "text").isBlank()) {
-            throw new IOException("推理响应缺少非空的 choices[0].text");
+        if (items.isEmpty() || !items.get(0).isJsonObject()) {
+            throw new IOException("推理响应缺少 choices[0]");
         }
+        JsonObject choice = items.get(0).getAsJsonObject();
+        JsonElement text = choice.get("text");
+        if (text == null || !text.isJsonPrimitive() || !text.getAsJsonPrimitive().isString()) {
+            throw new IOException("推理响应缺少字符串 choices[0].text");
+        }
+        return new Completion(text.getAsString(), stringField(choice, "finish_reason"));
     }
 
     private static String stringField(JsonObject object, String name) {
