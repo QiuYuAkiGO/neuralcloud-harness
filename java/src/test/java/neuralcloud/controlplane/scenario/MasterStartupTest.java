@@ -1,0 +1,57 @@
+package neuralcloud.controlplane.scenario;
+
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.sun.net.httpserver.HttpServer;
+import neuralcloud.controlplane.master.Master;
+import org.junit.Test;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
+import static org.junit.Assert.assertTrue;
+
+public class MasterStartupTest {
+    @Test
+    public void probesConfiguredModelThroughCompletions() throws Exception {
+        AtomicReference<JsonObject> request = new AtomicReference<>();
+        probe("{\"model\":\"test-master\",\"choices\":[{\"text\":\" 4\"}]}", request);
+        assertEquals("test-master", request.get().get("model").getAsString());
+        assertEquals(8, request.get().get("max_tokens").getAsInt());
+        assertEquals(0, request.get().get("temperature").getAsInt());
+    }
+
+    @Test
+    public void rejectsAnEmptyCompletionEvenWhenHttpSucceeds() {
+        IOException error = assertThrows(IOException.class,
+                () -> probe("{\"model\":\"test-master\",\"choices\":[{\"text\":\" \"}]}", new AtomicReference<>()));
+        assertTrue(error.getMessage().contains("choices[0].text"));
+    }
+
+    private static void probe(String json, AtomicReference<JsonObject> request)
+            throws IOException, InterruptedException {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/completions", exchange -> {
+            try (exchange) {
+                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                request.set(JsonParser.parseString(body).getAsJsonObject());
+                byte[] response = json.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, response.length);
+                exchange.getResponseBody().write(response);
+            }
+        });
+        server.start();
+        try (HttpClient client = HttpClient.newHttpClient()) {
+            URI endpoint = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/v1/completions");
+            new Master(client, endpoint, "test-master").probeStartup();
+        } finally {
+            server.stop(0);
+        }
+    }
+}
