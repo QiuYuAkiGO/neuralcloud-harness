@@ -2,6 +2,9 @@ package neuralcloud.controlplane.app;
 
 import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.evaluation.MasterEvaluation;
+import neuralcloud.controlplane.evaluation.RouterEvaluation;
+import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Outcome;
+import neuralcloud.controlplane.router.Router;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
@@ -12,6 +15,9 @@ import java.util.Arrays;
 public final class Main {
     private static final Path DEFAULT_CONFIG = Path.of("java", "src", "java", "resources", "master.properties");
     private static final Path MASTER_ROLE_PROMPT = DEFAULT_CONFIG.resolveSibling("master-role-prompt.txt");
+    private static final Path ROUTER_CONFIG = DEFAULT_CONFIG.resolveSibling("router-qwen35.properties");
+    private static final Path ROUTER_ROLE_PROMPT = DEFAULT_CONFIG.resolveSibling("router-role-prompt.txt");
+    private static final Path ROUTER_MASTER_CONFIG = DEFAULT_CONFIG.resolveSibling("master-qwen38.properties");
 
     private Main() {
     }
@@ -22,10 +28,25 @@ public final class Main {
 
     private static int run(String[] args) {
         Master.Settings settings;
+        Master.Settings routerSettings = null;
         Path fixturesPath = null;
         Path tracePath = null;
+        String caseId = null;
+        Outcome outcome = null;
         try {
-            if (args.length > 0 && args[0].equals("--master-eval")) {
+            boolean routerEvaluation = args.length > 0 && args[0].equals("--router-eval");
+            if (routerEvaluation) {
+                if (args.length < 5 || Arrays.stream(args, 1, 5).anyMatch(arg -> arg.isBlank() || arg.startsWith("--"))) {
+                    throw new IllegalArgumentException(
+                            "请使用 --router-eval <样例 JSON> <用例 ID> <PRESENT|CANCELLED|FAILED> <新的轨迹 JSONL>");
+                }
+                fixturesPath = Path.of(args[1]);
+                caseId = args[2];
+                outcome = Outcome.valueOf(args[3]);
+                tracePath = Path.of(args[4]);
+                args = Arrays.copyOfRange(args, 5, args.length);
+                routerSettings = MasterConfig.load(ROUTER_CONFIG);
+            } else if (args.length > 0 && args[0].equals("--master-eval")) {
                 // 挡板场景由调用方选择，正式入口在常规启动时无需测试资源。
                 if (args.length < 3 || args[1].isBlank() || args[1].startsWith("--")
                         || args[2].isBlank() || args[2].startsWith("--")) {
@@ -35,9 +56,9 @@ public final class Main {
                 tracePath = Path.of(args[2]);
                 args = Arrays.copyOfRange(args, 3, args.length);
             }
-            settings = MasterConfig.load(configPath(args));
-            if (tracePath != null && !settings.usesChat()) {
-                throw new IllegalArgumentException("Master 挡板需要支持 tool_calls 的 /v1/chat/completions 配置");
+            settings = MasterConfig.load(configPath(args, routerEvaluation ? ROUTER_MASTER_CONFIG : DEFAULT_CONFIG));
+            if ((tracePath != null && !settings.usesChat()) || (routerSettings != null && !routerSettings.usesChat())) {
+                throw new IllegalArgumentException("挡板的模型配置需要支持 tool_calls 的 /v1/chat/completions");
             }
         } catch (IOException | IllegalArgumentException error) {
             System.err.println("配置阶段失败：" + error.getMessage());
@@ -48,16 +69,26 @@ public final class Main {
         try (HttpClient client = HttpClient.newBuilder().connectTimeout(settings.connectTimeout()).build()) {
             var master = new Master(client, settings);
             if (tracePath != null) {
-                return new MasterEvaluation(master, fixturesPath, Files.readString(MASTER_ROLE_PROMPT))
-                        .run(tracePath, settings);
+                var evaluation = new MasterEvaluation(master, fixturesPath, Files.readString(MASTER_ROLE_PROMPT));
+                if (routerSettings != null) {
+                    // 同一联调进程组装两个端点。Router 分流通过后才向 Master 发起本轮取证。
+                    try (HttpClient routerClient = HttpClient.newBuilder().connectTimeout(routerSettings.connectTimeout()).build()) {
+                        var router = new Router(new Master(routerClient, routerSettings), Files.readString(ROUTER_ROLE_PROMPT));
+                        return new RouterEvaluation(router::route, evaluation).run(
+                                tracePath, caseId, outcome, routerSettings.model(), settings.model());
+                    }
+                }
+                return evaluation.run(tracePath, settings);
             }
             System.out.println("配置已校验，正在启动 Master：" + settings.model());
             master.probeStartup();
             System.out.println("Master 启动试验通过，模型已返回探测正文：" + settings.model());
             return 0;
         } catch (IOException error) {
-            String operation = tracePath == null ? "启动" : "挡板运行";
-            System.err.println("Master " + operation + "失败 [" + settings.endpoint() + "]");
+            String operation = routerSettings != null ? "Router 挡板" : tracePath == null ? "Master 启动" : "Master 挡板";
+            String endpoints = routerSettings == null ? settings.endpoint().toString()
+                    : "Router " + routerSettings.endpoint() + ", Master " + settings.endpoint();
+            System.err.println(operation + "失败 [" + endpoints + "]");
             error.printStackTrace(System.err);
             return 1;
         } catch (InterruptedException error) {
@@ -67,9 +98,9 @@ public final class Main {
         }
     }
 
-    private static Path configPath(String[] args) {
+    private static Path configPath(String[] args, Path defaultConfig) {
         if (args.length == 0) {
-            return DEFAULT_CONFIG;
+            return defaultConfig;
         }
         if (args.length == 2 && args[0].equals("--config") && !args[1].isBlank()) {
             return Path.of(args[1]);

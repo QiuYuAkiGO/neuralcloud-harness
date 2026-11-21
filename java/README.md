@@ -57,3 +57,15 @@ JSONL 轨迹按 `runId`、`caseId` 和 `eventId` 定位。顺着 `causedBy` 可�
 查询无可用数据时，Java 返回空结果。纯查询样例若两类查询都为空，可由 Java 结束，轨迹记为 `JAVA_HANDLED`。查到其他事项的数据时，挡板返回 `MISMATCH`，由 Master 说明原因并提出核实动作。工具调用异常单独记录。旧样例中省略 `topic` 的证据沿用所属用例的事项。
 
 退出码 `0` 表示所有用例通过自动检查或由 Java 处理，Master 的证据语义、印象归属和行动依赖仍需人工复核。`1` 表示至少有一例自动检查或挡板运行失败，`2` 表示命令行或 Master 配置错误。Java 直接处理的样例单列，不计入 Master 通过数。用例及评分条件见 [会议改期测试数据](src/test/resources/fixtures/master-meeting-evaluation.json)。
+
+## Router 单会话联调挡板
+
+先同时启动两组支持原生工具调用的本机服务。Router 用 Qwen3.5-0.8B，读取 [router-qwen35.properties](src/java/resources/router-qwen35.properties)。vLLM 需启用自动工具调用和 `qwen3_coder` 解析器。同卡运行时为 0.8B 限制 KV 缓存大小。Master 默认用 [master-qwen38.properties](src/java/resources/master-qwen38.properties) 中的 27B 聊天端点。两个端点均通过配置关闭思考。
+
+```powershell
+java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --router-eval java/src/test/resources/fixtures/master-meeting-evaluation.json attempt-without-receipt CANCELLED java/target/router-meeting-cancelled.jsonl
+```
+
+将 `CANCELLED` 替换为 `PRESENT` 或 `FAILED` 可检查其他模拟回执，重跑时使用新的轨迹路径。0.8B 接收问题和观察的自然语言正文，用 `select_route` 选择流程。27B 接收带来源的文本，用原生工具查证和提交行动字段。Java 单独传递会话、流程、步骤和依赖等执行数据，Worker 的指令正文是自然语言。
+
+使用的是“已有取消尝试、尚无成功回执”的用例。轨迹顺序为 `CONFIRM_MEETING`、`CHECK_REMINDER`、`reminder_waiting`、`reminder_receipt`、`REPORT_REMINDER`。最后的派发事件应直接指向匹配的核对回执。当前记忆由挡板样例提供，Worker 和渠道回执为模拟，路由和 Master 决策使用真实推理。

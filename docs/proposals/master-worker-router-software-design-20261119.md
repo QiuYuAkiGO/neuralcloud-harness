@@ -106,7 +106,7 @@ sequenceDiagram
 
 ## 4. Router 首版设计草案
 
-2026-11-21 · 先跑通单会话会议改期。开发和联调使用 Qwen3.8-27B 作为 Master。首版建议用普通 Java 实现此场景的 Router，按已校验的意图字段生成计划。Router 的通用语义分流和意图拆解需要其他场景验证。 [模型路线](master-worker-design-revisions-20261121.md) · [Master 逐例实测](../harness/2026-11-21-master-9b-27b-case-comparison.md)
+2026-11-21 · 先跑通单会话会议改期。联调中同时加载 Qwen3.5-0.8B Router 和 Qwen3.8-27B Master。0.8B 从当前问题和 Worker 观察中选择业务流程，首版通过原生工具提交 `MEETING_RESCHEDULE` 或 `UNSUPPORTED`。Java Router 根据经校验的 Master 意图生成计划，编排器按实际回执执行依赖。 [模型路线](master-worker-design-revisions-20261121.md) · [Master 逐例实测](../harness/2026-11-21-master-9b-27b-case-comparison.md)
 
 ### 4.1 职责与最小接口
 

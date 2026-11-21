@@ -48,10 +48,17 @@ public final class MasterEvaluation {
                             List<String> forbiddenText) {
     }
 
-    private record Scenario(
+    record Scenario(
             String id, String topic, String conversation, String question, String observations,
             boolean factQueryFails, boolean javaHandlesEmpty, List<Evidence> evidence,
             List<String> requiredItems, Expected expected) {
+        String report() {
+            return "当前会话：" + conversation + "。事项：" + topic + "。用户问：" + question + "\n" + observations;
+        }
+
+        String routeQuestion() {
+            return "用户问：" + question + "\n" + observations;
+        }
     }
 
     private record Suite(String version, int maxTokens, double temperature,
@@ -107,6 +114,9 @@ public final class MasterEvaluation {
     private record Result(String category, String detail) {
     }
 
+    record Evaluation(String category, String detail, int eventId, Map<String, JsonElement> submitted) {
+    }
+
     private record FilteredOutput(String text, int markerCount, int unclosedOpenings, int unexpectedClosings) {
     }
 
@@ -159,7 +169,7 @@ public final class MasterEvaluation {
                     "promptVersion", "meeting-tools-v1-role-v2", "httpVersion", settings.httpVersion().name(),
                     "inference", Map.of("mode", "chat", "enableThinking", settings.enableThinking())));
             for (Scenario scenario : suite.cases()) {
-                Result result = evaluate(scenario, trace, runEvent);
+                Evaluation result = evaluate(scenario, trace, runEvent);
                 if (result.category().equals("REVIEW_REQUIRED")) {
                     passed++;
                 } else if (result.category().equals("JAVA_HANDLED")) {
@@ -175,11 +185,15 @@ public final class MasterEvaluation {
         return passed + javaHandled == suite.cases().size() ? 0 : 1;
     }
 
-    private Result evaluate(Scenario scenario, EvaluationTrace trace, int runEvent)
+    Scenario scenario(String id) throws IOException {
+        return suite.cases().stream().filter(scenario -> scenario.id().equals(id)).findFirst()
+                .orElseThrow(() -> new IOException("找不到挡板用例 " + id));
+    }
+
+    Evaluation evaluate(Scenario scenario, EvaluationTrace trace, int runEvent)
             throws IOException, InterruptedException {
         String id = scenario.id();
-        String report = "当前会话：" + scenario.conversation() + "。事项：" + scenario.topic()
-                + "。用户问：" + scenario.question() + "\n" + scenario.observations();
+        String report = scenario.report();
         int event = trace.write(id, runEvent, "router_report", Map.of("text", report,
                 "conversation", scenario.conversation(), "topic", scenario.topic()));
         var messages = new ArrayList<Map<String, Object>>();
@@ -302,7 +316,8 @@ public final class MasterEvaluation {
             if (pending.isEmpty()) {
                 int decision = trace.write(id, event, "decision", submitted);
                 Result result = assess(scenario.expected(), submitted, returned, trace, id, decision);
-                return finish(trace, id, decision, result.category(), result.detail());
+                int resultEvent = trace.write(id, decision, "case_result", result);
+                return new Evaluation(result.category(), result.detail(), resultEvent, Map.copyOf(submitted));
             }
             if (input != null) {
                 appendToolExchange(messages, turn.visibleText(), call, accepted,
@@ -427,11 +442,10 @@ public final class MasterEvaluation {
         return new Result("REVIEW_REQUIRED", "必交结果和自动检查已通过，待复核解释与勾选的行动是否一致");
     }
 
-    private static Result finish(EvaluationTrace trace, String id, int event, String category, String detail)
+    private static Evaluation finish(EvaluationTrace trace, String id, int event, String category, String detail)
             throws IOException {
         Result result = new Result(category, detail);
-        trace.write(id, event, "case_result", result);
-        return result;
+        return new Evaluation(category, detail, trace.write(id, event, "case_result", result), Map.of());
     }
 
     private static String normalize(String text) {
