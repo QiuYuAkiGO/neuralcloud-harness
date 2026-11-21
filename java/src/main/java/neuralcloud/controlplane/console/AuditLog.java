@@ -1,0 +1,123 @@
+package neuralcloud.controlplane.console;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParseException;
+import com.google.gson.Strictness;
+
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * 控制台审计链。每个进程写一份新的 JSONL，启动时按文件名顺序读回目录中的历史文件。
+ * causedBy 只引用同一 runId 内的 eventId；chain 把同一会话或同一进程的探测串成一条链。
+ */
+public final class AuditLog implements AutoCloseable {
+    private static final Gson JSON = new GsonBuilder().disableHtmlEscaping().setStrictness(Strictness.STRICT).create();
+    private static final DateTimeFormatter FILE_TIME = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssSSS'Z'")
+            .withZone(ZoneOffset.UTC);
+
+    public record Event(int schemaVersion, String runId, int eventId, Integer causedBy, String chain,
+                        String node, String recordedAt, String type, JsonElement data) {
+    }
+
+    public record Chain(String chain, List<String> nodes, String firstAt, String lastAt, int events) {
+    }
+
+    private final String runId;
+    private final List<Event> events;
+    private final BufferedWriter writer;
+    private int eventId;
+
+    private AuditLog(String runId, List<Event> events, BufferedWriter writer) {
+        this.runId = runId;
+        this.events = events;
+        this.writer = writer;
+    }
+
+    public static AuditLog open(Path directory) throws IOException {
+        Files.createDirectories(directory);
+        var events = new ArrayList<Event>();
+        List<Path> files;
+        try (var listing = Files.list(directory)) {
+            files = listing.filter(path -> path.getFileName().toString().endsWith(".jsonl")).sorted().toList();
+        }
+        for (Path file : files) {
+            var lines = Files.readAllLines(file);
+            for (int index = 0; index < lines.size(); index++) {
+                events.add(parse(file, index + 1, lines.get(index)));
+            }
+        }
+        // 文件名以 UTC 启动时间开头，按名称排序即按进程启动先后回放。
+        String runId = UUID.randomUUID().toString();
+        Path file = directory.resolve(FILE_TIME.format(Instant.now()) + "-" + runId + ".jsonl");
+        return new AuditLog(runId, events,
+                Files.newBufferedWriter(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE));
+    }
+
+    private static Event parse(Path file, int line, String text) throws IOException {
+        Event event;
+        try {
+            event = JSON.fromJson(text, Event.class);
+        } catch (JsonParseException error) {
+            throw new IOException(file + " 第 " + line + " 行不符合审计事件契约", error);
+        }
+        if (event == null || event.schemaVersion() != 1 || event.runId() == null || event.eventId() <= 0
+                || event.chain() == null || event.node() == null || event.recordedAt() == null
+                || event.type() == null || event.data() == null) {
+            throw new IOException(file + " 第 " + line + " 行不符合审计事件契约");
+        }
+        return event;
+    }
+
+    public String runId() {
+        return runId;
+    }
+
+    // 每写一行就刷新，进程异常退出时保留已经发生的步骤。
+    public synchronized int write(String chain, Integer causedBy, String node, String type, Object data)
+            throws IOException {
+        var event = new Event(1, runId, ++eventId, causedBy, chain, node, Instant.now().toString(), type,
+                JSON.toJsonTree(data));
+        writer.write(JSON.toJson(event));
+        writer.newLine();
+        writer.flush();
+        events.add(event);
+        return event.eventId();
+    }
+
+    // 最近有新事件的链排在前面。
+    public synchronized List<Chain> chains() {
+        var grouped = new LinkedHashMap<String, List<Event>>();
+        for (Event event : events.reversed()) {
+            grouped.computeIfAbsent(event.chain(), key -> new ArrayList<>()).add(event);
+        }
+        return grouped.values().stream().map(newestFirst -> {
+            var nodes = new LinkedHashSet<String>();
+            newestFirst.reversed().forEach(event -> nodes.add(event.node()));
+            return new Chain(newestFirst.getFirst().chain(), List.copyOf(nodes), newestFirst.getLast().recordedAt(),
+                    newestFirst.getFirst().recordedAt(), newestFirst.size());
+        }).toList();
+    }
+
+    public synchronized List<Event> events(String chain) {
+        return events.stream().filter(event -> event.chain().equals(chain)).toList();
+    }
+
+    @Override
+    public synchronized void close() throws IOException {
+        writer.close();
+    }
+}

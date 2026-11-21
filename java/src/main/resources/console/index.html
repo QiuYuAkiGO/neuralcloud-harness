@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NeuralCloud 控制台</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <h1>NeuralCloud 控制台</h1>
+  <nav>
+    <button class="tab active" data-tab="chat">对话</button>
+    <button class="tab" data-tab="audit">审计链</button>
+    <button class="tab" data-tab="nodes">节点状态</button>
+  </nav>
+</header>
+
+<main>
+  <section id="tab-chat" class="panel active">
+    <div class="toolbar">
+      <label>节点 <select id="chat-node"></select></label>
+      <span class="muted">会话 <code id="chat-chain"></code></span>
+      <button id="chat-new">新会话</button>
+    </div>
+    <div id="chat-log" class="chat-log"></div>
+    <form id="chat-form" class="chat-form">
+      <textarea id="chat-text" rows="3" placeholder="输入要交给节点的正文，Ctrl+Enter 发送"></textarea>
+      <button type="submit" id="chat-send">发送</button>
+    </form>
+    <p id="chat-error" class="error"></p>
+  </section>
+
+  <section id="tab-audit" class="panel">
+    <div class="audit">
+      <aside>
+        <div class="toolbar"><strong>审计链</strong><button id="audit-refresh">刷新</button></div>
+        <ul id="audit-chains" class="chain-list"></ul>
+      </aside>
+      <div id="audit-events" class="audit-events"><p class="muted">选择左侧的一条审计链。</p></div>
+    </div>
+  </section>
+
+  <section id="tab-nodes" class="panel">
+    <div class="toolbar"><strong>节点</strong><span id="nodes-updated" class="muted"></span><button id="nodes-refresh">刷新</button></div>
+    <div id="node-cards" class="cards"></div>
+    <h2>GPU</h2>
+    <div id="gpu"></div>
+  </section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

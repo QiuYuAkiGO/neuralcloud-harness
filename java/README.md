@@ -32,6 +32,34 @@ java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --config java
 
 端点须以 HTTP 200 返回 JSON，并提供与配置一致的 `model`。续写模式读取 `choices[0].text`，聊天模式读取 `choices[0].message.content`。启动探测要求正文非空。试验成功后退出码为 `0`，配置错误为 `2`，连接或推理响应失败为 `1`。
 
+## 网页控制台
+
+控制台是一个常驻进程，网页可以直接与 Chat Worker、Router、Master 交互，回看审计链，并查看各节点的运行状态。先用上文的 `verify` 构建 JAR，在启动 Java 的环境中配置 `GEMINI_API_KEY`，再从仓库根目录运行以下命令。默认读取 [console.properties](src/java/resources/console.properties)，也可用 `--config` 指定另一份文件。看到“控制台已就绪”后，打开 <http://127.0.0.1:18900/>。
+
+```powershell
+java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.controlplane.app.ConsoleMain
+```
+
+启动时依次校验控制台和三个节点各自的配置，打开审计目录，组装节点，开始读取状态，最后开放端口。任一阶段失败时释放已打开的资源并退出，配置错误的退出码为 `2`，启动失败为 `1`。控制台没有身份校验，`listenHost` 只接受本机回环地址。
+
+| 字段 | 取值 |
+| --- | --- |
+| `listenHost`、`listenPort` | 本机回环地址和端口 |
+| `auditDirectory` | 审计 JSONL 目录，默认放在已忽略的 `java/console-audit` |
+| `chatWorkerConfig`、`chatWorkerRolePrompt` | Chat Worker 的 Gemini 配置和职责提示 |
+| `routerConfig`、`routerRolePrompt` | Router 的模型配置（须为聊天端点）和职责提示，格式同 Master 配置 |
+| `masterConfig`、`masterMaxTokens`、`masterTemperature` | Master 的模型配置，以及网页发给 Master 时的最大生成 token 数和采样温度 |
+| `routerMetrics`、`masterMetrics` | 推理服务的 Prometheus `/metrics` 地址 |
+| `routerMetricsFormat`、`masterMetricsFormat` | `VLLM` 或 `LLAMA_CPP`，决定读取哪些指标。llama.cpp 须以 `--metrics` 启动 |
+| `gpuMetrics` | `NVIDIA_SMI` 通过本机 `nvidia-smi` 读取显存、利用率和功耗，`NONE` 不读取 |
+| `metricsIntervalSeconds`、`metricsTimeoutSeconds` | 状态读取间隔和单次读取超时，以秒为单位的正整数 |
+
+**对话。** 网页把正文发到 `POST /api/nodes/{chat-worker|router|master}/messages`，请求体只含 `chain` 与 `text`。`chain` 是网页生成的会话标识，`text` 非空。Chat Worker 返回 Gemini 草稿，Router 返回所选流程，Master 返回一次续写或聊天正文。三者都是单轮调用，不经过编排器，也不读写记忆。
+
+**审计链。** 每条正文先记为 `operator_message`，节点的实际返回或 `node_failed` 以 `causedBy` 指向它。手动推理探测记在 `probe-<runId>` 链上。每个进程在审计目录写一份新文件，启动时按文件名顺序读回历史文件。若某行不符合事件契约，启动失败并指出文件和行号。
+
+**节点状态。** Router 与 Master 定时读取指标端点，以最近一次读取判断服务是否可达，并显示排队数和 KV 缓存占用等指标。“推理探测”用模型配置中的探测参数发起一次真实续写。Gemini 不提供指标与探测，以最近一次调用的结果为准。
+
 ## 编排器
 
 调用方提交带事项标识的计划，每个步骤包含唯一标识、目标 Worker、指令正文和前置步骤标识。`Orchestrator` 在派发前校验依赖关系，收到同一事项及对应步骤的回执后才派发依赖它的步骤。执行结果按步骤标识返回，业务规则和回执解释由调用方负责。
