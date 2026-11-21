@@ -32,25 +32,26 @@ java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --config java
 
 端点须以 HTTP 200 返回 JSON，并提供与配置一致的 `model`。续写模式读取 `choices[0].text`，聊天模式读取 `choices[0].message.content`。启动探测要求正文非空。试验成功后退出码为 `0`，配置错误为 `2`，连接或推理响应失败为 `1`。
 
+## 编排器
+
+调用方提交带事项标识的计划，每个步骤包含唯一标识、目标 Worker、指令正文和前置步骤标识。`Orchestrator` 在派发前校验依赖关系，收到同一事项及对应步骤的回执后才派发依赖它的步骤。执行结果按步骤标识返回，业务规则和回执解释由调用方负责。
+
 ## Master 职责挡板
 
-先构建 JAR 并启动已配置的推理服务，再从仓库根目录运行以下命令。`--master-eval` 后依次传入样例 JSON 路径和新的轨迹 JSONL 路径。可在轨迹路径后加 `--config <文件路径>`。
+先用上文的 `verify` 构建正式 JAR 和测试类，再启动已配置的推理服务。挡板入口 `EvaluationMain` 位于测试源码。从仓库根目录运行以下命令。`--master-eval` 后依次传入样例 JSON 路径和新的轨迹 JSONL 路径。可在轨迹路径后加 `--config <文件路径>`。
 
 ```powershell
-java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --master-eval java/src/test/resources/fixtures/master-meeting-evaluation.json java/target/master-eval-01.jsonl
+$evalClasspath = 'java/target/test-classes;java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar'
+java -cp $evalClasspath neuralcloud.controlplane.app.EvaluationMain --master-eval java/src/test/resources/fixtures/master-meeting-evaluation.json java/target/master-eval-01.jsonl
 ```
 
-本机 Qwen3.8 可使用 [master-qwen38.properties](src/java/resources/master-qwen38.properties)。它连接 `127.0.0.1:18081` 上模型名为 `qwen3.8-27b` 的 llama.cpp 聊天服务，关闭思考。挡板需要支持原生 `tool_calls` 的聊天端点，llama.cpp 须启用 Jinja 模板。服务就绪后运行以下命令。
-
-```powershell
-java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --master-eval java/src/test/resources/fixtures/master-meeting-evaluation.json java/target/master-eval-qwen38-01.jsonl --config java/src/java/resources/master-qwen38.properties
-```
+挡板默认使用 [master-qwen38.properties](src/test/resources/evaluation/master-qwen38.properties)，连接 `127.0.0.1:18081` 上模型名为 `qwen3.8-27b` 的 llama.cpp 聊天服务，关闭思考。挡板需要支持原生 `tool_calls` 的聊天端点，llama.cpp 须启用 Jinja 模板。
 
 挡板把合成的 Router 上报交给真实模型。Master 用 `query_memory` 查询事实与印象，挡板按当前会话返回获准引用且仍有效的证据。取证完成后，挡板逐项发送该用例的必交字段。Master 用 `submit_results` 提交结构化结果，包括结论、证据编号及适用的行动项。标准答案留在用例内。
 
 首轮漏填或填错类型时，挡板带着已接收结果开启第二轮，只要求补交缺项。已接收字段在补交阶段锁定。两轮仍未交齐，记为 `INCOMPLETE_RESULTS`。自动评分使用字段值、枚举和证据编号，自由文本中的解释及行动意图供人工复核。配对用例用相同的 Router 上报验证不同证据能否改变结论。
 
-挡板从 [master-role-prompt.txt](src/java/resources/master-role-prompt.txt) 读取 Master 的通用职责，再拼接当前场景的输出约定。修改职责文件后直接重跑即可，轨迹会保留实际发送给模型的提示词。
+挡板从测试资源中的 [master-role-prompt.txt](src/test/resources/evaluation/master-role-prompt.txt) 读取职责提示，再拼接当前场景的输出约定。修改提示文件后直接重跑即可，轨迹会保留实际发送给模型的提示词。
 
 JSONL 轨迹按 `runId`、`caseId` 和 `eventId` 定位。顺着 `causedBy` 可回溯上报、工具查询、结果提交及最终决策。每次提交记录接收字段和待补字段。决策引用保留证据 ID、版本和对应的返回事件 ID。遇到思考标签或独立推理字段时，`reasoning_filtered` 记录过滤信息。轨迹只保存过滤后的可见正文和已验证的工具参数。首期轨迹使用合成会话，行动意图留在轨迹中供复核。
 
@@ -60,10 +61,11 @@ JSONL 轨迹按 `runId`、`caseId` 和 `eventId` 定位。顺着 `causedBy` 可�
 
 ## Router 单会话联调挡板
 
-先同时启动两组支持原生工具调用的本机服务。Router 用 Qwen3.5-0.8B，读取 [router-qwen35.properties](src/java/resources/router-qwen35.properties)。vLLM 需启用自动工具调用和 `qwen3_coder` 解析器。同卡运行时为 0.8B 限制 KV 缓存大小。Master 默认用 [master-qwen38.properties](src/java/resources/master-qwen38.properties) 中的 27B 聊天端点。两个端点均通过配置关闭思考。
+先同时启动两组支持原生工具调用的本机服务。Router 用 Qwen3.5-0.8B，读取 [router-qwen35.properties](src/test/resources/evaluation/router-qwen35.properties)。vLLM 需启用自动工具调用和 `qwen3_coder` 解析器。同卡运行时为 0.8B 限制 KV 缓存大小。Master 默认用 [master-qwen38.properties](src/test/resources/evaluation/master-qwen38.properties) 中的 27B 聊天端点。两个端点均通过配置关闭思考。
 
 ```powershell
-java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --router-eval java/src/test/resources/fixtures/master-meeting-evaluation.json attempt-without-receipt CANCELLED java/target/router-meeting-cancelled.jsonl
+$evalClasspath = 'java/target/test-classes;java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar'
+java -cp $evalClasspath neuralcloud.controlplane.app.EvaluationMain --router-eval java/src/test/resources/fixtures/master-meeting-evaluation.json attempt-without-receipt CANCELLED java/target/router-meeting-cancelled.jsonl
 ```
 
 将 `CANCELLED` 替换为 `PRESENT` 或 `FAILED` 可检查其他模拟回执，重跑时使用新的轨迹路径。0.8B 接收问题和观察的自然语言正文，用 `select_route` 选择流程。27B 接收带来源的文本，用原生工具查证和提交行动字段。Java 单独传递会话、流程、步骤和依赖等执行数据，Worker 的指令正文是自然语言。

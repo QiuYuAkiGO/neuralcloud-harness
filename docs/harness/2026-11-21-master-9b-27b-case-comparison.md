@@ -23,7 +23,7 @@
 
 ## 复核口径
 
-- 三组使用 `meeting-v3` 合成用例、`meeting-tools-v1-role-v2` 职责提示与同一挡板评分，温度 0，单次最多 384 token，关闭思考模式。已按用例核对每组首轮模型输入及实际记忆工具返回一致。 [样例和预期结果](../../java/src/test/resources/fixtures/master-meeting-evaluation.json) · [Master 职责提示](../../java/src/java/resources/master-role-prompt.txt)
+- 三组使用 `meeting-v3` 合成用例、`meeting-tools-v1-role-v2` 职责提示与同一挡板评分，温度 0，单次最多 384 token，关闭思考模式。已按用例核对每组首轮模型输入及实际记忆工具返回一致。 [样例和预期结果](../../java/src/test/resources/fixtures/master-meeting-evaluation.json) · [Master 职责提示](../../java/src/test/resources/evaluation/master-role-prompt.txt)
 - 两个 9B 分别使用 Qwen3.5-9B-Base 和 Qwen 官方后训练权重，在 vLLM 0.31.0 中以 BF16 运行并共用官方 9B 后训练版聊天模板。27B 使用本机 Qwen3.8-27B Q4_K_M，走 llama.cpp 聊天接口。三组各运行一次。分数反映这些部署组合在当前挡板上的表现，模型规模、量化与服务端差异也包含在这次对照中。 [9B 环境与权重](2026-11-21-master-qwen35-comparison.md#测试口径) · [27B 运行环境](2026-11-21-master-evaluation-debug-report.md)
 - 24 次执行每次都通过一次原生 `query_memory` 请求完成 `FACT` 和 `IMPRESSION` 两类查询。采集到的模型响应均为 `finishReason=tool_calls`、`toolCallCount=1`、正文为空。下文逐组展示 Java 审计中实际接受的 `submit_results` 全部字段，保留原文字值和布尔值，JSON 仅调整了展示格式。空数据例展示对应 Java 事件。审计保留了解析后接受的字段与响应元数据，原始 HTTP 响应体未随这些轨迹归档。
 

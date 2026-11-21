@@ -33,7 +33,7 @@
 
 在本机 llama.cpp 上，同一道短算术题开启思考时返回独立推理字段，生成 55 个 token。使用聊天模板关闭思考后，返回的正文只有答案，生成 5 个 token。服务端使用 `--reasoning off --reasoning-budget 0` 时，原始续写端点对挡板首轮输入仍返回推理标记。因此 27B 实测采用聊天端点并显式传递关闭思考的参数。
 
-挡板发现 `<think>` 标记或非空的独立推理字段时，会记录 `reasoning_filtered`。轨迹保存过滤事件及其上下游关联，评分和后续模型输入使用可见正文。原生工具阶段也检查工具里的文本字段。本机最终实测没有触发过滤，带标记的正文及工具参数由自动化测试覆盖。 [本机 27B 配置](../../java/src/java/resources/master-qwen38.properties) · [过滤及补交测试](../../java/src/test/java/neuralcloud/controlplane/evaluation/MasterEvaluationTest.java)
+挡板发现 `<think>` 标记或非空的独立推理字段时，会记录 `reasoning_filtered`。轨迹保存过滤事件及其上下游关联，评分和后续模型输入使用可见正文。原生工具阶段也检查工具里的文本字段。本机最终实测没有触发过滤，带标记的正文及工具参数由自动化测试覆盖。 [本机 27B 配置](../../java/src/test/resources/evaluation/master-qwen38.properties) · [过滤及补交测试](../../java/src/test/java/neuralcloud/controlplane/evaluation/MasterEvaluationTest.java)
 
 ### 2.2 从五个失败中拆出真实职责缺口
 
@@ -92,7 +92,7 @@
 ```powershell
 $env:JAVA_HOME = Split-Path -Parent (Split-Path -Parent (Get-Command javac.exe).Source)
 mvn -f java/pom.xml verify
-java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --master-eval java/src/test/resources/fixtures/master-meeting-evaluation.json java/target/master-eval-review.jsonl --config java/src/java/resources/master-qwen38.properties
+java -cp 'java/target/test-classes;java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar' neuralcloud.controlplane.app.EvaluationMain --master-eval java/src/test/resources/fixtures/master-meeting-evaluation.json java/target/master-eval-review.jsonl --config java/src/test/resources/evaluation/master-qwen38.properties
 ```
 
 原始记录保存在实测机器的 `java/target/`。本报告保留摘要与事件编号供代码评审和复现对照。
@@ -106,4 +106,4 @@ java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --master-eval
 | 修订查询语义与评分 | `master-eval-qwen38-revised-20261121-172123.jsonl` |
 | 原生工具首轮与最终运行 | `master-eval-qwen38-tool-results-20261121-173235.jsonl`、`master-eval-qwen38-tool-results-final-20261121-173426.jsonl` |
 
-最终轨迹的 `runId` 为 `2aef7b39-286d-487f-9ad7-205d1b1bcfe8`，文件 SHA-256 为 `2cb1ed86b1fce921ec90397d09eb9923204b21ae1899db13cbbb561c09b84bb0`。 [职责提示词](../../java/src/java/resources/master-role-prompt.txt) · [JDK 与运行配置](../../java/pom.xml)
+最终轨迹的 `runId` 为 `2aef7b39-286d-487f-9ad7-205d1b1bcfe8`，文件 SHA-256 为 `2cb1ed86b1fce921ec90397d09eb9923204b21ae1899db13cbbb561c09b84bb0`。 [职责提示词](../../java/src/test/resources/evaluation/master-role-prompt.txt) · [JDK 与运行配置](../../java/pom.xml)

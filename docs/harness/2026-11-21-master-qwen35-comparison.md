@@ -6,7 +6,7 @@
 
 ## 测试口径
 
-- 走项目的 Java `--master-eval` 入口。三组复用 `meeting-v3` 合成样例、`meeting-tools-v1-role-v2` 职责提示和同一套评分。温度 0，每次请求最多输出 384 token。 [样例与预期结果](../../java/src/test/resources/fixtures/master-meeting-evaluation.json) · [Master 职责提示](../../java/src/java/resources/master-role-prompt.txt)
+- 走项目的 Java `--master-eval` 入口。三组复用 `meeting-v3` 合成样例、`meeting-tools-v1-role-v2` 职责提示和同一套评分。温度 0，每次请求最多输出 384 token。 [样例与预期结果](../../java/src/test/resources/fixtures/master-meeting-evaluation.json) · [Master 职责提示](../../java/src/test/resources/evaluation/master-role-prompt.txt)
 - 三组在本机同一张 RTX 5090 上顺序运行，使用 vLLM 0.31.0、BF16、4,096 token 上下文、HTTP 聊天接口和 `enable_thinking=false`。工具调用采用 vLLM 的 `qwen3_coder` 解析器，各模型自行选择是否发出原生调用。评测端只执行 API 返回的 `tool_calls`。 [vLLM 的 Qwen3.5 工具调用配方](https://github.com/vllm-project/recipes/blob/main/models/Qwen/Qwen3.5-9B.yaml)
 - 统一采用官方 Qwen3.5-9B 后训练版的聊天模板，SHA-256 为 `a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715`。9B Base 缺少自带聊天模板，0.8B 也使用这份公共模板。由此测得的是各组权重在当前工具协议下的端到端表现。 [官方模板来源](https://modelscope.cn/models/Qwen/Qwen3.5-9B)
 - 0.8B 和 9B 后训练版采用 Qwen 官方公开权重，从 ModelScope 直连下载并按清单校验 SHA-256。本次对照没有应用 NeuralCloud 自训适配器。9B Base 复用本机官方 BF16 权重。 [9B Base](https://modelscope.cn/models/Qwen/Qwen3.5-9B-Base) · [0.8B](https://modelscope.cn/models/Qwen/Qwen3.5-0.8B) · [9B](https://modelscope.cn/models/Qwen/Qwen3.5-9B)

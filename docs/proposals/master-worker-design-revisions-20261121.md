@@ -62,7 +62,7 @@ Java 实施稿第 1.2 节也用“样板”描述检索和写入请求。本草�
 
 ## 修订四　当前联调基准与 Master 模型路线
 
-**当前开发与 MVP 联调采用本机 Qwen3.8-27B 作为 Master 基准。** 复用已通过原生工具挡板的聊天配置。该配置在会议改期样例中通过 7 个 Master 自动检查，另有 1 例由 Java 结束空查询。[三模型逐例实测](../harness/2026-11-21-master-9b-27b-case-comparison.md) · [27B 配置](../../java/src/java/resources/master-qwen38.properties)
+**当前开发与 MVP 联调采用本机 Qwen3.8-27B 作为 Master 基准。** 复用已通过原生工具挡板的聊天配置。该配置在会议改期样例中通过 7 个 Master 自动检查，另有 1 例由 Java 结束空查询。[三模型逐例实测](../harness/2026-11-21-master-9b-27b-case-comparison.md) · [27B 配置](../../java/src/test/resources/evaluation/master-qwen38.properties)
 
 **长期目标仍为约 9B，9B Base 后续做针对性训练。** 训练与复测单独安排，当前先推进 Router 首条业务流程。训练后的候选沿用同一批接口用例复测，并在扩充的独立样例上验证。上下文长度、推理精度和显存预算按实际候选部署测量。[9B Base 训练前基线方案](master-qwen35-9b-base-baseline-20261117.md) · [Router 首版设计](master-worker-router-software-design-20261119.md#4-router-首版设计草案)
 
