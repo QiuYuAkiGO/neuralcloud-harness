@@ -31,7 +31,7 @@ public final class MeetingOrchestrator {
 
     public enum Outcome implements Result { PRESENT, CANCELLED, FAILED }
 
-    private enum Reply implements Result { SENT, SKIPPED }
+    private enum Reply implements Result { COMPLETED, SKIPPED }
 
     public record Intent(String meetingTime, boolean confirmMeetingNow, boolean verifyReminder,
                          boolean waitReminderResult, boolean reportReminderFailure) {}
@@ -92,6 +92,6 @@ public final class MeetingOrchestrator {
 
     private static Receipt<Result> reply(Workers workers, Scope scope, Action action, String text) throws IOException {
         workers.reply(scope, action, text);
-        return new Receipt<>(scope, action.name(), Reply.SENT);
+        return new Receipt<>(scope, action.name(), Reply.COMPLETED);
     }
 }

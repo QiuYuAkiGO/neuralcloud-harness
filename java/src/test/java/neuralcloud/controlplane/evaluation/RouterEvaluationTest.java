@@ -46,11 +46,15 @@ public class RouterEvaluationTest {
             assertFalse(messages.get(1).get("content").toString().contains("attempt-without-receipt"));
             return replies.removeFirst();
         }, fixture, "你是 Master。先查证，再判断。");
+        var approvedForChat = new ArrayList<String>();
         var evaluation = new RouterEvaluation(text -> {
             assertTrue(text.startsWith("用户问：会议改好了吗？旧提醒取消了吗？"));
             assertFalse(text.contains("事项：会议改期"));
             return Route.MEETING_RESCHEDULE;
-        }, master);
+        }, master, text -> {
+            approvedForChat.add(text);
+            return text;
+        });
         var trace = temporary.getRoot().toPath().resolve("router.jsonl");
         assertEquals(0, evaluation.run(trace, "attempt-without-receipt", Outcome.CANCELLED, "test-router", "test-master"));
         assertTrue(replies.isEmpty());
@@ -63,6 +67,9 @@ public class RouterEvaluationTest {
                 .findFirst().orElseThrow();
         assertEquals(receipt.get("eventId"), dispatches.getLast().get("causedBy"));
         assertTrue(dispatches.getFirst().get("eventId").getAsInt() < receipt.get("eventId").getAsInt());
+        assertEquals(List.of(bodies.getFirst(), bodies.getLast()), approvedForChat);
+        assertEquals(2, events.stream().filter(event -> "chat_worker_draft".equals(event.get("type").getAsString())).count());
+        assertFalse(events.stream().anyMatch(event -> "reply_receipt".equals(event.get("type").getAsString())));
     }
 
     @Test

@@ -19,6 +19,8 @@ public final class EvaluationMain {
     private static final Path ROUTER_CONFIG = RESOURCES.resolve("router-qwen35.properties");
     private static final Path ROUTER_ROLE_PROMPT = RESOURCES.resolve("router-role-prompt.txt");
     private static final Path MASTER_CONFIG = RESOURCES.resolve("master-qwen38.properties");
+    private static final Path CHAT_CONFIG = Path.of("java", "src", "java", "resources", "chat-worker-gemini.properties");
+    private static final Path CHAT_PROMPT = CHAT_CONFIG.resolveSibling("chat-worker-role-prompt.txt");
 
     private EvaluationMain() {
     }
@@ -30,6 +32,8 @@ public final class EvaluationMain {
     private static int run(String[] args) {
         Master.Settings settings;
         Master.Settings routerSettings = null;
+        ChatWorkerConfig.Settings chatSettings = null;
+        String geminiKey = null;
         Path fixturesPath;
         Path tracePath;
         String caseId = null;
@@ -47,6 +51,11 @@ public final class EvaluationMain {
                 tracePath = Path.of(args[4]);
                 args = Arrays.copyOfRange(args, 5, args.length);
                 routerSettings = MasterConfig.load(ROUTER_CONFIG);
+                if (args.length > 0 && "--gemini".equals(args[0])) {
+                    chatSettings = ChatWorkerConfig.load(CHAT_CONFIG);
+                    geminiKey = chatSettings.apiKey();
+                    args = Arrays.copyOfRange(args, 1, args.length);
+                }
             } else if (args.length > 0 && args[0].equals("--master-eval")) {
                 if (args.length < 3 || args[1].isBlank() || args[1].startsWith("--")
                         || args[2].isBlank() || args[2].startsWith("--")) {
@@ -75,6 +84,14 @@ public final class EvaluationMain {
                 try (HttpClient routerClient = HttpClient.newBuilder().connectTimeout(routerSettings.connectTimeout()).build()) {
                     var router = new Router<>(new Master(routerClient, routerSettings), Files.readString(ROUTER_ROLE_PROMPT),
                             Route.class);
+                    if (chatSettings != null) {
+                        try (HttpClient chatClient = HttpClient.newBuilder().version(chatSettings.httpVersion())
+                                .connectTimeout(chatSettings.connectTimeout()).build()) {
+                            var chat = chatSettings.create(chatClient, geminiKey, Files.readString(CHAT_PROMPT));
+                            return new RouterEvaluation(router::route, evaluation, chat::draftReply).run(
+                                    tracePath, caseId, outcome, routerSettings.model(), settings.model());
+                        }
+                    }
                     return new RouterEvaluation(router::route, evaluation).run(
                             tracePath, caseId, outcome, routerSettings.model(), settings.model());
                 }

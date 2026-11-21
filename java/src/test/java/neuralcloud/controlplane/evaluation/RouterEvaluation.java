@@ -21,12 +21,23 @@ public final class RouterEvaluation {
         Route route(String text) throws IOException, InterruptedException;
     }
 
+    @FunctionalInterface
+    public interface DraftReply {
+        String generate(String approvedText) throws IOException;
+    }
+
     private final Classifier classifier;
     private final MasterEvaluation master;
+    private final DraftReply draftReply;
 
     public RouterEvaluation(Classifier classifier, MasterEvaluation master) {
+        this(classifier, master, null);
+    }
+
+    public RouterEvaluation(Classifier classifier, MasterEvaluation master, DraftReply draftReply) {
         this.classifier = classifier;
         this.master = master;
+        this.draftReply = draftReply;
     }
 
     public int run(Path tracePath, String caseId, Outcome simulatedOutcome, String routerModel, String masterModel)
@@ -37,8 +48,9 @@ public final class RouterEvaluation {
             throw new IOException("Router 挡板用例须逐项要求会议时间和四个行动字段");
         }
         try (var trace = new EvaluationTrace(tracePath)) {
+            String workerMode = draftReply == null ? "SIMULATED" : "CHAT_DRAFT";
             int run = trace.write(caseId, null, "router_run_started", Map.of(
-                    "routerModel", routerModel, "masterModel", masterModel, "workerMode", "SIMULATED"));
+                    "routerModel", routerModel, "masterModel", masterModel, "workerMode", workerMode));
             int input = trace.write(caseId, run, "router_input", Map.of("text", scenario.routeQuestion()));
             Route route;
             try {
@@ -71,9 +83,9 @@ public final class RouterEvaluation {
                 return 1;
             }
             int planned = trace.write(caseId, evaluated.eventId(), "router_plan", plan);
-            var workers = new ScriptedWorkers(trace, caseId, planned, simulatedOutcome);
+            var workers = new ScriptedWorkers(trace, caseId, planned, simulatedOutcome, draftReply);
             new MeetingOrchestrator().execute(plan, intent, workers);
-            trace.write(caseId, workers.event, "router_run_completed", Map.of("workerMode", "SIMULATED"));
+            trace.write(caseId, workers.event, "router_run_completed", Map.of("workerMode", workerMode));
             return 0;
         }
     }
@@ -83,18 +95,27 @@ public final class RouterEvaluation {
         private final EvaluationTrace trace;
         private final String caseId;
         private final Outcome simulatedOutcome;
+        private final DraftReply draftReply;
         private int event;
 
-        ScriptedWorkers(EvaluationTrace trace, String caseId, int event, Outcome simulatedOutcome) {
+        ScriptedWorkers(EvaluationTrace trace, String caseId, int event, Outcome simulatedOutcome, DraftReply draftReply) {
             this.trace = trace;
             this.caseId = caseId;
             this.event = event;
             this.simulatedOutcome = simulatedOutcome;
+            this.draftReply = draftReply;
         }
 
         @Override
         public void reply(Scope scope, Action action, String text) throws IOException {
             int dispatch = dispatch(scope, action, "CHAT_WORKER", text);
+            if (draftReply != null) {
+                // 真实推理只生成草稿，渠道回执只能由实际发送路径产生。
+                String draft = draftReply.generate(text);
+                event = trace.write(caseId, dispatch, "chat_worker_draft", Map.of("action", action, "text", draft));
+                System.out.println(draft);
+                return;
+            }
             event = trace.write(caseId, dispatch, "reply_receipt", Map.of("action", action, "simulated", true));
             System.out.println(text);
         }

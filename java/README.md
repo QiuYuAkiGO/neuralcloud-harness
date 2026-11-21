@@ -71,3 +71,9 @@ java -cp $evalClasspath neuralcloud.controlplane.app.EvaluationMain --router-eva
 将 `CANCELLED` 替换为 `PRESENT` 或 `FAILED` 可检查其他模拟回执，重跑时使用新的轨迹路径。0.8B 接收问题和观察的自然语言正文，用 `select_route` 选择流程。27B 接收带来源的文本，用原生工具查证和提交行动字段。Java 单独传递会话、流程、步骤和依赖等执行数据，Worker 的指令正文是自然语言。
 
 使用的是“已有取消尝试、尚无成功回执”的用例。轨迹顺序为 `CONFIRM_MEETING`、`CHECK_REMINDER`、`reminder_waiting`、`reminder_receipt`、`REPORT_REMINDER`。最后的派发事件应直接指向匹配的核对回执。当前记忆由挡板样例提供，Worker 和渠道回执为模拟，路由和 Master 决策使用真实推理。
+
+## Chat Worker Gemini 草稿
+
+在上述 Router 挡板命令末尾加 `--gemini` 启用 Chat Worker。若同时指定 Master 的 `--config`，把 `--gemini` 放在它前面。Gemini 用 [Chat Worker 配置](src/java/resources/chat-worker-gemini.properties) 中的原生 `generateContent` 接口，默认沿用历史联调中的 `gemini-4-hydrogen`。在启动 Java 的环境中配置 `GEMINI_API_KEY`。密钥通过请求头读取。 [Gemini 接口参考](https://ai.google.dev/api/generate-content)
+
+Gemini 每次只收到该步骤获准传达的正文和 Chat Worker 职责提示。会议时间可独立生成草稿，提醒状态仍须等待对应的核对回执。生成的可见回复写为 `chat_worker_draft`，Task Worker 的核对结果仍由挡板提供。真实渠道发送和送达由后续通道接入处理。
