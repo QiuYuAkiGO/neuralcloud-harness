@@ -50,7 +50,7 @@ public class ChatWorkerTest {
         var partial = assertThrows(IOException.class, () -> invoke(200, DIRECT, requests, """
                 {"candidates":[{"finishReason":"MAX_TOKENS","content":{"parts":[{"text":"会议已"}]}}]}
                 """));
-        assertTrue(partial.getMessage().contains("正常结束"));
+        assertEquals("Gemini 文本候选未正常结束（MAX_TOKENS）", partial.getMessage());
         var invalidKey = assertThrows(IOException.class, () -> invoke(403, DIRECT, requests, "provider internal body"));
         assertEquals("Gemini 返回 HTTP 403", invalidKey.getMessage());
     }

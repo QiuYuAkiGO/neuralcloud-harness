@@ -50,6 +50,8 @@ public final class ChatWorker implements ReplySelector {
 已确认的账号称呼不能当作法定姓名。
 如实说明本次查询的范围和结果。对话里问过某个话题，可以说记得对方提过。
 复述当时说过的具体内容，需要对应的发言作依据。引用本人的历史原话时保留原意、否定和转述关系。
+用户问事情经过时，按材料交代谁在哪里先说了什么、后来怎样变更、最后能确认什么。原因以记录为准。
+若材料只有对方的提问，要说明这次查到了什么，请对方提供原通知或回到有原始记录的会话。
 """;
     private static final String TURN_INSTRUCTION =
             """
@@ -58,6 +60,7 @@ public final class ChatWorker implements ReplySelector {
 SELF_IDENTITY：用户问自己是谁、你是否认得自己、或上次如何称呼自己。
 用户在追问同一个问题时沿用问题类型。比如上一轮问“你还记得我是谁吗”，本轮说“要不再想想”，选 SELF_IDENTITY。
 HISTORY：回查已经发生的事情，包括核对原话、最新修订或已有的工具执行回执。
+用户问一件事的经过或前后变化时选 HISTORY，查当事人的原始记录后再作答。
 用户追问“再查一次”时，以查证对象决定类别。查某个动作已有的结果或回执仍选 HISTORY，即使记录可能刚刚更新。
 query 写简短的检索线索，保留话题、动作对象或人名，
 去掉问句套语。线索须写出具体要找的内容；“上文内容”“之前的对话”本身不能作为线索。
@@ -341,11 +344,19 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
 
     private static String replyText(JsonObject payload) throws IOException {
         if (payload == null || !(payload.get("candidates") instanceof JsonArray candidates)
-                || candidates.size() != 1 || !(candidates.get(0) instanceof JsonObject candidate)
-                || !new JsonPrimitive("STOP").equals(candidate.get("finishReason"))
-                || !(candidate.get("content") instanceof JsonObject content)
+                || candidates.size() != 1 || !(candidates.get(0) instanceof JsonObject candidate)) {
+            throw new IOException("Gemini 响应须有一条文本候选");
+        }
+        var reason = candidate.get("finishReason");
+        if (!new JsonPrimitive("STOP").equals(reason)) {
+            // 审计只保留结束原因，无须记录未完成的候选正文。
+            String code = reason instanceof JsonPrimitive p && p.isString() && p.getAsString().matches("[A-Z_]{1,64}")
+                    ? p.getAsString() : "未知";
+            throw new IOException("Gemini 文本候选未正常结束（" + code + "）");
+        }
+        if (!(candidate.get("content") instanceof JsonObject content)
                 || !(content.get("parts") instanceof JsonArray parts)) {
-            throw new IOException("Gemini 响应须有一条正常结束的文本候选");
+            throw new IOException("Gemini 文本候选缺少 content.parts");
         }
         var reply = new StringBuilder();
         for (var item : parts) {

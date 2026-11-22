@@ -142,20 +142,33 @@ document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click',
 
 /* ---------- 对话 ---------- */
 
-function setChain(chain) {
+function chatUrl(chain) {
+  const url = new URL(location.href);
+  if (chain === null) url.searchParams.delete('chain');
+  else url.searchParams.set('chain', chain);
+  return url;
+}
+
+const isConsoleChat = (events) => events.some((event) => event.type === 'operator_message');
+
+async function loadChat(chain, linked = false) {
+  const log = document.getElementById('chat-log');
+  if (!/^[A-Za-z0-9-]{1,64}$/.test(chain) || chain.startsWith('probe-')) {
+    throw new Error('会话标识无效，请核对链接或新建会话。');
+  }
+  let events = [];
+  try {
+    events = (await api('GET', `/api/audit/chains/${chain}`)).events;
+  } catch (error) {
+    if (error.status !== 404) throw error;
+    if (linked) throw new Error('找不到链接中的会话，请核对链接或新建会话。');
+  }
+  if (events.length && !isConsoleChat(events)) throw new Error('这条记录只能在审计链中查看。');
+  // 确认渠道和会话后才绑定发送目标。刷新或分享已有对话时仍指向同一条链。
+  if (events.length) history.replaceState(null, '', chatUrl(chain));
   state.chain = chain;
   localStorage.setItem('neuralcloud.chain', chain);
   document.getElementById('chat-chain').textContent = chain;
-}
-
-async function loadChat() {
-  const log = document.getElementById('chat-log');
-  let events = [];
-  try {
-    events = (await api('GET', `/api/audit/chains/${state.chain}`)).events;
-  } catch (error) {
-    if (error.status !== 404) throw error;
-  }
   log.replaceChildren(...events.filter((event) => CHAT_TYPES.has(event.type)).map((event) => {
     const operator = event.type === 'operator_message';
     const meta = operator ? `操作者 → ${nodeName(event.node)}` : `${nodeName(event.node)}${latency(event)}`;
@@ -174,7 +187,7 @@ async function sendChat(event) {
   const button = document.getElementById('chat-send');
   const errorLine = document.getElementById('chat-error');
   const node = document.getElementById('chat-node').value;
-  if (!text.value.trim()) return;
+  if (button.disabled || !text.value.trim()) return;
   button.disabled = true;
   errorLine.textContent = `等待 ${nodeName(node)} 返回…`;
   try {
@@ -186,7 +199,7 @@ async function sendChat(event) {
     errorLine.textContent = error.status === 502 ? '' : error.message;
   } finally {
     button.disabled = false;
-    await loadChat();
+    await loadChat(state.chain);
   }
 }
 
@@ -195,8 +208,8 @@ document.getElementById('chat-text').addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && event.ctrlKey) document.getElementById('chat-form').requestSubmit();
 });
 document.getElementById('chat-new').addEventListener('click', () => {
-  setChain(crypto.randomUUID());
-  loadChat();
+  localStorage.removeItem('neuralcloud.chain');
+  location.assign(chatUrl(null));
 });
 
 /* ---------- 审计链 ---------- */
@@ -267,7 +280,8 @@ async function loadAudit(chain) {
   const runs = new Set(events.map((event) => event.runId));
   panel.replaceChildren(
     el('div', { class: 'toolbar' }, el('strong', {}, chain),
-      el('span', { class: 'muted' }, `${events.length} 条事件 · ${runs.size} 个进程`)),
+      el('span', { class: 'muted' }, `${events.length} 条事件 · ${runs.size} 个进程`),
+      isConsoleChat(events) ? el('a', { href: chatUrl(chain).href }, '继续此会话') : null),
     buildTree(events, expanded));
 }
 
@@ -380,8 +394,9 @@ async function init() {
   await loadNodes();
   document.getElementById('chat-node').replaceChildren(
     ...state.nodes.map((node) => el('option', { value: node.id }, node.name)));
-  setChain(localStorage.getItem('neuralcloud.chain') ?? crypto.randomUUID());
-  await loadChat();
+  const linked = new URL(location.href).searchParams.get('chain');
+  await loadChat(linked ?? localStorage.getItem('neuralcloud.chain') ?? crypto.randomUUID(), linked !== null);
+  document.getElementById('chat-send').disabled = false;
 }
 
 init().catch((error) => {
