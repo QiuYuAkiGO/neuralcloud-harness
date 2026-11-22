@@ -32,6 +32,19 @@ java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --config java
 
 端点须以 HTTP 200 返回 JSON，并提供与配置一致的 `model`。续写模式读取 `choices[0].text`，聊天模式读取 `choices[0].message.content`。启动探测要求正文非空。试验成功后退出码为 `0`，配置错误为 `2`，连接或推理响应失败为 `1`。
 
+## 一键启动本机联调
+
+从仓库根目录运行。需要 PowerShell 7、JDK 21、Maven、已安装的 WSL/vLLM 和 llama.cpp、本机两份模型权重，以及当前进程的 `GEMINI_API_KEY`。
+
+```powershell
+pwsh -File java/start-local.ps1
+pwsh -File java/start-local.ps1 -Mode Meeting -ReminderOutcome CANCELLED
+```
+
+启动器构建 Java，依次确认 27B Master 和 0.8B Router 就绪，再开放 <http://127.0.0.1:18900/>。普通模式开放三个单轮节点，`Meeting` 额外挂载会议改期挡板。Gemini 是远端服务，通过配置的代理在收到请求时调用。运行时路径、显存预算和启动时限集中在 [local-launch.psd1](src/main/resources/config/local-launch.psd1)，控制台和模型服务地址取自 [local-console.properties](src/main/resources/config/local-console.properties) 及其引用的节点配置。可用 `-LaunchConfig` 或 `-ConsoleConfig` 指定本机配置。
+
+同端口已提供预期模型时复用。退出、失败或按 Ctrl+C 时只回收本次创建的进程。启动日志保存在 `java/target/local-launch-*/` 下。`-SmokeTest` 在两个模型列表和控制台节点列表就绪后退出，适合验证启动和清理，服务生成能力可在控制台单独探测。 [Router 池化设计草案](../docs/proposals/router-pool-design-20261122.md)
+
 ## 网页控制台
 
 控制台是一个常驻进程，网页可以直接与 Chat Worker、Router、Master 交互，回看审计链，并查看各节点的运行状态。先用上文的 `verify` 构建 JAR，在启动 Java 的环境中配置 `GEMINI_API_KEY`，再运行以下命令。默认读取 JAR 内的 [console.properties](src/main/resources/config/console.properties)，也可用 `--config` 指定外部文件。看到“控制台已就绪”后，打开 <http://127.0.0.1:18900/>。
