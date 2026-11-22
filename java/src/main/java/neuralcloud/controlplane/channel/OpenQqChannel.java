@@ -35,7 +35,8 @@ public final class OpenQqChannel implements AutoCloseable {
     private static final int MAX_EVENT_CHARS = 65536;
     private static final int MAX_MESSAGE_CHARS = 4096;
 
-    record Incoming(long messageId, String text) {}
+    record Incoming(long messageId, String text, long groupId, long senderId) {}
+
     private record Pending(String echo, CompletableFuture<JsonObject> response) {}
 
     private final HttpClient client;
@@ -43,21 +44,29 @@ public final class OpenQqChannel implements AutoCloseable {
     private final String token;
     private final long accountId;
     private final long allowedUserId;
-    private final String chain;
+    private final long allowedGroupId;
     private final AuditLog audit;
     private final Exchange conversation;
     private final Optional<RouterMemoryWriter> writes;
     private final Thread runner;
     private volatile boolean closed;
 
-    public OpenQqChannel(HttpClient client, URI endpoint, String token, long accountId, long allowedUserId,
-                         AuditLog audit, Exchange conversation, Optional<RouterMemoryWriter> writes) {
+    public OpenQqChannel(
+            HttpClient client,
+            URI endpoint,
+            String token,
+            long accountId,
+            long allowedUserId,
+            long allowedGroupId,
+            AuditLog audit,
+            Exchange conversation,
+            Optional<RouterMemoryWriter> writes) {
         this.client = client;
         this.endpoint = endpoint;
         this.token = token;
         this.accountId = accountId;
         this.allowedUserId = allowedUserId;
-        this.chain = "qq-private-" + accountId + "-" + allowedUserId;
+        this.allowedGroupId = allowedGroupId;
         this.audit = audit;
         this.conversation = conversation;
         this.writes = writes;
@@ -89,29 +98,107 @@ public final class OpenQqChannel implements AutoCloseable {
     }
 
     private void handle(Session session, WebSocket socket, Incoming incoming) throws IOException, InterruptedException {
-        // 先持久化入站标识。断线或重启重见同一事件时，不重复执行或发送。
-        if (audit.events(chain).stream().anyMatch(event -> "qq_message".equals(event.type())
-                && new JsonPrimitive(incoming.messageId()).equals(event.data().getAsJsonObject().get("messageId")))) {
+        boolean group = incoming.groupId() != 0;
+        String chain =
+                group
+                        ? "qq-group-" + accountId + "-" + incoming.groupId()
+                        : "qq-private-" + accountId + "-" + incoming.senderId();
+        boolean decision = authorCommand(incoming.text());
+        if (group && decision) return;
+        var messageId = new JsonPrimitive(incoming.messageId());
+        // 授权命令按渠道消息幂等。若中断在提交后、发送前，重投可取回同一回执。
+        if (audit.events(chain).stream()
+                .anyMatch(
+                        event ->
+                                ("qq_message".equals(event.type())
+                                                && messageId.equals(
+                                                        event.data()
+                                                                .getAsJsonObject()
+                                                                .get("messageId")))
+                                        || ("qq_send_requested".equals(event.type())
+                                                && messageId.equals(
+                                                        event.data()
+                                                                .getAsJsonObject()
+                                                                .get("authorMessageId"))))) {
             return;
         }
-        int request = audit.write(chain, null, "openqq", "qq_message",
-                Map.of("text", incoming.text(), "messageId", incoming.messageId()));
-        var trace = Trace.forQqPrivate(audit, chain, request, accountId, allowedUserId);
+        int request =
+                audit.write(
+                        chain,
+                        null,
+                        "openqq",
+                        decision ? "qq_author_command" : "qq_message",
+                        Map.of("text", incoming.text(), "messageId", incoming.messageId()));
+        var trace =
+                group
+                        ? Trace.forQqGroup(
+                                audit,
+                                chain,
+                                request,
+                                new Trace.QqGroup(
+                                        accountId, incoming.groupId(), incoming.senderId()))
+                        : Trace.forQqPrivate(audit, chain, request, accountId, incoming.senderId());
         Reply reply;
         try {
-            reply = conversation.send(incoming.text(), trace);
+            if (decision) {
+                var receipt =
+                        writes.orElseThrow(() -> new IOException("此渠道未启用原作者授权"))
+                                .authorDecision(trace, incoming.messageId(), incoming.text());
+                int committed = trace.write(request, "memory", "visibility_decision", receipt);
+                String verb = incoming.text().startsWith("/memory grant ") ? "已授予" : "已撤销";
+                reply =
+                        new Reply(
+                                "author_decision_reply",
+                                Map.of(
+                                        "text",
+                                        verb + "授权 " + receipt.get("grant_id").getAsString()),
+                                committed);
+            } else {
+                reply = conversation.send(incoming.text(), trace);
+                if (writes.isPresent()) writes.get().verifyDelivery(trace);
+            }
         } catch (IOException error) {
-            trace.write(request, "chat-worker", "node_failed", Map.of("detail", error.toString()));
-            error.printStackTrace(System.err);
-            return;
+            int failed =
+                    trace.write(
+                            request,
+                            decision ? "memory" : "chat-worker",
+                            "node_failed",
+                            Map.of("detail", error.toString()));
+            if (decision)
+                reply =
+                        new Reply(
+                                "author_decision_reply",
+                                Map.of("text", "未取得授权决定的回执。" + error.getMessage()),
+                                failed);
+            else {
+                error.printStackTrace(System.err);
+                return;
+            }
         }
         int drafted = trace.write(reply.causedBy() == null ? request : reply.causedBy(),
                 "chat-worker", reply.type(), reply.data());
-        int sending = trace.write(drafted, "openqq", "qq_send_requested", Map.of());
+        int sending =
+                trace.write(
+                        drafted,
+                        "openqq",
+                        "qq_send_requested",
+                        decision ? Map.of("authorMessageId", incoming.messageId()) : Map.of());
         JsonObject receipt;
         try {
-            receipt = session.call(socket, "send_private_msg", Map.of("user_id", allowedUserId,
-                    "message", List.of(Map.of("type", "text", "data", Map.of("text", reply.data().get("text"))))));
+            receipt =
+                    session.call(
+                            socket,
+                            group ? "send_group_msg" : "send_private_msg",
+                            Map.of(
+                                    group ? "group_id" : "user_id",
+                                    group ? incoming.groupId() : incoming.senderId(),
+                                    "message",
+                                    List.of(
+                                            Map.of(
+                                                    "type",
+                                                    "text",
+                                                    "data",
+                                                    Map.of("text", reply.data().get("text"))))));
         } catch (IOException error) {
             // 发送超时无法区分已提交与未提交，保留不确定回执，禁止自动重发。
             trace.write(sending, "openqq", "qq_delivery_unknown", Map.of("detail", error.getMessage()));
@@ -119,8 +206,13 @@ public final class OpenQqChannel implements AutoCloseable {
         }
         if (successful(receipt) && receipt.get("data") instanceof JsonObject data
                 && id(data.get("message_id")) > 0) {
-            int delivered = trace.write(sending, "openqq", "qq_delivery", Map.of("messageId", id(data.get("message_id"))));
-            if (writes.isPresent()) {
+            int delivered =
+                    trace.write(
+                            sending,
+                            "openqq",
+                            "qq_delivery",
+                            trace.delivery(Map.of("messageId", id(data.get("message_id")))));
+            if (!decision && writes.isPresent()) {
                 writes.orElseThrow().rememberDelivered(trace, delivered, (String) reply.data().get("text"));
             }
         } else if ("failed".equals(string(receipt.get("status")))
@@ -132,27 +224,64 @@ public final class OpenQqChannel implements AutoCloseable {
     }
 
     static Incoming incoming(JsonObject event, long accountId, long allowedUserId) {
-        // OpenQQ 将原生普通私聊标为 other，OneBot 的标准好友私聊标为 friend。
+        return incoming(event, accountId, allowedUserId, 0, false);
+    }
+
+    private static boolean authorCommand(String text) {
+        return text.equals("/memory") || text.startsWith("/memory ");
+    }
+
+    static Incoming incoming(
+            JsonObject event,
+            long accountId,
+            long allowedUserId,
+            long allowedGroupId,
+            boolean authorCommands) {
+        long sender = id(event.get("user_id"));
+        boolean group = "group".equals(string(event.get("message_type")));
+        if (group
+                ? allowedGroupId == 0
+                        || id(event.get("group_id")) != allowedGroupId
+                        || sender <= 0
+                        || sender == accountId
+                : !"private".equals(string(event.get("message_type")))
+                        || sender <= 0
+                        || sender == accountId
+                        || !List.of("friend", "other").contains(string(event.get("sub_type"))))
+            return null;
         if (!"message".equals(string(event.get("post_type")))
-                || !"private".equals(string(event.get("message_type")))
-                || !List.of("friend", "other").contains(string(event.get("sub_type")))
-                || id(event.get("self_id")) != accountId || id(event.get("user_id")) != allowedUserId
+                || id(event.get("self_id")) != accountId
                 || !(event.get("message") instanceof JsonArray segments)) {
             return null;
         }
         long messageId = id(event.get("message_id"));
         var text = new StringBuilder();
+        boolean addressed = false;
         for (var item : segments) {
-            if (!(item instanceof JsonObject segment) || !"text".equals(string(segment.get("type")))
-                    || !(segment.get("data") instanceof JsonObject data)
-                    || !(data.get("text") instanceof JsonPrimitive part) || !part.isString()) {
+            if (!(item instanceof JsonObject segment)
+                    || !(segment.get("data") instanceof JsonObject data)) return null;
+            if (group
+                    && "at".equals(string(segment.get("type")))
+                    && Long.toString(accountId).equals(string(data.get("qq")))) {
+                addressed = true;
+                continue;
+            }
+            if (!"text".equals(string(segment.get("type")))
+                    || !(data.get("text") instanceof JsonPrimitive part)
+                    || !part.isString()) {
                 return null;
             }
             text.append(part.getAsString());
         }
         String body = text.toString();
-        return messageId > 0 && !body.isBlank() && body.length() <= MAX_MESSAGE_CHARS
-                ? new Incoming(messageId, body) : null;
+        if (messageId <= 0
+                || body.isBlank()
+                || body.length() > MAX_MESSAGE_CHARS
+                || group && !addressed) return null;
+        // 允许原作者发控制命令，无须开放其普通私聊。身份始终取自已认证连接的事件。
+        if (!group && sender != allowedUserId && !(authorCommands && authorCommand(body)))
+            return null;
+        return new Incoming(messageId, body, group ? allowedGroupId : 0, sender);
     }
 
     private static boolean successful(JsonObject response) {
@@ -266,7 +395,13 @@ public final class OpenQqChannel implements AutoCloseable {
                 action.response().complete(event);
                 return;
             }
-            var message = incoming(event, accountId, allowedUserId);
+            var message =
+                    incoming(
+                            event,
+                            accountId,
+                            allowedUserId,
+                            allowedGroupId,
+                            writes.map(RouterMemoryWriter::authorGrantsEnabled).orElse(false));
             if (message != null && !inbox.offer(message)) {
                 System.err.println("OpenQQ 入站队列已满");
             }

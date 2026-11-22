@@ -7,13 +7,20 @@ import java.util.Set;
 final class OpenQqConfig {
     private static final Set<String> FIELDS = Set.of("endpoint", "accountId", "allowedUserId", "accessTokenEnv");
 
-    record Settings(URI endpoint, long accountId, long allowedUserId, String accessToken) {}
+    record Settings(
+            URI endpoint,
+            long accountId,
+            long allowedUserId,
+            long allowedGroupId,
+            String accessToken) {}
 
     private OpenQqConfig() {}
 
     static Settings load(ConfigSource source) throws IOException {
         var properties = source.readProperties();
-        if (!properties.stringPropertyNames().equals(FIELDS)
+        var fields = new java.util.HashSet<>(properties.stringPropertyNames());
+        fields.remove("allowedGroupId");
+        if (!fields.equals(FIELDS)
                 || properties.values().stream().anyMatch(value -> value.toString().isBlank())) {
             throw new IllegalArgumentException("OpenQQ 配置须包含以下非空字段 " + FIELDS);
         }
@@ -33,6 +40,14 @@ final class OpenQqConfig {
         if (token == null || !token.matches("[!-~]{16,256}")) {
             throw new IllegalArgumentException("OpenQQ 令牌环境变量须为 16 至 256 位可见 ASCII 字符 " + tokenEnv);
         }
-        return new Settings(endpoint, Long.parseLong(account), Long.parseLong(user), token);
+        String group = properties.getProperty("allowedGroupId");
+        if (group != null && !group.matches("[1-9][0-9]{4,11}"))
+            throw new IllegalArgumentException("allowedGroupId 须为有效 QQ 群号");
+        return new Settings(
+                endpoint,
+                Long.parseLong(account),
+                Long.parseLong(user),
+                group == null ? 0 : Long.parseLong(group),
+                token);
     }
 }

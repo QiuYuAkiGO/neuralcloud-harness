@@ -53,6 +53,7 @@ public final class MemoryCall {
                     trace.scope(),
                     refresh.messages(),
                     refresh.evidence());
+            verifyShared(refresh.evidence());
             eventId =
                     trace.write(
                             eventId,
@@ -74,6 +75,24 @@ public final class MemoryCall {
 
     public void delivered() throws IOException {
         if (memory.v2() != null && !bindings.isEmpty()) memory.v2().delivered(inputId);
+    }
+
+    private void verifyShared(List<MemoryJournal.Read> evidence)
+            throws IOException, InterruptedException {
+        var shared =
+                evidence.stream()
+                        .filter(
+                                r ->
+                                        r.item().has("grant_dependent")
+                                                && r.item().get("grant_dependent").getAsBoolean())
+                        .toList();
+        if (shared.isEmpty()) return;
+        // 快照可能在返回路上遇到撤权。先保存订阅再复核，失效正文不进入本次模型调用。
+        memory.v2().verifyEvidence(trace.scope(), caller.name(), shared);
+        for (var read : shared) {
+            long revision = ResidentV2.integer(read.item().getAsJsonObject("ref"), "revision", 1);
+            trace.sharedSources().merge(read.id(), revision, Math::min);
+        }
     }
 
     public void verifyEvidence() throws IOException, InterruptedException {
@@ -105,8 +124,9 @@ public final class MemoryCall {
         boolean selfHistory = memory.canSearchSelfHistory(trace.scope());
         var kinds = selfHistory ? List.of(QueryKind.HISTORY, QueryKind.SELF_IDENTITY, QueryKind.SELF_HISTORY)
                 : List.of(QueryKind.HISTORY, QueryKind.SELF_IDENTITY);
-        String description = "只读查询。HISTORY 查当前会话的历史材料，SELF_IDENTITY 查当前用户已确认的称呼。"
-                + (selfHistory ? "SELF_HISTORY 跨会话查当前 QQ 发件人以往的原话。" : "");
+        String description =
+                "只读查询。HISTORY 查可在当前会话引用的历史材料，SELF_IDENTITY 查当前用户已确认的称呼。"
+                        + (selfHistory ? "SELF_HISTORY 跨会话查当前 QQ 发件人以往的原话。" : "");
         return Map.of("type", "function", "function", Map.of("name", NAME, "description", description,
                 "parameters", Map.of("type", "object", "additionalProperties", false, "required", List.of("kind", "query"),
                         "properties", Map.of("kind", Map.of("type", "string", "enum", kinds), "query", Map.of(
@@ -138,6 +158,7 @@ public final class MemoryCall {
         bindings = recalled.bindings();
         if (memory.v2() != null)
             memory.v2().prepare(inputId, caller.name(), trace.scope(), sentences, bindings);
+        verifyShared(bindings);
         var result = new Result(kind, recalled.matchCount(), sentences);
         eventId = trace.write(recalled.eventId(), "memory", "memory_call_result", result);
         return result;

@@ -86,6 +86,11 @@ public final class ConsoleMain {
                     ? Optional.of(OpenQqConfig.load(settings.openQqConfig().orElseThrow())) : Optional.empty();
             memorySettings = settings.memoryConfig().isPresent()
                     ? Optional.of(MemoryConfig.load(settings.memoryConfig().orElseThrow())) : Optional.empty();
+            if (openQqSettings.filter(q -> q.allowedGroupId() != 0).isPresent()
+                    && memorySettings
+                            .filter(m -> m.apiVersion() == 2 && m.scopedRecall())
+                            .isEmpty())
+                throw new IllegalArgumentException("启用项目群需要 v2 scoped 会话记忆");
             if (!routerSettings.usesChat()) {
                 throw new IllegalArgumentException("Router 需要支持 tool_calls 的 /v1/chat/completions 端点");
             }
@@ -144,14 +149,24 @@ public final class ConsoleMain {
             opened.push(server);
 
             // 两个入口使用同一对话处理器。QQ 登录验证在后台连接中完成，断开时可独立重连。
-            openQqSettings.ifPresent(configured -> {
-                var openQqClient = HttpClient.newHttpClient();
-                opened.push(openQqClient);
-                var channel = new OpenQqChannel(openQqClient, configured.endpoint(), configured.accessToken(),
-                        configured.accountId(), configured.allowedUserId(), audit, chatExchange, writes);
-                opened.push(channel);
-                channel.start();
-            });
+            openQqSettings.ifPresent(
+                    configured -> {
+                        var openQqClient = HttpClient.newHttpClient();
+                        opened.push(openQqClient);
+                        var channel =
+                                new OpenQqChannel(
+                                        openQqClient,
+                                        configured.endpoint(),
+                                        configured.accessToken(),
+                                        configured.accountId(),
+                                        configured.allowedUserId(),
+                                        configured.allowedGroupId(),
+                                        audit,
+                                        chatExchange,
+                                        writes);
+                        opened.push(channel);
+                        channel.start();
+                    });
         } catch (IOException | IllegalArgumentException | InterruptedException error) {
             System.err.println("控制台启动失败");
             error.printStackTrace(System.err);
@@ -190,7 +205,8 @@ public final class ConsoleMain {
                             config.characterId(),
                             config.token(),
                             config.scopedRecall(),
-                            journal);
+                            journal,
+                            config.grantToken());
         } else {
             memory =
                     new ResidentMemory(

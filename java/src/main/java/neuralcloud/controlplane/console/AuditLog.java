@@ -163,7 +163,11 @@ public final class AuditLog implements AutoCloseable {
             } else if (qq || !"console_response_written".equals(event.type()) || !"console".equals(event.node())) {
                 continue;
             }
-            if (parent != null && "chat_worker_reply".equals(parent.type()) && "chat-worker".equals(parent.node())) {
+            // 转授权回复只从 Memory 按当前受众重读；历史渠道回执不能永久授权重放正文。
+            if (parent != null
+                    && "chat_worker_reply".equals(parent.type())
+                    && "chat-worker".equals(parent.node())
+                    && !event.data().getAsJsonObject().has("source_refs")) {
                 dialogue.add(new DialogueMessage(Speaker.MISTY, parent.data().getAsJsonObject().get("text").getAsString()));
             }
         }

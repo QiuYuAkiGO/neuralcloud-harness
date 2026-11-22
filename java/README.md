@@ -88,6 +88,8 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 
 **Java Memory v2。** 在 `memoryConfig` 指定的文件中设置 `apiVersion=2`、`recallMode=scoped` 和回环 `endpoint=http://127.0.0.1:端口/`。`characterId` 和 `accessTokenEnv` 与 Memory 服务配置对应，省略 `apiVersion` 时继续选择 v1。控制台在角色、协议和所需能力核验成功后开放，审计目录中的 `memory-v2-<角色>.sqlite` 持久保存写入待办、模型输入的证据版本和消费位置。
 
+**原作者授权。** Memory v2.1 的 `audience_reads` 能力让 Worker 按目标会话获取可引用的材料。启用 OpenQQ 原作者命令需在记忆配置增加 `grantAccessTokenEnv`，它与 Memory 的同名配置及 `grantAccountId` 对应。原作者在已认证的私聊中发送 `/memory grant <记录ID>@<版本> <目标会话> READ|CITE <理由>`，再凭回执中的授权 ID 发送 `/memory revoke <授权ID> <理由>`。单独设置 `allowedGroupId` 后，OpenQQ 也接受对应项目群中 @ 机器人的纯文本消息。渠道命令在进入模型前处理，普通私聊仍使用 `allowedUserId`。
+
 在 `POST /api/nodes/chat-worker/messages` 中，`chain`、`text` 沿用原入口。操作员转录有据可查的发言时，可另附 `observation`，含 `speaker`、`source_venue`、`occurred_at` 和明确的 `assertion`。会话范围仍由 Harness 绑定。OpenQQ 私聊从渠道事件取得发件人及消息 ID。可在同级 `neuralcloud-memory` 仓库运行 `python -u tests/acceptance.py` 复跑两服务的会议与故障恢复用例。
 
 审计中的 `memory_call` 归属发起查询的节点，`memory_recall` 列出读取的记录 ID，`memory_call_result.data` 包含 `kind`、实际命中数 `count` 和原样交给调用方的 `sentences`。Router 的写入请求为 `router_memory_write`，持久化成功后才有 `memory_durable` 回执。生产历史检索零命中时，材料说明当前会话的查询结果。`recent` 模式只按回执重读近期对话，在材料中注明回读条数，话题命中数为零。

@@ -16,7 +16,9 @@ public final class ResidentV2 extends ResidentMemory {
     private static final String SOURCE = "neuralcloud-java";
     private static final Gson JSON = new GsonBuilder().disableHtmlEscaping().create();
     private final MemoryJournal journal;
+    private final String grantToken;
     private String stream;
+    private boolean audienceReads;
 
     public ResidentV2(
             HttpClient client,
@@ -24,13 +26,19 @@ public final class ResidentV2 extends ResidentMemory {
             String character,
             String token,
             boolean scoped,
-            MemoryJournal journal) {
+            MemoryJournal journal,
+            String grantToken) {
         super(client, endpoint, character, token, scoped);
         this.journal = journal;
+        this.grantToken = grantToken;
     }
 
     public String stream() {
         return stream;
+    }
+
+    public boolean authorGrantsEnabled() {
+        return grantToken != null;
     }
 
     static JsonObject object(Object... pairs) {
@@ -94,6 +102,7 @@ public final class ResidentV2 extends ResidentMemory {
         integer(health, "head_seq", 0);
         if (!(health.get("capabilities") instanceof JsonArray caps))
             throw new IOException("Memory v2 缺少能力列表");
+        audienceReads = scopedRecall() && caps.contains(new JsonPrimitive("audience_reads"));
         var required =
                 new HashSet<>(
                         List.of(
@@ -104,11 +113,70 @@ public final class ResidentV2 extends ResidentMemory {
                                 "candidates",
                                 "assertions"));
         if (scopedRecall()) required.add("scoped_recall");
+        if (grantToken != null) {
+            if (!qqEnabled) throw new IOException("原作者授权需要已配置的 OpenQQ 渠道");
+            required.addAll(List.of("audience_reads", "author_grants"));
+        }
         if (qqEnabled && scopedRecall()) required.addAll(List.of("self_identity", "self_history"));
         caps.forEach(x -> required.remove(x.getAsString()));
         if (!required.isEmpty()) throw new IOException("Memory v2 缺少必需能力 " + required);
         stream = id;
         recover();
+    }
+
+    // 只有渠道适配器传入已认证的私聊；命令正文没有代填发言人或授予者的字段。
+    public JsonObject authorDecision(Trace.Scope scope, long messageId, String text)
+            throws IOException, InterruptedException {
+        if (grantToken == null || scope.qq().isEmpty()) throw new IOException("此渠道未启用原作者授权");
+        var qq = scope.qq().orElseThrow();
+        var cmd =
+                object(
+                        "context",
+                        context(scope, "ORCHESTRATOR"),
+                        "source_instance",
+                        SOURCE,
+                        "event_id",
+                        "onebot-grant:" + qq.accountId() + ":" + qq.peerId() + ":" + messageId);
+        var grant =
+                java.util.regex.Pattern.compile(
+                                "/memory grant ([0-9a-f]{64})@([1-9][0-9]{0,17}) (\\S+) (READ|CITE) (.+)",
+                                java.util.regex.Pattern.DOTALL)
+                        .matcher(text);
+        var revoke =
+                java.util.regex.Pattern.compile(
+                                "/memory revoke ([0-9a-f]{64}) (.+)",
+                                java.util.regex.Pattern.DOTALL)
+                        .matcher(text);
+        String path = "v2/visibility-grants";
+        if (grant.matches()) {
+            cmd.add(
+                    "source_ref",
+                    object(
+                            "record_id",
+                            grant.group(1),
+                            "revision",
+                            Long.parseLong(grant.group(2))));
+            cmd.addProperty("target_conversation_id", grant.group(3));
+            cmd.addProperty("use", grant.group(4));
+            cmd.addProperty("reason", grant.group(5));
+        } else if (revoke.matches()) {
+            path += "/" + revoke.group(1) + "/revoke";
+            cmd.addProperty("reason", revoke.group(2));
+        } else
+            throw new IOException(
+                    "格式为 /memory grant 记录ID@版本 目标会话 READ或CITE 理由，或 /memory revoke 授权ID 理由");
+        try {
+            return request(path, cmd, grantToken);
+        } catch (IOException first) {
+            if (first instanceof ServiceError error && error.status < 500) throw first;
+            // 网络失败可能发生在提交之后。按同一渠道消息和内容取回回执，外层只发送一次。
+            try {
+                return request(path, cmd, grantToken);
+            } catch (IOException second) {
+                second.addSuppressed(first);
+                throw second;
+            }
+        }
     }
 
     public synchronized void recover() throws IOException, InterruptedException {
@@ -179,11 +247,14 @@ public final class ResidentV2 extends ResidentMemory {
                         "content",
                         content);
         body.addProperty("speaker", inbound ? "用户" : character());
-        body.addProperty("source_venue", scope.qq().isPresent() ? "当前 QQ 私聊" : "当前控制台会话");
+        body.addProperty(
+                "source_venue",
+                scope.group().isPresent()
+                        ? "QQ 群聊"
+                        : scope.qq().isPresent() ? "当前 QQ 私聊" : "当前控制台会话");
         // Optional operator/channel attestation accompanies the inbound observation, never model
         // output.
-        if (inbound && origin != null)
-            for (var e : origin.entrySet()) body.add(e.getKey(), e.getValue());
+        if (origin != null) for (var e : origin.entrySet()) body.add(e.getKey(), e.getValue());
         scope.qq()
                 .ifPresent(
                         q ->
@@ -198,6 +269,25 @@ public final class ResidentV2 extends ResidentMemory {
                                                 Long.toString(q.accountId()),
                                                 "sender_id",
                                                 Long.toString(inbound ? q.peerId() : q.accountId()),
+                                                "message_id",
+                                                messageId,
+                                                "conversation_id",
+                                                scope.conversationId())));
+        scope.group()
+                .ifPresent(
+                        g ->
+                                body.add(
+                                        "channel",
+                                        object(
+                                                "platform",
+                                                "qq",
+                                                "type",
+                                                "qq_group",
+                                                "account_id",
+                                                Long.toString(g.accountId()),
+                                                "sender_id",
+                                                Long.toString(
+                                                        inbound ? g.senderId() : g.accountId()),
                                                 "message_id",
                                                 messageId,
                                                 "conversation_id",
@@ -315,23 +405,30 @@ public final class ResidentV2 extends ResidentMemory {
                         kind == QueryKind.SELF_IDENTITY ? 1 : 4,
                         "before",
                         before.toString());
-        return snapshot(request("v2/recall", body), scope, true);
+        return audienceRequest("v2/recall", body, scope, true);
+    }
+
+    private Snapshot audienceRequest(
+            String path, JsonObject body, Trace.Scope scope, boolean recall)
+            throws IOException, InterruptedException {
+        if (audienceReads && "HISTORY".equals(string(body, "kind")))
+            body.addProperty("use", "CITE");
+        return snapshot(request(path, body), scope, recall);
     }
 
     private Snapshot readItems(Trace.Scope scope, String role, String kind, List<String> ids)
             throws IOException, InterruptedException {
-        return snapshot(
-                request(
-                        "v2/read",
-                        object(
-                                "context",
-                                context(scope, role),
-                                "kind",
-                                kind,
-                                "targets",
-                                ids.stream().map(id -> Map.of("record_id", id)).toList(),
-                                "length",
-                                2048)),
+        return audienceRequest(
+                "v2/read",
+                object(
+                        "context",
+                        context(scope, role),
+                        "kind",
+                        kind,
+                        "targets",
+                        ids.stream().map(id -> Map.of("record_id", id)).toList(),
+                        "length",
+                        2048),
                 scope,
                 false);
     }
@@ -494,7 +591,7 @@ public final class ResidentV2 extends ResidentMemory {
                                     "QUICK",
                                     "limit",
                                     4);
-                    var replacement = snapshot(request("v2/recall", request), scope, true);
+                    var replacement = audienceRequest("v2/recall", request, scope, true);
                     for (var row : replacement.items()) {
                         messages.add("记忆更正：" + render(row, r.kind()));
                         var source = binding(scope, role, r.kind(), row, replacement, r.input());
@@ -530,6 +627,22 @@ public final class ResidentV2 extends ResidentMemory {
                     || !Objects.equals(
                             latest.get("assertion_active"), d.item().get("assertion_active")))
                 throw new IOException("行动依据已经变化，需要重新取证");
+        }
+    }
+
+    public void verifyDelivery(Trace trace) throws IOException, InterruptedException {
+        var now =
+                readItems(
+                        trace.scope(),
+                        "ROUTER",
+                        "HISTORY",
+                        List.copyOf(trace.sharedSources().keySet()));
+        for (var item : now.items()) {
+            if (!"ONLINE".equals(string(item, "status"))) throw new IOException("渠道交付前引用权已失效");
+            var ref = item.getAsJsonObject("ref");
+            if (!Objects.equals(
+                    trace.sharedSources().get(string(ref, "record_id")),
+                    integer(ref, "revision", 1))) throw new IOException("渠道交付前引用依据已修订");
         }
     }
 }

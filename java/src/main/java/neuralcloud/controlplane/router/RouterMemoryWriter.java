@@ -24,6 +24,21 @@ public final class RouterMemoryWriter {
         return memory instanceof neuralcloud.controlplane.memory.ResidentV2;
     }
 
+    public boolean authorGrantsEnabled() {
+        return memory instanceof ResidentV2 v2 && v2.authorGrantsEnabled();
+    }
+
+    public void verifyDelivery(Trace trace) throws IOException, InterruptedException {
+        if (!trace.sharedSources().isEmpty() && memory instanceof ResidentV2 v2)
+            v2.verifyDelivery(trace);
+    }
+
+    public com.google.gson.JsonObject authorDecision(Trace trace, long messageId, String command)
+            throws IOException, InterruptedException {
+        if (!(memory instanceof ResidentV2 v2)) throw new IOException("此渠道未启用原作者授权");
+        return v2.authorDecision(trace.scope(), messageId, command);
+    }
+
     public int rememberInbound(Trace trace, int accepted, String text) throws IOException, InterruptedException {
         int writing = request(trace, accepted, trace.request(), Kind.OBSERVATION);
         return persist(trace, writing, trace.request(), Kind.OBSERVATION, text);
@@ -97,13 +112,20 @@ public final class RouterMemoryWriter {
             throws IOException, InterruptedException {
         var scope = trace.scope();
         var source = audit.event(scope, sourceId);
-        String messageId = scope.qq().map(qq -> source.data().getAsJsonObject().get("messageId").getAsString())
-                .orElse("");
+        String messageId =
+                scope.qq().isPresent() || scope.group().isPresent()
+                        ? source.data().getAsJsonObject().get("messageId").getAsString()
+                        : "";
         ResidentMemory.Receipt receipt;
         try {
             String event = scope.runId() + ":" + sourceId;
             if (memory instanceof neuralcloud.controlplane.memory.ResidentV2 v2) {
                 var origin = source.data().getAsJsonObject().getAsJsonObject("observation");
+                if (kind == Kind.SELF_EXPRESSION
+                        && source.data().getAsJsonObject().has("source_refs")) {
+                    origin = new com.google.gson.JsonObject();
+                    origin.add("source_refs", source.data().getAsJsonObject().get("source_refs"));
+                }
                 receipt =
                         v2.ingestEvent(
                                 scope,

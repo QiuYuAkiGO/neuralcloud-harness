@@ -14,7 +14,9 @@ public class OpenQqChannelTest {
                  "self_id":12345,"user_id":54321,"message_id":67,
                  "message":[{"type":"text","data":{"text":"检查"}},{"type":"text","data":{"text":"服务器状态。"}}]}
                 """).getAsJsonObject();
-        assertEquals(new OpenQqChannel.Incoming(67, "检查服务器状态。"), OpenQqChannel.incoming(event, 12345, 54321));
+        assertEquals(
+                new OpenQqChannel.Incoming(67, "检查服务器状态。", 0, 54321),
+                OpenQqChannel.incoming(event, 12345, 54321));
         assertNull(OpenQqChannel.incoming(event, 12345, 54322));
         assertNull(OpenQqChannel.incoming(event, 12346, 54321));
 

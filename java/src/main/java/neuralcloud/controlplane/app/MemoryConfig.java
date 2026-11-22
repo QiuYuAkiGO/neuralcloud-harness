@@ -6,7 +6,12 @@ import java.util.HashSet;
 import java.util.Set;
 
 record MemoryConfig(
-        URI endpoint, String characterId, String token, boolean scopedRecall, int apiVersion) {
+        URI endpoint,
+        String characterId,
+        String token,
+        boolean scopedRecall,
+        int apiVersion,
+        String grantToken) {
     private static final Set<String> FIELDS = Set.of("endpoint", "characterId", "accessTokenEnv");
 
     static MemoryConfig load(ConfigSource source) throws IOException {
@@ -14,6 +19,7 @@ record MemoryConfig(
         var fields = new HashSet<>(properties.stringPropertyNames());
         fields.remove("recallMode");
         fields.remove("apiVersion");
+        fields.remove("grantAccessTokenEnv");
         String version = properties.getProperty("apiVersion", "1");
         if (!Set.of("1", "2").contains(version))
             throw new IllegalArgumentException("记忆 apiVersion 须为 1 或 2");
@@ -40,7 +46,22 @@ record MemoryConfig(
         if (!Set.of("recent", "scoped").contains(mode)) {
             throw new IllegalArgumentException("记忆 recallMode 须为 recent 或 scoped");
         }
+        String grant = null;
+        if (properties.containsKey("grantAccessTokenEnv")) {
+            grant = System.getenv(properties.getProperty("grantAccessTokenEnv"));
+            if (!version.equals("2")
+                    || !mode.equals("scoped")
+                    || grant == null
+                    || !grant.matches("[!-~]{32,256}")
+                    || grant.equals(token))
+                throw new IllegalArgumentException("渠道授权需要 v2 scoped 和独立的 grantAccessTokenEnv");
+        }
         return new MemoryConfig(
-                endpoint, character, token, "scoped".equals(mode), Integer.parseInt(version));
+                endpoint,
+                character,
+                token,
+                "scoped".equals(mode),
+                Integer.parseInt(version),
+                grant);
     }
 }

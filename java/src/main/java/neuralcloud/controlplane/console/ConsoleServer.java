@@ -56,7 +56,18 @@ public final class ConsoleServer implements AutoCloseable {
             }
         }
 
-        record Scope(String channel, String chain, String runId, Optional<QqPrivate> qq) {
+        record QqGroup(long accountId, long groupId, long senderId) {}
+
+        record Scope(
+                String channel,
+                String chain,
+                String runId,
+                Optional<QqPrivate> qq,
+                Optional<QqGroup> group) {
+            public Scope(String channel, String chain, String runId, Optional<QqPrivate> qq) {
+                this(channel, chain, runId, qq, Optional.empty());
+            }
+
             public Scope(String channel, String chain, String runId) {
                 this(channel, chain, runId, Optional.empty());
             }
@@ -66,6 +77,8 @@ public final class ConsoleServer implements AutoCloseable {
             }
 
             public String conversationId() {
+                if (group.isPresent())
+                    return "group:onebot:" + group.get().accountId() + ":" + group.get().groupId();
                 return qq.map(QqPrivate::conversationId).orElseGet(this::sessionId);
             }
         }
@@ -73,6 +86,19 @@ public final class ConsoleServer implements AutoCloseable {
         int request();
 
         Scope scope();
+
+        Map<String, Long> sharedSources();
+
+        default Map<String, Object> delivery(Map<String, Object> data) {
+            if (sharedSources().isEmpty()) return data;
+            var receipt = new LinkedHashMap<>(data);
+            receipt.put(
+                    "source_refs",
+                    sharedSources().entrySet().stream()
+                            .map(e -> Map.of("record_id", e.getKey(), "revision", e.getValue()))
+                            .toList());
+            return receipt;
+        }
 
         List<DialogueMessage> dialogue();
 
@@ -87,8 +113,21 @@ public final class ConsoleServer implements AutoCloseable {
                     request);
         }
 
+        static Trace forQqGroup(AuditLog audit, String chain, int request, QqGroup group) {
+            return bound(
+                    audit,
+                    new Scope("openqq", chain, audit.runId(), Optional.empty(), Optional.of(group)),
+                    request);
+        }
+
         private static Trace bound(AuditLog audit, Scope scope, int request) {
             return new Trace() {
+                private final Map<String, Long> shared = new LinkedHashMap<>();
+
+                public Map<String, Long> sharedSources() {
+                    return shared;
+                }
+
                 @Override
                 public int request() {
                     return request;
@@ -105,7 +144,8 @@ public final class ConsoleServer implements AutoCloseable {
                 }
 
                 @Override
-                public int write(Integer causedBy, String node, String type, Object data) throws IOException {
+                public int write(Integer causedBy, String node, String type, Object data)
+                        throws IOException {
                     return audit.write(scope.chain(), causedBy, node, type, data);
                 }
             };
@@ -275,6 +315,7 @@ public final class ConsoleServer implements AutoCloseable {
         Reply reply;
         try {
             reply = node.exchange().send(message.text(), trace);
+            if (writes.isPresent()) writes.get().verifyDelivery(trace);
         } catch (IOException | InterruptedException error) {
             return failure(node, message.chain(), request, started, error, monitor::recordCall);
         }
@@ -287,10 +328,21 @@ public final class ConsoleServer implements AutoCloseable {
         var response = json(200, Map.of("eventId", event, "type", reply.type(), "data", data));
         if ("chat_worker_reply".equals(reply.type()) && writes.isPresent()) {
             // HTTP 正文成功写出才记为渠道回执，服务端无法证明浏览器已渲染。
-            return new Response(response.status(), response.contentType(), response.body(), () -> {
-                int written = trace.write(event, "console", "console_response_written", Map.of());
-                writes.orElseThrow().rememberDelivered(trace, written, (String) reply.data().get("text"));
-            });
+            return new Response(
+                    response.status(),
+                    response.contentType(),
+                    response.body(),
+                    () -> {
+                        int written =
+                                trace.write(
+                                        event,
+                                        "console",
+                                        "console_response_written",
+                                        trace.delivery(Map.of()));
+                        writes.orElseThrow()
+                                .rememberDelivered(
+                                        trace, written, (String) reply.data().get("text"));
+                    });
         }
         return response;
     }

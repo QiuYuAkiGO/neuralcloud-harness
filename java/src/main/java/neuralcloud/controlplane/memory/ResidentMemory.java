@@ -310,8 +310,15 @@ public class ResidentMemory {
 
     protected JsonObject request(String path, Object body)
             throws IOException, InterruptedException {
-        var request = HttpRequest.newBuilder(endpoint.resolve(path)).timeout(Duration.ofSeconds(5))
-                .header("Authorization", "Bearer " + token);
+        return request(path, body, token);
+    }
+
+    protected JsonObject request(String path, Object body, String credential)
+            throws IOException, InterruptedException {
+        var request =
+                HttpRequest.newBuilder(endpoint.resolve(path))
+                        .timeout(Duration.ofSeconds(5))
+                        .header("Authorization", "Bearer " + credential);
         if (body != null) {
             request.header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(JSON.toJson(body)));

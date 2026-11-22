@@ -45,6 +45,7 @@ public class ConsoleConversationTest {
         var events = new ArrayList<String>();
         var tracedRoute = new AtomicReference<String>();
         var trace = new Trace() {
+            public java.util.Map<String, Long> sharedSources() { return java.util.Map.of(); }
             public int request() { return 1; }
 
             public Scope scope() { return new Scope("console", "test", "test-run"); }
