@@ -6,6 +6,7 @@ import neuralcloud.controlplane.evaluation.MasterEvaluation;
 import neuralcloud.controlplane.evaluation.RouterEvaluation;
 import neuralcloud.controlplane.evaluation.TraceSink;
 import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Outcome;
+import neuralcloud.controlplane.worker.ReplySelector.Context;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -75,7 +76,8 @@ public final class ConsoleScenarioMain {
             throw new IllegalArgumentException("会议改期链路的 Master 需要支持 tool_calls 的 /v1/chat/completions 端点");
         }
         var evaluation = new MasterEvaluation(components.master(), fixtures, Files.readString(MASTER_ROLE_PROMPT));
-        var pipeline = new RouterEvaluation(components.router()::route, evaluation, components.chat()::draftReply);
+        var pipeline = new RouterEvaluation(components.router()::route, evaluation,
+                text -> components.chat().reply(Context.direct(text), text).orElseThrow());
         pipeline.requireScenario(caseId);
         String routerModel = components.routerSettings().model();
         String masterModel = components.masterSettings().model();

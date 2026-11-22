@@ -9,6 +9,7 @@ import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.worker.ChatWorker;
+import neuralcloud.controlplane.worker.ReplySelector.Context;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
@@ -92,7 +93,8 @@ public final class ConsoleMain {
             var master = new Master(masterClient, masterSettings);
             var nodes = new ArrayList<>(List.of(
                     new Node("chat-worker", "Chat Worker", chatSettings.endpoint().toString(), null,
-                            (text, trace) -> new Reply("chat_worker_reply", Map.of("text", chat.draftReply(text))), null),
+                            (text, trace) -> new Reply("chat_worker_reply",
+                                    Map.of("text", chat.reply(Context.direct(text), text).orElseThrow())), null),
                     new Node("router", "Router", routerSettings.endpoint().toString(), routerSettings.model(),
                             (text, trace) -> new Reply("router_route", Map.of("route", router.route(text).name())),
                             routerInference::probeStartup),

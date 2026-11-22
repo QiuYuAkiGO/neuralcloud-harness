@@ -2,7 +2,10 @@ package neuralcloud.controlplane.worker;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import com.sun.net.httpserver.HttpServer;
+import neuralcloud.controlplane.worker.ReplySelector.Addressing;
+import neuralcloud.controlplane.worker.ReplySelector.Context;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -11,7 +14,9 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -19,43 +24,92 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public class ChatWorkerTest {
+    private static final String APPROVED_TEXT = "会议已改到周六11时。";
+    private static final Context DIRECT = Context.direct("会议的时间改好了吗？");
+    private static final Context AMBIENT = new Context(Addressing.AMBIENT, "这个好看吗？", List.of("发了一张照片。"));
+
     @Test
     public void sendsApprovedTextAndReturnsOnlyVisibleDraft() throws IOException {
-        var request = new AtomicReference<JsonObject>();
-        assertEquals("会议改到周六11时了。", invoke(200, """
+        var requests = new CopyOnWriteArrayList<JsonObject>();
+        assertEquals(Optional.of("会议改到周六11时了。"), invoke(200, DIRECT, requests, """
                 {"candidates":[{"finishReason":"STOP","content":{"parts":[
                   {"thought":true,"text":"思考摘要"},{"text":"会议改到"},{"text":"周六11时了。"}]}}]}
-                """, request));
-        assertEquals("会议已改到周六11时。", request.get().getAsJsonArray("contents").get(0).getAsJsonObject()
-                .getAsJsonArray("parts").get(0).getAsJsonObject().get("text").getAsString());
-        assertEquals("只写许可正文。", request.get().getAsJsonObject("systemInstruction")
-                .getAsJsonArray("parts").get(0).getAsJsonObject().get("text").getAsString());
-        assertFalse(request.get().has("tools"));
-        assertFalse(request.get().toString().contains("test-api-key"));
+                """));
+        assertEquals(1, requests.size());
+        var request = requests.getFirst();
+        assertEquals(APPROVED_TEXT, content(request));
+        assertEquals("只写许可正文。", instructions(request));
+        assertFalse(request.has("tools"));
+        assertFalse(request.toString().contains("test-api-key"));
     }
 
     @Test
     public void rejectsTruncatedDraftAndDoesNotExposeProviderErrorBody() {
-        var request = new AtomicReference<JsonObject>();
-        var partial = assertThrows(IOException.class, () -> invoke(200, """
+        var requests = new CopyOnWriteArrayList<JsonObject>();
+        var partial = assertThrows(IOException.class, () -> invoke(200, DIRECT, requests, """
                 {"candidates":[{"finishReason":"MAX_TOKENS","content":{"parts":[{"text":"会议已"}]}}]}
-                """, request));
+                """));
         assertTrue(partial.getMessage().contains("正常结束"));
-        var invalidKey = assertThrows(IOException.class, () -> invoke(403, "provider internal body", request));
+        var invalidKey = assertThrows(IOException.class, () -> invoke(403, DIRECT, requests, "provider internal body"));
         assertEquals("Gemini 返回 HTTP 403", invalidKey.getMessage());
     }
 
-    private static String invoke(int status, String json, AtomicReference<JsonObject> request) throws IOException {
+    @Test
+    public void skipsWithoutGeneratingContentAndRejectsUnknownDecision() throws IOException {
+        var requests = new CopyOnWriteArrayList<JsonObject>();
+        assertEquals(Optional.empty(), invoke(200, AMBIENT, requests, completed("SKIP")));
+        assertEquals(1, requests.size());
+        var request = requests.getFirst();
+        assertTrue(instructions(request).contains("喜欢摄影。"));
+        assertTrue(content(request).contains("发了一张照片。"));
+        assertFalse(content(request).contains(APPROVED_TEXT));
+        assertEquals("text/x.enum", request.getAsJsonObject("generationConfig").get("responseMimeType").getAsString());
+
+        var error = assertThrows(IOException.class, () -> invoke(200, AMBIENT, requests, completed("MAYBE")));
+        assertTrue(error.getMessage().contains("REPLY 或 SKIP"));
+        assertEquals(1, requests.size());
+    }
+
+    @Test
+    public void generatesApprovedTextOnlyAfterAmbientReplyDecision() throws IOException {
+        var requests = new CopyOnWriteArrayList<JsonObject>();
+        assertEquals(Optional.of("知道了。"), invoke(200, AMBIENT, requests, completed("REPLY"), completed("知道了。")));
+        assertEquals(2, requests.size());
+        assertEquals(APPROVED_TEXT, content(requests.get(1)));
+        assertEquals("只写许可正文。", instructions(requests.get(1)));
+    }
+
+    private static String completed(String text) {
+        return """
+                {"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":%s}]}}]}
+                """.formatted(new JsonPrimitive(text));
+    }
+
+    private static String content(JsonObject request) {
+        return request.getAsJsonArray("contents").get(0).getAsJsonObject()
+                .getAsJsonArray("parts").get(0).getAsJsonObject().get("text").getAsString();
+    }
+
+    private static String instructions(JsonObject request) {
+        return request.getAsJsonObject("systemInstruction").getAsJsonArray("parts").get(0).getAsJsonObject()
+                .get("text").getAsString();
+    }
+
+    private static Optional<String> invoke(int status, Context context, List<JsonObject> requests, String... responses)
+            throws IOException {
+        requests.clear();
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         String path = "/v1beta/models/test:generateContent";
         server.createContext(path, exchange -> {
             try (exchange) {
                 String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-                request.set(JsonParser.parseString(body).getAsJsonObject());
+                int index = requests.size();
+                requests.add(JsonParser.parseString(body).getAsJsonObject());
                 boolean authenticated = "test-api-key".equals(exchange.getRequestHeaders().getFirst("x-goog-api-key"))
                         && exchange.getRequestURI().getRawQuery() == null && "POST".equals(exchange.getRequestMethod());
-                byte[] response = json.getBytes(StandardCharsets.UTF_8);
-                exchange.sendResponseHeaders(authenticated ? status : 401, response.length);
+                byte[] response = (index < responses.length ? responses[index] : "").getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(authenticated ? (index < responses.length ? status : 500) : 401,
+                        response.length);
                 exchange.getResponseBody().write(response);
             }
         });
@@ -63,7 +117,7 @@ public class ChatWorkerTest {
         try (var client = HttpClient.newHttpClient()) {
             URI endpoint = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + path);
             return new ChatWorker(client, endpoint, Duration.ofSeconds(3), 1024, "LOW", "test-api-key",
-                    "只写许可正文。").draftReply("会议已改到周六11时。");
+                    "只写许可正文。", "喜欢摄影。").reply(context, APPROVED_TEXT);
         } finally {
             server.stop(0);
         }

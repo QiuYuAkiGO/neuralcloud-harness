@@ -15,7 +15,7 @@ import java.util.regex.Pattern;
 
 final class ChatWorkerConfig {
     private static final Set<String> FIELDS = Set.of("endpoint", "apiKeyEnv", "httpVersion", "proxy",
-            "connectTimeoutSeconds", "requestTimeoutSeconds", "maxOutputTokens", "thinkingLevel");
+            "connectTimeoutSeconds", "requestTimeoutSeconds", "maxOutputTokens", "thinkingLevel", "replyPreferences");
     private static final Pattern PROXY = Pattern.compile("([A-Za-z0-9.-]+):([0-9]{1,5})");
 
     private ChatWorkerConfig() {}
@@ -41,16 +41,21 @@ final class ChatWorkerConfig {
         if (!proxy.matches() || Integer.parseInt(proxy.group(2)) < 1 || Integer.parseInt(proxy.group(2)) > 65535) {
             throw new IllegalArgumentException("Chat Worker proxy 须为 主机:端口，端口在 1 至 65535 之间");
         }
+        String preferences = new ConfigSource(properties.getProperty("replyPreferences")).readText();
+        if (preferences.isBlank()) {
+            throw new IllegalArgumentException("replyPreferences 须指向非空的只读偏好摘要");
+        }
         return new Settings(endpoint, properties.getProperty("apiKeyEnv"),
                 HttpClient.Version.valueOf(properties.getProperty("httpVersion")),
                 new InetSocketAddress(proxy.group(1), Integer.parseInt(proxy.group(2))),
                 Duration.ofSeconds(positive(properties, "connectTimeoutSeconds")),
                 Duration.ofSeconds(positive(properties, "requestTimeoutSeconds")),
-                positive(properties, "maxOutputTokens"), level);
+                positive(properties, "maxOutputTokens"), level, preferences);
     }
 
     record Settings(URI endpoint, String keyEnvironment, HttpClient.Version httpVersion, InetSocketAddress proxy,
-                    Duration connectTimeout, Duration requestTimeout, int maxOutputTokens, String thinkingLevel) {
+                    Duration connectTimeout, Duration requestTimeout, int maxOutputTokens, String thinkingLevel,
+                    String replyPreferences) {
         // Gemini 请求经配置的 HTTP 代理以 CONNECT 隧道发出，TLS 仍在客户端与 Gemini 之间建立。
         HttpClient newClient() {
             return HttpClient.newBuilder().version(httpVersion).proxy(ProxySelector.of(proxy))
@@ -66,7 +71,8 @@ final class ChatWorkerConfig {
         }
 
         ChatWorker create(HttpClient client, String apiKey, String rolePrompt) {
-            return new ChatWorker(client, endpoint, requestTimeout, maxOutputTokens, thinkingLevel, apiKey, rolePrompt);
+            return new ChatWorker(client, endpoint, requestTimeout, maxOutputTokens, thinkingLevel, apiKey, rolePrompt,
+                    replyPreferences);
         }
     }
 

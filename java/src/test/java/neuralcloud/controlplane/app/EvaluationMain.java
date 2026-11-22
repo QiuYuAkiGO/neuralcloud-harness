@@ -6,6 +6,7 @@ import neuralcloud.controlplane.evaluation.RouterEvaluation;
 import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Outcome;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
+import neuralcloud.controlplane.worker.ReplySelector.Context;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
@@ -87,7 +88,8 @@ public final class EvaluationMain {
                     if (chatSettings != null) {
                         try (HttpClient chatClient = chatSettings.newClient()) {
                             var chat = chatSettings.create(chatClient, geminiKey, CHAT_PROMPT.readText());
-                            return new RouterEvaluation(router::route, evaluation, chat::draftReply).run(
+                            return new RouterEvaluation(router::route, evaluation,
+                                    text -> chat.reply(Context.direct(text), text).orElseThrow()).run(
                                     tracePath, caseId, outcome, routerSettings.model(), settings.model());
                         }
                     }
