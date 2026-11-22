@@ -8,6 +8,7 @@ import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import neuralcloud.controlplane.memory.ConversationMemory;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -17,6 +18,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -47,15 +49,29 @@ public final class ConsoleServer implements AutoCloseable {
 
     // 绑定本轮会话的审计链。多步节点把中间步骤写在这里；request 是本轮操作者正文的事件 ID。
     public interface Trace {
+        record Scope(String channel, String chain, String runId) {
+            public String sessionId() {
+                return channel + ":" + chain;
+            }
+        }
+
         int request();
+
+        Scope scope();
 
         int write(Integer causedBy, String node, String type, Object data) throws IOException;
 
-        static Trace forChain(AuditLog audit, String chain, int request) {
+        static Trace forChain(AuditLog audit, String channel, String chain, int request) {
+            var scope = new Scope(channel, chain, audit.runId());
             return new Trace() {
                 @Override
                 public int request() {
                     return request;
+                }
+
+                @Override
+                public Scope scope() {
+                    return scope;
                 }
 
                 @Override
@@ -82,7 +98,15 @@ public final class ConsoleServer implements AutoCloseable {
     public record Node(String id, String name, String endpoint, String model, Exchange exchange, Probe probe) {
     }
 
-    private record Response(int status, String contentType, byte[] body) {
+    @FunctionalInterface
+    private interface AfterWrite {
+        void run() throws IOException;
+    }
+
+    private record Response(int status, String contentType, byte[] body, AfterWrite afterWrite) {
+        Response(int status, String contentType, byte[] body) {
+            this(status, contentType, body, null);
+        }
     }
 
     private record Message(String chain, String text) {
@@ -101,21 +125,24 @@ public final class ConsoleServer implements AutoCloseable {
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final AuditLog audit;
     private final NodeMonitor monitor;
+    private final Optional<ConversationMemory> memory;
     private final Map<String, Node> nodes = new LinkedHashMap<>();
     private final String probeChain;
 
-    private ConsoleServer(HttpServer server, AuditLog audit, NodeMonitor monitor, List<Node> nodes) {
+    private ConsoleServer(HttpServer server, AuditLog audit, NodeMonitor monitor, List<Node> nodes,
+                          Optional<ConversationMemory> memory) {
         this.server = server;
         this.audit = audit;
         this.monitor = monitor;
+        this.memory = memory;
         nodes.forEach(node -> this.nodes.put(node.id(), node));
         // 同一进程内的手动探测串成一条审计链，不混入会话。
         probeChain = PROBE_CHAIN_PREFIX + audit.runId();
     }
 
     public static ConsoleServer start(InetSocketAddress address, AuditLog audit, NodeMonitor monitor,
-                                      List<Node> nodes) throws IOException {
-        var console = new ConsoleServer(HttpServer.create(address, 0), audit, monitor, nodes);
+                                      List<Node> nodes, Optional<ConversationMemory> memory) throws IOException {
+        var console = new ConsoleServer(HttpServer.create(address, 0), audit, monitor, nodes, memory);
         console.server.createContext("/", console::handle);
         console.server.setExecutor(console.executor);
         console.server.start();
@@ -137,7 +164,12 @@ public final class ConsoleServer implements AutoCloseable {
             exchange.getResponseHeaders().set("Content-Type", response.contentType());
             exchange.getResponseHeaders().set("Cache-Control", "no-store");
             exchange.sendResponseHeaders(response.status(), response.body().length == 0 ? -1 : response.body().length);
-            exchange.getResponseBody().write(response.body());
+            try (var output = exchange.getResponseBody()) {
+                output.write(response.body());
+            }
+            if (response.afterWrite() != null) {
+                response.afterWrite().run();
+            }
         } finally {
             exchange.close();
         }
@@ -198,7 +230,7 @@ public final class ConsoleServer implements AutoCloseable {
     // 先记录操作者正文，再调用节点。调用失败同样写入审计链，并以 502 返回实际失败原因。
     private Response send(Node node, Message message) throws IOException {
         int request = audit.write(message.chain(), null, node.id(), "operator_message", Map.of("text", message.text()));
-        var trace = Trace.forChain(audit, message.chain(), request);
+        var trace = Trace.forChain(audit, "console", message.chain(), request);
         long started = System.nanoTime();
         Reply reply;
         try {
@@ -212,7 +244,15 @@ public final class ConsoleServer implements AutoCloseable {
         int parent = reply.causedBy() == null ? request : reply.causedBy();
         int event = audit.write(message.chain(), parent, node.id(), reply.type(), data);
         monitor.recordCall(node.id(), new NodeMonitor.Outcome(Instant.now().toString(), true, latency, ""));
-        return json(200, Map.of("eventId", event, "type", reply.type(), "data", data));
+        var response = json(200, Map.of("eventId", event, "type", reply.type(), "data", data));
+        if ("chat_worker_reply".equals(reply.type()) && memory.isPresent()) {
+            // HTTP 正文成功写出才记为渠道回执，服务端无法证明浏览器已渲染。
+            return new Response(response.status(), response.contentType(), response.body(), () -> {
+                int written = trace.write(event, "console", "console_response_written", Map.of());
+                memory.orElseThrow().rememberDelivered(trace, written, (String) reply.data().get("text"));
+            });
+        }
+        return response;
     }
 
     private Response probe(Node node) throws IOException, RequestException {

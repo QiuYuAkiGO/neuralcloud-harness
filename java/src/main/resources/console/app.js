@@ -32,7 +32,7 @@ function el(tag, props = {}, ...children) {
 }
 
 const time = (iso) => (iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '');
-const NODE_NAMES = { orchestrator: '编排器', 'task-worker': '任务 Worker', memory: '记忆（样例证据）', openqq: 'OpenQQ' };
+const NODE_NAMES = { orchestrator: '编排器', 'task-worker': '任务 Worker', memory: '记忆', openqq: 'OpenQQ' };
 const nodeName = (id) => state.nodes.find((node) => node.id === id)?.name ?? NODE_NAMES[id] ?? id;
 
 // 各事件类型在对话和审计链里的一行摘要。
@@ -45,6 +45,10 @@ function summary(event) {
     case 'qq_delivery': return 'OpenQQ 已确认发送，消息 ID ' + data.messageId;
     case 'qq_delivery_failed': return 'OpenQQ 拒绝发送，错误码 ' + data.retcode;
     case 'qq_delivery_unknown': return 'OpenQQ 发送状态未确认：' + data.detail;
+    case 'console_response_written': return '控制台已写出 HTTP 回复';
+    case 'memory_durable': return data.kind === 'OBSERVATION' ? '用户发言已写入记忆' : '小雾的回复已写入记忆';
+    case 'memory_recall': return '已读取同会话记忆 ' + data.recordIds.length + ' 条';
+    case 'memory_write_failed': return '回复记忆写入失败：' + data.detail;
     case 'chat_worker_reply': return data.text;
     case 'chat_worker_router_request': return '已将本轮消息交给 Router 分流';
     case 'task_worker_dispatch': return '已派发给任务 Worker';

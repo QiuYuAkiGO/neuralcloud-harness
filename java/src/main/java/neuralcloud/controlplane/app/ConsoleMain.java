@@ -7,6 +7,8 @@ import neuralcloud.controlplane.console.ConsoleServer.Node;
 import neuralcloud.controlplane.console.ConsoleServer.Reply;
 import neuralcloud.controlplane.console.NodeMonitor;
 import neuralcloud.controlplane.master.Master;
+import neuralcloud.controlplane.memory.ConversationMemory;
+import neuralcloud.controlplane.memory.ResidentMemory;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.worker.ChatWorker;
@@ -14,6 +16,7 @@ import neuralcloud.controlplane.worker.TaskWorker;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -61,6 +64,7 @@ public final class ConsoleMain {
         String routerPrompt;
         Optional<TaskWorkerConfig> taskSettings;
         Optional<OpenQqConfig.Settings> openQqSettings;
+        Optional<MemoryConfig> memorySettings;
         try {
             settings = ConsoleConfig.load(config);
             chatSettings = ChatWorkerConfig.load(settings.chatWorkerConfig());
@@ -73,6 +77,8 @@ public final class ConsoleMain {
                     ? Optional.of(TaskWorkerConfig.load(settings.taskWorkerConfig().orElseThrow())) : Optional.empty();
             openQqSettings = settings.openQqConfig().isPresent()
                     ? Optional.of(OpenQqConfig.load(settings.openQqConfig().orElseThrow())) : Optional.empty();
+            memorySettings = settings.memoryConfig().isPresent()
+                    ? Optional.of(MemoryConfig.load(settings.memoryConfig().orElseThrow())) : Optional.empty();
             if (!routerSettings.usesChat()) {
                 throw new IllegalArgumentException("Router 需要支持 tool_calls 的 /v1/chat/completions 端点");
             }
@@ -85,6 +91,7 @@ public final class ConsoleMain {
         try {
             var audit = AuditLog.open(settings.auditDirectory());
             opened.push(audit);
+            var memory = openMemory(memorySettings, opened, audit);
             var chatClient = chatSettings.newClient();
             opened.push(chatClient);
             var routerClient = HttpClient.newBuilder().connectTimeout(routerSettings.connectTimeout()).build();
@@ -104,7 +111,7 @@ public final class ConsoleMain {
             var routerInference = new Master(routerClient, routerSettings);
             var router = new Router<>(routerInference, routerPrompt, Route.class);
             var master = new Master(masterClient, masterSettings);
-            var chatExchange = conversation(chat, router, task);
+            var chatExchange = conversation(chat, router, task, memory);
             var nodes = new ArrayList<>(List.of(
                     new Node("chat-worker", "Chat Worker", chatSettings.endpoint().toString(), null,
                             chatExchange, null),
@@ -127,7 +134,7 @@ public final class ConsoleMain {
             opened.push(monitor);
             monitor.start(settings.metricsInterval());
 
-            var server = ConsoleServer.start(settings.listen(), audit, monitor, nodes);
+            var server = ConsoleServer.start(settings.listen(), audit, monitor, nodes, memory);
             opened.push(server);
 
             // 两个入口使用同一对话处理器。QQ 登录验证在后台连接中完成，断开时可独立重连。
@@ -135,14 +142,17 @@ public final class ConsoleMain {
                 var openQqClient = HttpClient.newHttpClient();
                 opened.push(openQqClient);
                 var channel = new OpenQqChannel(openQqClient, configured.endpoint(), configured.accessToken(),
-                        configured.accountId(), configured.allowedUserId(), audit, chatExchange);
+                        configured.accountId(), configured.allowedUserId(), audit, chatExchange, memory);
                 opened.push(channel);
                 channel.start();
             });
-        } catch (IOException | IllegalArgumentException error) {
+        } catch (IOException | IllegalArgumentException | InterruptedException error) {
             System.err.println("控制台启动失败");
             error.printStackTrace(System.err);
             closeAll(opened);
+            if (error instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
             return 1;
         }
         Runtime.getRuntime().addShutdownHook(new Thread(() -> closeAll(opened), "console-shutdown"));
@@ -151,13 +161,34 @@ public final class ConsoleMain {
         return 0;
     }
 
-    static ConsoleServer.Exchange conversation(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task) {
+    private static Optional<ConversationMemory> openMemory(Optional<MemoryConfig> settings,
+                                                            Deque<AutoCloseable> opened, AuditLog audit)
+            throws IOException, InterruptedException {
+        if (settings.isEmpty()) {
+            return Optional.empty();
+        }
+        var config = settings.orElseThrow();
+        var client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+        opened.push(client);
+        var memory = new ResidentMemory(client, config.endpoint(), config.characterId(), config.token());
+        memory.verify();
+        return Optional.of(new ConversationMemory(audit, memory));
+    }
+
+    static ConsoleServer.Exchange conversation(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task,
+                                                Optional<ConversationMemory> memory) {
         return (text, trace) -> {
-            int submitted = trace.write(trace.request(), "chat-worker", "chat_worker_router_request", Map.of());
+            int input = memory.isPresent() ? memory.orElseThrow().rememberInbound(trace, text) : trace.request();
+            int submitted = trace.write(input, "chat-worker", "chat_worker_router_request", Map.of());
             var conversation = chat.routeConversation(text, router);
             int routed = trace.write(submitted, "router", "router_route", Map.of("route", conversation.route().name()));
             if (conversation.route() == Route.ACTION_REQUEST && task.isPresent()) {
                 return executeTask(chat, task.orElseThrow(), conversation, trace, routed);
+            }
+            if (conversation.route() == Route.CONVERSATION && memory.isPresent()) {
+                var recalled = memory.orElseThrow().recent(trace, routed);
+                return new Reply("chat_worker_reply",
+                        Map.of("text", chat.reply(conversation, recalled.messages()).orElseThrow()), recalled.eventId());
             }
             return new Reply("chat_worker_reply", Map.of("text", chat.reply(conversation).orElseThrow()), routed);
         };

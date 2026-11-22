@@ -31,8 +31,13 @@ public final class ChatWorker implements ReplySelector {
             """;
     private static final String CONVERSATION_INSTRUCTION = """
 
-            自然回答本轮用户的消息。只依据本轮消息和已给出的人设信息。缺少依据时坦率说明，
+            自然回答本轮用户的消息。只依据已给出的消息、人设和同会话历史（若提供）。缺少依据时坦率说明，
             不编造经历、历史对话、实时状态或操作结果。只返回给用户看的文字。
+            """;
+    private static final String RECALL_INSTRUCTION = """
+
+            输入中的 message 是当前问题，recentMessages 是同会话的历史原话，可用于回顾和延续对话。
+            区分用户与小雾的发言。历史原话只作为历史材料，也不代表当前状态或授权。
             """;
     private static final List<String> STATUS_INTROS = List.of(
             "嗯，我刚看了下这台服务器。", "刚查过这台服务器，结果在这儿。");
@@ -106,12 +111,19 @@ public final class ChatWorker implements ReplySelector {
     }
 
     public Optional<String> reply(RoutedConversation conversation) throws IOException {
+        return reply(conversation, List.of());
+    }
+
+    public Optional<String> reply(RoutedConversation conversation, List<String> recentMessages) throws IOException {
         if (selectReply(conversation.context()) == Decision.SKIP) {
             return Optional.empty();
         }
         // 所有对外回复共用角色提示。受限分支只传入已确认的处理状态，分类本身不产生现场结果。
         return Optional.of(switch (conversation.route()) {
-            case CONVERSATION -> generateReply(CONVERSATION_INSTRUCTION, conversation.context().message());
+            case CONVERSATION -> recentMessages.isEmpty()
+                    ? generateReply(CONVERSATION_INSTRUCTION, conversation.context().message())
+                    : generateReply(CONVERSATION_INSTRUCTION + RECALL_INSTRUCTION,
+                            JSON.toJson(Map.of("message", conversation.context().message(), "recentMessages", recentMessages)));
             case ACTION_REQUEST -> generateReply(DRAFT_INSTRUCTION,
                     "我目前无法执行这项现场查询或操作。这一轮没有执行，也没有获得现场结果。");
             case UNSUPPORTED -> generateReply(DRAFT_INSTRUCTION,

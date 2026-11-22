@@ -46,6 +46,8 @@ public class ConsoleConversationTest {
         var trace = new Trace() {
             public int request() { return 1; }
 
+            public Scope scope() { return new Scope("console", "test", "test-run"); }
+
             public int write(Integer parent, String node, String type, Object data) {
                 events.add(node + ":" + type);
                 assertEquals(Integer.valueOf(events.size()), parent);
@@ -93,7 +95,7 @@ public class ConsoleConversationTest {
             var router = new Router<>(new Master(client, settings), "选择流程。", Route.class);
             var chat = new ChatWorker(client, base.resolve("/generate"), Duration.ofSeconds(3), 1024,
                     "LOW", "test-key", "你是小雾。", "喜欢摄影。");
-            var entry = ConsoleMain.conversation(chat, router, Optional.empty());
+            var entry = ConsoleMain.conversation(chat, router, Optional.empty(), Optional.empty());
 
             var reply = entry.send("你喜欢什么？", trace);
             assertEquals("你喜欢什么？", report.get());
@@ -133,7 +135,7 @@ public class ConsoleConversationTest {
                         return new ServerStatus("2026-11-22T00:00:00Z", 7200, 0.5, 2L << 30, 4L << 30,
                                 8L << 30, 16L << 30);
                     });
-            var withTask = ConsoleMain.conversation(chat, router, Optional.of(task));
+            var withTask = ConsoleMain.conversation(chat, router, Optional.of(task), Optional.empty());
             route.set("ACTION_REQUEST");
             events.clear();
             draftedText.set("嗯，我刚看了下这台服务器。");

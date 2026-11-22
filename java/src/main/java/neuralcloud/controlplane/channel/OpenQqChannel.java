@@ -12,6 +12,7 @@ import neuralcloud.controlplane.console.AuditLog;
 import neuralcloud.controlplane.console.ConsoleServer.Exchange;
 import neuralcloud.controlplane.console.ConsoleServer.Reply;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
+import neuralcloud.controlplane.memory.ConversationMemory;
 
 import java.io.IOException;
 import java.net.URI;
@@ -20,6 +21,7 @@ import java.net.http.WebSocket;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
@@ -44,11 +46,12 @@ public final class OpenQqChannel implements AutoCloseable {
     private final String chain;
     private final AuditLog audit;
     private final Exchange conversation;
+    private final Optional<ConversationMemory> memory;
     private final Thread runner;
     private volatile boolean closed;
 
     public OpenQqChannel(HttpClient client, URI endpoint, String token, long accountId, long allowedUserId,
-                         AuditLog audit, Exchange conversation) {
+                         AuditLog audit, Exchange conversation, Optional<ConversationMemory> memory) {
         this.client = client;
         this.endpoint = endpoint;
         this.token = token;
@@ -57,6 +60,7 @@ public final class OpenQqChannel implements AutoCloseable {
         this.chain = "qq-private-" + accountId + "-" + allowedUserId;
         this.audit = audit;
         this.conversation = conversation;
+        this.memory = memory;
         this.runner = Thread.ofVirtual().name("openqq-channel").unstarted(this::run);
     }
 
@@ -92,7 +96,7 @@ public final class OpenQqChannel implements AutoCloseable {
         }
         int request = audit.write(chain, null, "openqq", "qq_message",
                 Map.of("text", incoming.text(), "messageId", incoming.messageId()));
-        var trace = Trace.forChain(audit, chain, request);
+        var trace = Trace.forChain(audit, "openqq", chain, request);
         Reply reply;
         try {
             reply = conversation.send(incoming.text(), trace);
@@ -115,7 +119,10 @@ public final class OpenQqChannel implements AutoCloseable {
         }
         if (successful(receipt) && receipt.get("data") instanceof JsonObject data
                 && id(data.get("message_id")) > 0) {
-            trace.write(sending, "openqq", "qq_delivery", Map.of("messageId", id(data.get("message_id"))));
+            int delivered = trace.write(sending, "openqq", "qq_delivery", Map.of("messageId", id(data.get("message_id"))));
+            if (memory.isPresent()) {
+                memory.orElseThrow().rememberDelivered(trace, delivered, (String) reply.data().get("text"));
+            }
         } else if ("failed".equals(string(receipt.get("status")))
                 && receipt.get("retcode") instanceof JsonPrimitive code && code.isNumber()) {
             trace.write(sending, "openqq", "qq_delivery_failed", Map.of("retcode", code.getAsNumber()));
