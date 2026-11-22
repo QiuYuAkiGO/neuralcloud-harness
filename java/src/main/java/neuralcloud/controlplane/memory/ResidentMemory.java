@@ -8,6 +8,7 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
 import neuralcloud.controlplane.console.ConsoleServer.Trace.Scope;
+import neuralcloud.controlplane.console.ConsoleServer.Trace.QqPrivate;
 
 import java.io.IOException;
 import java.net.URI;
@@ -66,6 +67,10 @@ public final class ResidentMemory {
     }
 
     public void verify() throws IOException, InterruptedException {
+        verify(false);
+    }
+
+    public void verify(boolean qqPrivateEnabled) throws IOException, InterruptedException {
         var result = request("v1/health", null);
         if (!character.equals(text(result, "character_id")) || !"TEXT_READY".equals(text(result, "status"))) {
             throw new IOException("记忆服务未就绪或 character_id 与配置不符");
@@ -74,6 +79,9 @@ public final class ResidentMemory {
                 || !(result.get("source_event_versions") instanceof JsonArray versions)
                 || !versions.contains(new JsonPrimitive(2)))) {
             throw new IOException("生产记忆服务须支持按会话检索和来源事件 v2");
+        }
+        if (scopedRecall && qqPrivateEnabled && !new JsonPrimitive(true).equals(result.get("qq_self_history"))) {
+            throw new IOException("生产 QQ 私聊需要记忆服务支持 qq_self_history");
         }
     }
 
@@ -163,6 +171,37 @@ public final class ResidentMemory {
             }
         }
         return matches.stream().distinct().limit(4).sorted(Comparator.comparingDouble(Match::occurredAt)).toList();
+    }
+
+    List<Match> selfHistory(QqPrivate qq, String query, Instant receivedAt) throws IOException, InterruptedException {
+        // 账号只取自入站私聊。记忆服务按作者和原始消息元数据筛选，只回传本人发言节选。
+        String peer = Long.toString(qq.peerId());
+        double before = epochSeconds(receivedAt);
+        var result = request("v1/recall/qq-self-history",
+                Map.of("account_id", peer, "query", query, "before", before, "limit", 4));
+        if (!character.equals(text(result, "character_id")) || !peer.equals(text(result, "account_id"))
+                || !(result.get("items") instanceof JsonArray items) || items.size() > 4) {
+            throw new IOException("本人发言查询的角色、账号或结果列表不符合请求");
+        }
+        var matches = new ArrayList<Match>();
+        for (var raw : items) {
+            if (raw instanceof JsonObject item) {
+                String origin = text(item, "origin");
+                String id = text(item, "record_id");
+                String excerpt = text(item, "excerpt");
+                double time = occurredAt(item);
+                if (Set.of("qq_group", "qq_private").contains(origin) && !id.isBlank() && id.length() <= 256
+                        && positive(item, "revision") > 0 && time >= 0 && time < before
+                        && !excerpt.isBlank() && excerpt.codePointCount(0, excerpt.length()) <= 2048) {
+                    String channel = "qq_group".equals(origin) ? "QQ 群聊" : "QQ 私聊";
+                    matches.add(new Match(id, time, "北京时间 " + SPOKEN_AT.format(Instant.ofEpochSecond((long) time))
+                            + "，当前账号本人在" + channel + "中的发言节选：“" + excerpt + "”。"));
+                    continue;
+                }
+            }
+            throw new IOException("本人发言记录的来源、标识、版本、时间或节选不符合契约");
+        }
+        return List.copyOf(matches);
     }
 
     public Optional<Match> selfIdentity(Scope scope) throws IOException, InterruptedException {

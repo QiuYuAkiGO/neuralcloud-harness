@@ -57,8 +57,9 @@ function summary(event) {
     }
     case 'chat_worker_received': return 'Chat Worker 已接收本轮消息';
     case 'chat_worker_turn_plan': return 'Chat Worker 选择 ' + data.kind;
-    case 'chat_worker_memory_request': return data.query ? '请求查询记忆：' + data.query : '请求查询当前用户身份';
-    case 'router_memory_query': return 'Router 已发起记忆查询';
+    case 'chat_worker_memory_request': return data.kind === 'SELF_HISTORY' ? '请求查询本人跨会话发言：' + data.query
+      : data.query ? '请求查询记忆：' + data.query : '请求查询当前用户身份';
+    case 'router_memory_query': return data.kind === 'SELF_HISTORY' ? 'Router 已按当前 QQ 发件人查询历史发言' : 'Router 已发起记忆查询';
     case 'router_memory_result': return data.sentences?.join('\n') || 'Router 已回传 ' + data.count + ' 条材料';
     case 'memory_write_failed': return '回复记忆写入失败：' + data.detail;
     case 'chat_worker_reply': return data.text;

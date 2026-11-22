@@ -92,7 +92,7 @@ public final class ConsoleMain {
         try {
             var audit = AuditLog.open(settings.auditDirectory());
             opened.push(audit);
-            var memory = openMemory(memorySettings, opened, audit);
+            var memory = openMemory(memorySettings, opened, audit, openQqSettings.isPresent());
             var chatClient = chatSettings.newClient();
             opened.push(chatClient);
             var routerClient = HttpClient.newBuilder().connectTimeout(routerSettings.connectTimeout()).build();
@@ -163,7 +163,7 @@ public final class ConsoleMain {
     }
 
     private static Optional<ConversationMemory> openMemory(Optional<MemoryConfig> settings,
-                                                            Deque<AutoCloseable> opened, AuditLog audit)
+                                                            Deque<AutoCloseable> opened, AuditLog audit, boolean qqPrivateEnabled)
             throws IOException, InterruptedException {
         if (settings.isEmpty()) {
             return Optional.empty();
@@ -173,7 +173,7 @@ public final class ConsoleMain {
         opened.push(client);
         var memory = new ResidentMemory(client, config.endpoint(), config.characterId(), config.token(),
                 config.scopedRecall());
-        memory.verify();
+        memory.verify(qqPrivateEnabled);
         return Optional.of(new ConversationMemory(audit, memory));
     }
 
@@ -186,14 +186,14 @@ public final class ConsoleMain {
             int accepted = trace.write(trace.request(), "chat-worker", "chat_worker_received", Map.of());
             var store = memory.orElseThrow();
             int input = store.rememberInbound(trace, accepted, text);
-            var turn = chat.planTurn(text, trace.dialogue());
+            var turn = chat.planTurn(text, trace.dialogue(), store.canSearchSelfHistory(trace.scope()));
             int planned = trace.write(input, "chat-worker", "chat_worker_turn_plan",
                     Map.of("kind", turn.kind().name(), "dialogueMessages", turn.dialogue().size(), "usage", turn.usage()));
             return switch (turn.kind()) {
                 case REPLY, CLARIFY -> new Reply("chat_worker_reply",
                         Map.of("text", chat.replyToTurn(turn, List.of()).orElseThrow()), planned);
                 case ACTION -> routeAction(chat, router, task, text, trace, planned);
-                case HISTORY, SELF_IDENTITY -> replyWithMemory(chat, router, store, turn, trace, planned);
+                case HISTORY, SELF_IDENTITY, SELF_HISTORY -> replyWithMemory(chat, router, store, turn, trace, planned);
             };
         };
     }
@@ -201,7 +201,7 @@ public final class ConsoleMain {
     private static Reply replyWithMemory(ChatWorker chat, Router<Route> router, ConversationMemory memory,
                                          ChatWorker.Turn turn, ConsoleServer.Trace trace, int planned)
             throws IOException, InterruptedException {
-        var kind = turn.kind() == ChatWorker.TurnKind.SELF_IDENTITY ? QueryKind.SELF_IDENTITY : QueryKind.HISTORY;
+        var kind = QueryKind.valueOf(turn.kind().name());
         int requested = trace.write(planned, "chat-worker", "chat_worker_memory_request",
                 Map.of("kind", kind.name(), "query", turn.query()));
         var recalled = router.queryMemory(memory, trace, requested, kind, turn.query());

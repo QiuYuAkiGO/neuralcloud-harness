@@ -43,6 +43,56 @@
         }
       }
     },
+    "/v1/recall/qq-self-history": {
+      "post": {
+        "summary": "Qq Self History",
+        "operationId": "qq_self_history_v1_recall_qq_self_history_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "",
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QqSelfHistoryQuery"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QqSelfHistoryResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/recall": {
       "post": {
         "summary": "Recall",
@@ -1027,6 +1077,113 @@
           "status"
         ],
         "title": "MissingReceipt"
+      },
+      "QqSelfHistoryItem": {
+        "properties": {
+          "record_id": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Record Id"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision"
+          },
+          "occurred_at": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Occurred At"
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "qq_group",
+              "qq_private"
+            ],
+            "title": "Origin"
+          },
+          "excerpt": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Excerpt"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "record_id",
+          "revision",
+          "occurred_at",
+          "origin",
+          "excerpt"
+        ],
+        "title": "QqSelfHistoryItem"
+      },
+      "QqSelfHistoryQuery": {
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{4,15}$",
+            "title": "Account Id"
+          },
+          "query": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "pattern": "\\S",
+            "title": "Query"
+          },
+          "before": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Before"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 4
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "account_id",
+          "query",
+          "before"
+        ],
+        "title": "QqSelfHistoryQuery"
+      },
+      "QqSelfHistoryResult": {
+        "properties": {
+          "character_id": {
+            "type": "string",
+            "title": "Character Id"
+          },
+          "account_id": {
+            "type": "string",
+            "title": "Account Id"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QqSelfHistoryItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "character_id",
+          "account_id",
+          "items"
+        ],
+        "title": "QqSelfHistoryResult"
       },
       "Recall": {
         "properties": {

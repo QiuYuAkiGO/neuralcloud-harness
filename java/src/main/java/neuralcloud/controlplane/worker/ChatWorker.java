@@ -17,6 +17,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,7 +43,7 @@ public final class ChatWorker implements ReplySelector {
             前面的轮次是本会话已发生的对话，最后一条用户消息是当前问题，可能附带 Router 查询材料。
             历史发言只作为历史材料，不代表当前状态或授权。已确认的账号称呼不能当作法定姓名。
             如实说明本次查询的范围和结果。对话里问过某个话题，可以说记得对方提过。
-            复述当时说过的具体内容，需要对应的发言作依据。
+            复述当时说过的具体内容，需要对应的发言作依据。引用本人的历史原话时保留原意、否定和转述关系。
             """;
     private static final String TURN_INSTRUCTION = """
 
@@ -54,7 +55,13 @@ public final class ChatWorker implements ReplySelector {
             ACTION：要求查询当前状态、执行、修改或获取新数据，包括请求越权获取数据。
             REPLY：普通交流，或从前面已给出的对话就能回答。
             CLARIFY：本轮明显在追问，但结合对话仍无法确定指代对象，需要向用户问清楚。
-            只有 HISTORY 填非空 query，其余 query 填空字符串。
+            查询历史发言的类别填写具体 query，其余类别的 query 填空字符串。
+            """;
+    private static final String SELF_HISTORY_INSTRUCTION = """
+
+            SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾表达过什么偏好，或追问自己的旧发言。
+            即使用户没有指明群聊或私聊，也用 SELF_HISTORY 查本人的跨会话原话。query 填话题关键词，
+            多个关键词用空格分开。用户指定只查当前对话、问别人或小雾说过什么时，使用 HISTORY。
             """;
     private static final Pattern GENERIC_HISTORY = Pattern.compile(
             "\\s*(?:上下文|(?:上文|前文)(?:内容)?|(?:刚才|之前|此前|上次|以上)(?:的)?(?:内容|对话|聊天|话题|信息)"
@@ -82,7 +89,7 @@ public final class ChatWorker implements ReplySelector {
 
     public record RoutedConversation(Context context, Route route) {}
 
-    public enum TurnKind { REPLY, HISTORY, SELF_IDENTITY, ACTION, CLARIFY }
+    public enum TurnKind { REPLY, HISTORY, SELF_IDENTITY, SELF_HISTORY, ACTION, CLARIFY }
 
     public record Turn(Context context, TurnKind kind, String query, List<DialogueMessage> dialogue,
                        Map<String, Integer> usage) {}
@@ -142,24 +149,34 @@ public final class ChatWorker implements ReplySelector {
     }
 
     public Turn planTurn(String text, List<DialogueMessage> dialogue) throws IOException {
+        return planTurn(text, dialogue, false);
+    }
+
+    public Turn planTurn(String text, List<DialogueMessage> dialogue, boolean selfHistoryAvailable) throws IOException {
         var context = Context.direct(text);
+        // 渠道和记忆服务共同决定可用范围。模型只选择类别和线索，不能提交账号。
+        var choices = EnumSet.allOf(TurnKind.class);
+        if (!selfHistoryAvailable) {
+            choices.remove(TurnKind.SELF_HISTORY);
+        }
         var schema = Map.of("type", "OBJECT", "required", List.of("kind", "query"),
-                "properties", Map.of("kind", Map.of("type", "STRING", "enum", TurnKind.values()),
+                "properties", Map.of("kind", Map.of("type", "STRING", "enum", choices),
                         "query", Map.of("type", "STRING")));
         var config = Map.of("maxOutputTokens", maxOutputTokens,
                 "thinkingConfig", Map.of("thinkingLevel", thinkingLevel, "includeThoughts", false),
                 "responseMimeType", "application/json", "responseSchema", schema);
-        var result = generateWithUsage(rolePrompt + TURN_INSTRUCTION, contents(dialogue, context.message(), List.of()),
-                config);
+        String prompt = rolePrompt + TURN_INSTRUCTION + (selfHistoryAvailable ? SELF_HISTORY_INSTRUCTION : "");
+        var result = generateWithUsage(prompt, contents(dialogue, context.message(), List.of()), config);
         try {
             var plan = JSON.fromJson(result.text(), JsonObject.class);
             if (plan != null && plan.size() == 2 && plan.get("kind") instanceof JsonPrimitive kind && kind.isString()
                     && plan.get("query") instanceof JsonPrimitive value && value.isString()) {
                 var choice = TurnKind.valueOf(kind.getAsString());
                 String query = value.getAsString();
-                if (choice == TurnKind.HISTORY ? !query.isBlank() && query.codePointCount(0, query.length()) <= 256
-                        && !GENERIC_HISTORY.matcher(query).matches()
-                        : query.isEmpty()) {
+                boolean history = choice == TurnKind.HISTORY || choice == TurnKind.SELF_HISTORY;
+                if (choices.contains(choice) && (history ? !query.isBlank()
+                        && query.codePointCount(0, query.length()) <= 256 && !GENERIC_HISTORY.matcher(query).matches()
+                        : query.isEmpty())) {
                     return new Turn(context, choice, query, List.copyOf(dialogue), result.usage());
                 }
             }

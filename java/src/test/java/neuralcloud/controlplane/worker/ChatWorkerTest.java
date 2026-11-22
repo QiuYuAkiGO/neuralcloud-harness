@@ -94,6 +94,19 @@ public class ChatWorkerTest {
     }
 
     @Test
+    public void offersAuthoredHistoryOnlyWithABoundPrivateSpeaker() throws IOException {
+        var requests = new CopyOnWriteArrayList<JsonObject>();
+        String result = completed("{\"kind\":\"SELF_HISTORY\",\"query\":\"摄影\"}");
+        String question = "我以前说过摄影的什么事？";
+        var turn = withWorker(200, requests, worker -> worker.planTurn(question, List.of(), true), result);
+        assertEquals(ChatWorker.TurnKind.SELF_HISTORY, turn.kind());
+        assertEquals("摄影", turn.query());
+        assertTrue(requests.getFirst().getAsJsonObject("generationConfig").toString().contains("SELF_HISTORY"));
+        assertThrows(IOException.class, () -> withWorker(200, requests, worker -> worker.planTurn(question), result));
+        assertFalse(requests.getFirst().getAsJsonObject("generationConfig").toString().contains("SELF_HISTORY"));
+    }
+
+    @Test
     public void keepsPreviousTurnAsPrefixForFollowUpAndRejectsPlaceholderQueries() throws IOException {
         var requests = new CopyOnWriteArrayList<JsonObject>();
         String first = "你还记得我是谁吗？";

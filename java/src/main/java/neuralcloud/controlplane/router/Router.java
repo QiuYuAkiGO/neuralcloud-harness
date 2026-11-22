@@ -67,14 +67,19 @@ public final class Router<R extends Enum<R>> {
         var recalled = switch (kind) {
             case HISTORY -> memory.recall(trace, querying, query);
             case SELF_IDENTITY -> memory.identity(trace, querying);
+            case SELF_HISTORY -> memory.selfHistory(trace, querying, query);
         };
         // 审计和 Worker 使用同一份正文。零命中时保留查询范围，近期对话和状态说明不增加命中数。
         var sentences = recalled.messages();
         if (sentences.isEmpty()) {
-            sentences = List.of(kind == QueryKind.HISTORY ? "当前会话中未查到符合条件的历史记录。" : "未查到符合条件的记录。");
+            sentences = List.of(switch (kind) {
+                case HISTORY -> "当前会话中未查到符合条件的历史记录。";
+                case SELF_IDENTITY -> "未查到符合条件的记录。";
+                case SELF_HISTORY -> "在能核实为当前账号本人发出的 QQ 历史消息中，未查到符合条件的发言。";
+            });
         }
         int returned = trace.write(recalled.eventId(), "router", "router_memory_result",
-                Map.of("count", recalled.matchCount(), "sentences", sentences));
+                Map.of("kind", kind.name(), "count", recalled.matchCount(), "sentences", sentences));
         return new ConversationMemory.Recall(sentences, recalled.matchCount(), returned);
     }
 }

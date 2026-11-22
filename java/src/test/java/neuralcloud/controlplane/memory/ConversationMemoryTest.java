@@ -13,6 +13,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -26,6 +27,8 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public class ConversationMemoryTest {
@@ -209,6 +212,53 @@ public class ConversationMemoryTest {
             assertEquals("10002", received.get().getAsJsonObject("subject").get("account_id").getAsString());
             assertTrue(!received.get().has("constraints"));
             assertTrue(memory.selfIdentity(new Trace.Scope("console", "test", "run")).isEmpty());
+        } finally {
+            service.stop(0);
+        }
+    }
+
+    @Test
+    public void routesAuthoredHistoryUsingThePrivateSenderAndAuditsWhatTheWorkerReceives() throws Exception {
+        var request = new AtomicReference<JsonObject>();
+        var account = new AtomicReference<>("10002");
+        var gson = new Gson();
+        var service = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        service.createContext("/v1/recall/qq-self-history", exchange -> {
+            try (exchange) {
+                request.set(JsonParser.parseString(new String(exchange.getRequestBody().readAllBytes(),
+                        StandardCharsets.UTF_8)).getAsJsonObject());
+                var items = List.of(Map.of("record_id", "shared-memory:example", "revision", 1, "occurred_at", 10,
+                        "origin", "qq_group", "excerpt", "那天去看了摄影展。"));
+                var body = Map.of("character_id", "misty-test", "account_id", account.get(), "items", items);
+                byte[] bytes = gson.toJson(body).getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, bytes.length);
+                exchange.getResponseBody().write(bytes);
+            }
+        });
+        service.start();
+        try (var audit = AuditLog.open(folder.getRoot().toPath()); var client = HttpClient.newHttpClient()) {
+            var endpoint = URI.create("http://127.0.0.1:" + service.getAddress().getPort() + "/");
+            var memory = new ConversationMemory(audit, new ResidentMemory(client, endpoint, "misty-test", "token", true));
+            var settings = new Master.Settings(endpoint.resolve("v1/chat/completions"), "test-router",
+                    HttpClient.Version.HTTP_1_1, Duration.ofSeconds(2), Duration.ofSeconds(2), "probe", 8, 0, false);
+            var router = new Router<>(new Master(client, settings), "选择流程。", Route.class);
+            int input = audit.write("qq-test", null, "openqq", "qq_message", Map.of("text", "我说过摄影吗？", "messageId", 9));
+            var trace = Trace.forQqPrivate(audit, "qq-test", input, 10001, 10002);
+            var kind = ConversationMemory.QueryKind.SELF_HISTORY;
+            var result = router.queryMemory(memory, trace, input, kind, "摄影");
+            assertEquals("10002", request.get().get("account_id").getAsString());
+            var at = Instant.parse(audit.events("qq-test").getFirst().recordedAt());
+            assertEquals(at.getEpochSecond() + at.getNano() / 1e9, request.get().get("before").getAsDouble(), 0);
+            var returned = audit.events("qq-test").getLast().data().getAsJsonObject();
+            assertEquals(1, returned.get("count").getAsInt());
+            assertEquals(kind.name(), returned.get("kind").getAsString());
+            assertTrue(result.messages().getFirst().contains("QQ 群聊中的发言节选：“那天去看了摄影展。”"));
+            assertEquals(gson.toJsonTree(result.messages()), returned.get("sentences"));
+            account.set("10003");
+            assertThrows(IOException.class, () -> router.queryMemory(memory, trace, input, kind, "摄影"));
+            request.set(null);
+            assertThrows(IOException.class, () -> router.queryMemory(memory, start(audit, "console", "摄影"), input, kind, "摄影"));
+            assertNull(request.get());
         } finally {
             service.stop(0);
         }

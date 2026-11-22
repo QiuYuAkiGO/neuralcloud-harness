@@ -1,0 +1,44 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "record_id": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Record Id",
+      "type": "string"
+    },
+    "revision": {
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "occurred_at": {
+      "minimum": 0,
+      "title": "Occurred At",
+      "type": "number"
+    },
+    "origin": {
+      "enum": [
+        "qq_group",
+        "qq_private"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
+    "excerpt": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "title": "Excerpt",
+      "type": "string"
+    }
+  },
+  "required": [
+    "record_id",
+    "revision",
+    "occurred_at",
+    "origin",
+    "excerpt"
+  ],
+  "title": "QqSelfHistoryItem",
+  "type": "object"
+}

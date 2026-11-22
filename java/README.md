@@ -88,6 +88,8 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 
 `router_memory_result.data.count` 记录话题或身份检索的实际命中数，`sentences` 保存交给 Chat Worker 的原样材料。生产历史检索零命中时，材料说明当前会话的查询结果。`recent` 模式只按回执重读近期对话，在材料中注明回读条数，话题命中数为零。
 
+生产 QQ 私聊另提供 `SELF_HISTORY`。当用户问自己以前说过什么，Chat Worker 提交话题关键词，Router 从入站私聊绑定本人账号，再向记忆服务查询本轮之前在 QQ 群聊或私聊的原话。审计记录查询类别、命中数以及 Worker 收到的带时间、渠道来源的节选。`HISTORY` 继续表示当前会话历史，`SELF_IDENTITY` 用来查询本人已确认的称呼。
+
 **对话上下文。** Chat Worker 按原顺序重放同渠道、同会话的用户消息和已确认送出的 Misty 回复。原文保留在审计链，单次请求的历史部分最多使用 48,000 个 UTF-16 代码单元，超出时按整条消息从最早处缩减请求前缀。历史消息维持原文和角色，Router 本轮取证材料附在当前消息之后。`chat_worker_turn_plan` 记录历史消息条数，以及 Gemini 实际返回的输入和缓存 token 计数。
 
 **参与判断。** 渠道通过 `ReplySelector.Context` 提供发言是否直接指向 Misty、本条正文及同一会话的近期原文。控制台发给 Chat Worker 的消息属于 `DIRECT`，选择 `REPLY`。群聊普通消息使用 `AMBIENT`，由 Chat Worker 用只读摘要判断。Gemini 配置的 `replyPreferences` 指向摘要资源，默认的首版根据 Misty 人设与远端历史记忆提炼。`ChatWorker.reply` 每次先判断参与，`REPLY` 才生成获准正文，`SKIP` 返回空结果，判断失败则抛出异常。

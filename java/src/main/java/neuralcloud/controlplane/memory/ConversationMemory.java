@@ -32,7 +32,11 @@ public final class ConversationMemory {
 
     // matchCount 只计算本次检索命中的记录。回读说明和近期对话也可作为材料交给 Worker。
     public record Recall(List<String> messages, int matchCount, int eventId) {}
-    public enum QueryKind { HISTORY, SELF_IDENTITY }
+    public enum QueryKind { HISTORY, SELF_IDENTITY, SELF_HISTORY }
+
+    public boolean canSearchSelfHistory(Trace.Scope scope) {
+        return memory.scopedRecall() && scope.qq().isPresent();
+    }
 
     public Recall identity(Trace trace, int causedBy) throws IOException, InterruptedException {
         var match = memory.selfIdentity(trace.scope());
@@ -42,18 +46,18 @@ public final class ConversationMemory {
         return new Recall(messages, messages.size(), event);
     }
 
+    public Recall selfHistory(Trace trace, int causedBy, String text) throws IOException, InterruptedException {
+        if (!canSearchSelfHistory(trace.scope())) {
+            throw new IOException("本人跨会话查询需要渠道确认的 QQ 私聊账号和生产记忆服务");
+        }
+        var matches = memory.selfHistory(trace.scope().qq().orElseThrow(), text, receivedAt(trace));
+        return historyResult(trace, causedBy, matches);
+    }
+
     public Recall recall(Trace trace, int causedBy, String text) throws IOException, InterruptedException {
         var scope = trace.scope();
         if (memory.scopedRecall()) {
-            // Worker 已持有对话前缀。生产查询只交付本轮线索在会话和时间范围内命中的证据。
-            var matches = new LinkedHashMap<String, String>();
-            for (var match : memory.search(scope, text, Instant.parse(event(trace, trace.request()).recordedAt()))) {
-                matches.put(match.recordId(), match.message());
-            }
-            var ids = List.copyOf(matches.keySet());
-            int event = trace.write(causedBy, "memory", "memory_recall",
-                    Map.of("recordIds", ids, "historicalRecordIds", ids));
-            return new Recall(List.copyOf(matches.values()), ids.size(), event);
+            return historyResult(trace, causedBy, memory.search(scope, text, receivedAt(trace)));
         }
 
         // recent 模式按持久回执重读近期对话，只提供上下文，话题命中计数为零。
@@ -75,6 +79,21 @@ public final class ConversationMemory {
         materials.add("本次只回读了当前会话的近期对话，共 " + recent.size() + " 条。");
         materials.addAll(recent.values());
         return new Recall(List.copyOf(materials), 0, event);
+    }
+
+    private Instant receivedAt(Trace trace) {
+        return Instant.parse(event(trace, trace.request()).recordedAt());
+    }
+
+    private static Recall historyResult(Trace trace, int causedBy, List<ResidentMemory.Match> found) throws IOException {
+        // 两种范围都只将本轮的实际命中记入回执，样板句与记录 ID 按相同顺序对应。
+        var matches = new LinkedHashMap<String, String>();
+        for (var match : found) {
+            matches.put(match.recordId(), match.message());
+        }
+        var ids = List.copyOf(matches.keySet());
+        int event = trace.write(causedBy, "memory", "memory_recall", Map.of("recordIds", ids, "historicalRecordIds", ids));
+        return new Recall(List.copyOf(matches.values()), ids.size(), event);
     }
 
     public void rememberDelivered(Trace trace, int delivered, String text) throws IOException {
