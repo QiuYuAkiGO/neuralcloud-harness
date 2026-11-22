@@ -50,6 +50,20 @@ public final class ConsoleServer implements AutoCloseable {
         int request();
 
         int write(Integer causedBy, String node, String type, Object data) throws IOException;
+
+        static Trace forChain(AuditLog audit, String chain, int request) {
+            return new Trace() {
+                @Override
+                public int request() {
+                    return request;
+                }
+
+                @Override
+                public int write(Integer causedBy, String node, String type, Object data) throws IOException {
+                    return audit.write(chain, causedBy, node, type, data);
+                }
+            };
+        }
     }
 
     @FunctionalInterface
@@ -184,17 +198,7 @@ public final class ConsoleServer implements AutoCloseable {
     // 先记录操作者正文，再调用节点。调用失败同样写入审计链，并以 502 返回实际失败原因。
     private Response send(Node node, Message message) throws IOException {
         int request = audit.write(message.chain(), null, node.id(), "operator_message", Map.of("text", message.text()));
-        var trace = new Trace() {
-            @Override
-            public int request() {
-                return request;
-            }
-
-            @Override
-            public int write(Integer causedBy, String eventNode, String type, Object data) throws IOException {
-                return audit.write(message.chain(), causedBy, eventNode, type, data);
-            }
-        };
+        var trace = Trace.forChain(audit, message.chain(), request);
         long started = System.nanoTime();
         Reply reply;
         try {

@@ -80,6 +80,8 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 
 **任务执行。** 配置 `taskWorkerConfig=classpath:/config/task-worker-deepseek.properties` 并通过环境提供 `DEEPSEEK_API_KEY` 后，`ACTION_REQUEST` 会派给 DeepSeek 任务 Worker。首个能力读取运行控制台的 Linux 主机的运行时间、一分钟负载、内存与根分区容量。DeepSeek 只能选择已声明的无参工具，实际读取由 Java 完成。任务回执写入同一条审计链后，Chat Worker 才按回执生成回复。
 
+**OpenQQ 私聊。** 可选的 `openQqConfig` 指向 UTF-8 配置文件，包含 `endpoint`（`ws://127.0.0.1:端口/`）、登录账号 `accountId`、允许发来测试消息的 `allowedUserId` 和令牌环境变量名 `accessTokenEnv`。接入只处理该账号发来的纯文本私聊，每条消息复用同一对话处理器。审计链 `qq-private-<accountId>-<allowedUserId>` 记录入站、分流与回复，收到 OneBot 消息 ID 才记录发送确认。发送状态不明时不会自动重发。
+
 **参与判断。** 渠道通过 `ReplySelector.Context` 提供发言是否直接指向 Misty、本条正文及同一会话的近期原文。控制台发给 Chat Worker 的消息属于 `DIRECT`，选择 `REPLY`。群聊普通消息使用 `AMBIENT`，由 Chat Worker 用只读摘要判断。Gemini 配置的 `replyPreferences` 指向摘要资源，默认的首版根据 Misty 人设与远端历史记忆提炼。`ChatWorker.reply` 每次先判断参与，`REPLY` 才生成获准正文，`SKIP` 返回空结果，判断失败则抛出异常。
 
 **审计链。** 每条正文先记为 `operator_message`，节点的实际返回或 `node_failed` 以 `causedBy` 指向它。手动推理探测记在 `probe-<runId>` 链上。每个进程在审计目录写一份新文件，启动时按文件名顺序读回历史文件。若某行不符合事件契约，启动失败并指出文件和行号。

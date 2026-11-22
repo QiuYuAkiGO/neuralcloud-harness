@@ -1,5 +1,6 @@
 package neuralcloud.controlplane.app;
 
+import neuralcloud.controlplane.channel.OpenQqChannel;
 import neuralcloud.controlplane.console.AuditLog;
 import neuralcloud.controlplane.console.ConsoleServer;
 import neuralcloud.controlplane.console.ConsoleServer.Node;
@@ -59,6 +60,7 @@ public final class ConsoleMain {
         String chatPrompt;
         String routerPrompt;
         Optional<TaskWorkerConfig> taskSettings;
+        Optional<OpenQqConfig.Settings> openQqSettings;
         try {
             settings = ConsoleConfig.load(config);
             chatSettings = ChatWorkerConfig.load(settings.chatWorkerConfig());
@@ -69,6 +71,8 @@ public final class ConsoleMain {
             masterSettings = MasterConfig.load(settings.masterConfig());
             taskSettings = settings.taskWorkerConfig().isPresent()
                     ? Optional.of(TaskWorkerConfig.load(settings.taskWorkerConfig().orElseThrow())) : Optional.empty();
+            openQqSettings = settings.openQqConfig().isPresent()
+                    ? Optional.of(OpenQqConfig.load(settings.openQqConfig().orElseThrow())) : Optional.empty();
             if (!routerSettings.usesChat()) {
                 throw new IllegalArgumentException("Router 需要支持 tool_calls 的 /v1/chat/completions 端点");
             }
@@ -100,9 +104,10 @@ public final class ConsoleMain {
             var routerInference = new Master(routerClient, routerSettings);
             var router = new Router<>(routerInference, routerPrompt, Route.class);
             var master = new Master(masterClient, masterSettings);
+            var chatExchange = conversation(chat, router, task);
             var nodes = new ArrayList<>(List.of(
                     new Node("chat-worker", "Chat Worker", chatSettings.endpoint().toString(), null,
-                            conversation(chat, router, task), null),
+                            chatExchange, null),
                     new Node("router", "Router", routerSettings.endpoint().toString(), routerSettings.model(),
                             (text, trace) -> new Reply("router_route", Map.of("route", router.route(text).name())),
                             routerInference::probeStartup),
@@ -124,6 +129,16 @@ public final class ConsoleMain {
 
             var server = ConsoleServer.start(settings.listen(), audit, monitor, nodes);
             opened.push(server);
+
+            // 两个入口使用同一对话处理器。QQ 登录验证在后台连接中完成，断开时可独立重连。
+            openQqSettings.ifPresent(configured -> {
+                var openQqClient = HttpClient.newHttpClient();
+                opened.push(openQqClient);
+                var channel = new OpenQqChannel(openQqClient, configured.endpoint(), configured.accessToken(),
+                        configured.accountId(), configured.allowedUserId(), audit, chatExchange);
+                opened.push(channel);
+                channel.start();
+            });
         } catch (IOException | IllegalArgumentException error) {
             System.err.println("控制台启动失败");
             error.printStackTrace(System.err);

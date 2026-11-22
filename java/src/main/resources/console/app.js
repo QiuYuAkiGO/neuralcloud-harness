@@ -32,7 +32,7 @@ function el(tag, props = {}, ...children) {
 }
 
 const time = (iso) => (iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '');
-const NODE_NAMES = { orchestrator: '编排器', 'task-worker': '任务 Worker', memory: '记忆（样例证据）' };
+const NODE_NAMES = { orchestrator: '编排器', 'task-worker': '任务 Worker', memory: '记忆（样例证据）', openqq: 'OpenQQ' };
 const nodeName = (id) => state.nodes.find((node) => node.id === id)?.name ?? NODE_NAMES[id] ?? id;
 
 // 各事件类型在对话和审计链里的一行摘要。
@@ -40,6 +40,11 @@ function summary(event) {
   const data = event.data;
   switch (event.type) {
     case 'operator_message': return data.text;
+    case 'qq_message': return data.text;
+    case 'qq_send_requested': return '已请求 OpenQQ 发送私聊回复';
+    case 'qq_delivery': return 'OpenQQ 已确认发送，消息 ID ' + data.messageId;
+    case 'qq_delivery_failed': return 'OpenQQ 拒绝发送，错误码 ' + data.retcode;
+    case 'qq_delivery_unknown': return 'OpenQQ 发送状态未确认：' + data.detail;
     case 'chat_worker_reply': return data.text;
     case 'chat_worker_router_request': return '已将本轮消息交给 Router 分流';
     case 'task_worker_dispatch': return '已派发给任务 Worker';

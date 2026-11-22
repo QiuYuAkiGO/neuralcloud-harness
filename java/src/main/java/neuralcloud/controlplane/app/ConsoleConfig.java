@@ -28,7 +28,7 @@ final class ConsoleConfig {
                     ConfigSource routerConfig, ConfigSource routerRolePrompt, NodeMonitor.Metrics routerMetrics,
                     ConfigSource masterConfig, NodeMonitor.Metrics masterMetrics, int masterMaxTokens, double masterTemperature,
                     NodeMonitor.GpuSource gpuMetrics, Duration metricsInterval, Duration metricsTimeout,
-                    Optional<ConfigSource> taskWorkerConfig) {
+                    Optional<ConfigSource> taskWorkerConfig, Optional<ConfigSource> openQqConfig) {
     }
 
     // 控制台没有身份校验，只允许监听本机回环地址。各节点的模型配置沿用各自的配置文件和校验。
@@ -36,6 +36,7 @@ final class ConsoleConfig {
         var properties = source.readProperties();
         var required = new HashSet<>(properties.stringPropertyNames());
         required.remove("taskWorkerConfig");
+        required.remove("openQqConfig");
         if (!required.equals(FIELDS)
                 || properties.values().stream().anyMatch(value -> value.toString().isBlank())) {
             throw new IllegalArgumentException("控制台配置须包含以下非空字段 " + FIELDS);
@@ -66,7 +67,8 @@ final class ConsoleConfig {
                 enumValue(NodeMonitor.GpuSource.class, properties, "gpuMetrics"),
                 Duration.ofSeconds(positive(properties, "metricsIntervalSeconds")),
                 Duration.ofSeconds(positive(properties, "metricsTimeoutSeconds")),
-                Optional.ofNullable(properties.getProperty("taskWorkerConfig")).map(ConfigSource::new));
+                Optional.ofNullable(properties.getProperty("taskWorkerConfig")).map(ConfigSource::new),
+                Optional.ofNullable(properties.getProperty("openQqConfig")).map(ConfigSource::new));
     }
 
     private static NodeMonitor.Metrics metrics(Properties properties, String field) {
