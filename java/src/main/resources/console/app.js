@@ -52,7 +52,7 @@ function summary(event) {
     case 'chat_worker_turn_plan': return 'Chat Worker 选择 ' + data.kind;
     case 'chat_worker_memory_request': return data.query ? '请求查询记忆：' + data.query : '请求查询当前用户身份';
     case 'router_memory_query': return 'Router 已发起记忆查询';
-    case 'router_memory_result': return 'Router 已返回 ' + data.count + ' 条查询结果';
+    case 'router_memory_result': return data.sentences?.join('\n') || 'Router 已返回 ' + data.count + ' 条查询结果';
     case 'memory_write_failed': return '回复记忆写入失败：' + data.detail;
     case 'chat_worker_reply': return data.text;
     case 'chat_worker_router_request': return '已将本轮消息交给 Router 分流';

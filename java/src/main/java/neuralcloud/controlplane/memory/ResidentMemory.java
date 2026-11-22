@@ -16,6 +16,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -27,6 +29,8 @@ import java.util.Set;
 public final class ResidentMemory {
     private static final Gson JSON = new GsonBuilder().setStrictness(Strictness.STRICT).create();
     private static final String SOURCE = "neuralcloud-java";
+    private static final DateTimeFormatter SPOKEN_AT = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss")
+            .withZone(ZoneId.of("Asia/Shanghai"));
     private static final Set<String> UNAVAILABLE = Set.of(
             "NOT_FOUND", "ARCHIVED_OFFLINE", "RETRACTED", "SOURCE_CHANGED", "INACTIVE");
 
@@ -114,7 +118,9 @@ public final class ResidentMemory {
         }
         String kind = text(reply, "kind");
         String content = text(reply, "content");
+        double time = occurredAt(reply);
         if (!"ONLINE".equals(status) || positive(reply, "revision") == 0 || content.isBlank()
+                || time < 0
                 || !(reply.get("source") instanceof JsonObject source)
                 || !character.equals(text(source, "character_id")) || !SOURCE.equals(text(source, "source_instance"))
                 || !scope.sessionId().equals(text(source, "session_id"))
@@ -123,7 +129,7 @@ public final class ResidentMemory {
                 || !(Kind.OBSERVATION.value.equals(kind) || Kind.SELF_EXPRESSION.value.equals(kind))) {
             throw new IOException("记忆记录不符合当前会话的来源或内容契约");
         }
-        return Optional.of(render(kind, content));
+        return Optional.of(render(scope, kind, content, time));
     }
 
     public List<Match> search(Scope scope, String query, Instant receivedAt) throws IOException, InterruptedException {
@@ -143,12 +149,12 @@ public final class ResidentMemory {
                 String id = text(item, "record_id");
                 String kind = text(item, "kind");
                 String content = text(item, "content");
+                double time = occurredAt(item);
                 if ("ONLINE".equals(text(item, "status")) && !id.isBlank() && id.length() <= 256
                         && !content.isBlank() && positive(item, "revision") > 0
-                        && item.get("occurred_at") instanceof JsonPrimitive time && time.isNumber()
-                        && time.getAsDouble() >= 0 && time.getAsDouble() <= until
+                        && time >= 0 && time <= until
                         && kind.equals(text(source, "kind")) && allowed(scope, source, kind)) {
-                    matches.add(new Match(id, time.getAsDouble(), render(kind, content)));
+                    matches.add(new Match(id, time, render(scope, kind, content, time)));
                 }
             }
         }
@@ -178,7 +184,8 @@ public final class ResidentMemory {
                 String name = text(identity, "name");
                 if (!id.isBlank() && !name.isBlank() && name.length() <= 128
                         && name.codePoints().noneMatch(Character::isISOControl)) {
-                    matches.add(new Match(id, 0, "当前 QQ 账号经确认的称呼是「" + name + "」。"));
+                    matches.add(new Match(id, 0, "当前 QQ 账号经确认的称呼是「" + name
+                            + "」。来源是记忆服务中经操作者确认的本人身份资料。"));
                 }
             }
         }
@@ -229,8 +236,22 @@ public final class ResidentMemory {
         return time.getEpochSecond() + time.getNano() / 1_000_000_000.0;
     }
 
-    private static String render(String kind, String content) {
-        return (Kind.OBSERVATION.value.equals(kind) ? "用户说：" : "小雾说：") + content;
+    private static double occurredAt(JsonObject item) {
+        if (item.get("occurred_at") instanceof JsonPrimitive field && field.isNumber()) {
+            double time = field.getAsDouble();
+            if (time >= 0 && time <= 253_402_300_799L) {
+                return time;
+            }
+        }
+        return -1;
+    }
+
+    private static String render(Scope scope, String kind, String content, double time) {
+        boolean user = Kind.OBSERVATION.value.equals(kind);
+        String speaker = user ? "用户" : "小雾";
+        String channel = scope.qq().isPresent() ? "当前 QQ 私聊" : "当前控制台会话";
+        return speaker + "在北京时间 " + SPOKEN_AT.format(Instant.ofEpochSecond((long) time))
+                + " 说：“" + content + "”。来源是" + channel + "中已记录的" + (user ? "用户发言。" : "小雾回复。");
     }
 
     private JsonObject request(String path, Map<String, ?> body) throws IOException, InterruptedException {
