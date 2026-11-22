@@ -18,6 +18,7 @@ $owned = [System.Collections.Generic.List[object]]::new()
 $launchId = [guid]::NewGuid().ToString('N')
 $routerPid = "/tmp/neuralcloud-router-$launchId.pid"
 $previousJavaHome = $env:JAVA_HOME
+$previousOutputEncoding = [Console]::OutputEncoding
 
 function Read-Properties([string]$Path) {
     Get-Content -LiteralPath $Path -Raw | ConvertFrom-StringData
@@ -108,6 +109,8 @@ function Test-ReusableModel([string]$Name, $Model) {
 
 Push-Location -LiteralPath $repo
 try {
+    # Windows 子进程的启动消息也要能在使用 UTF-8 的 Bash 终端中显示。
+    [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
     $console = Read-Properties $consolePath
     $master = Read-ModelProfile $console.masterConfig
     $router = Read-ModelProfile $console.routerConfig
@@ -221,5 +224,6 @@ rm -f -- "$1"
         $service.Process.Dispose()
     }
     $env:JAVA_HOME = $previousJavaHome
+    [Console]::OutputEncoding = $previousOutputEncoding
     Pop-Location
 }

@@ -41,6 +41,13 @@ pwsh -File java/start-local.ps1
 pwsh -File java/start-local.ps1 -Mode Meeting -ReminderOutcome CANCELLED
 ```
 
+在 WSL 或 Git Bash 中也可从仓库根目录运行 [Bash 入口](start-local.sh)。参数与 PowerShell 入口一致，配置路径使用 Bash 可访问的路径。若 Windows 的 PowerShell 7 不在 Bash 的 `PATH` 或标准安装位置，设置 `NEURALCLOUD_PWSH` 为 Bash 可访问的 `pwsh.exe` 路径。
+
+```bash
+bash java/start-local.sh
+bash java/start-local.sh -Mode Meeting -ReminderOutcome CANCELLED
+```
+
 启动器构建 Java，依次确认 27B Master 和 0.8B Router 就绪，再开放 <http://127.0.0.1:18900/>。普通模式开放三个单轮节点，`Meeting` 额外挂载会议改期挡板。Gemini 是远端服务，通过配置的代理在收到请求时调用。运行时路径、显存预算和启动时限集中在 [local-launch.psd1](src/main/resources/config/local-launch.psd1)，控制台和模型服务地址取自 [local-console.properties](src/main/resources/config/local-console.properties) 及其引用的节点配置。可用 `-LaunchConfig` 或 `-ConsoleConfig` 指定本机配置。
 
 同端口已提供预期模型时复用。退出、失败或按 Ctrl+C 时只回收本次创建的进程。启动日志保存在 `java/target/local-launch-*/` 下。`-SmokeTest` 在两个模型列表和控制台节点列表就绪后退出，适合验证启动和清理，服务生成能力可在控制台单独探测。 [Router 池化设计草案](../docs/proposals/router-pool-design-20261122.md)
