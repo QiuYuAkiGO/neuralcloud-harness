@@ -31,7 +31,9 @@ public class RouterTest {
                 var values = declaration.getAsJsonObject("parameters").getAsJsonObject("properties")
                         .getAsJsonObject("route").getAsJsonArray("enum");
                 var choice = payload.getAsJsonObject("tool_choice");
-                if (!"select_route".equals(declaration.get("name").getAsString())
+                String prompt = payload.getAsJsonArray("messages").get(0).getAsJsonObject().get("content").getAsString();
+                if (!"选择流程。\n只调用工具。".equals(prompt)
+                        || !"select_route".equals(declaration.get("name").getAsString())
                         || choice == null || !"select_route".equals(
                                 choice.getAsJsonObject("function").get("name").getAsString())
                         || !values.asList().stream().map(v -> v.getAsString()).toList()
@@ -54,7 +56,7 @@ public class RouterTest {
             var endpoint = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/v1/chat/completions");
             var settings = new Master.Settings(endpoint, "test-router", HttpClient.Version.HTTP_1_1,
                     Duration.ofSeconds(2), Duration.ofSeconds(3), "probe", 8, 0, false);
-            var router = new Router<>(new Master(client, settings), "选择流程。", Route.class);
+            var router = new Router<>(new Master(client, settings), "选择流程。\r\n只调用工具。", Route.class);
             assertEquals(Route.CONVERSATION, router.route("请总结这段话。"));
             var error = assertThrows(IOException.class, () -> router.route("会议改好了吗？"));
             assertTrue(error.getMessage().contains("枚举契约"));

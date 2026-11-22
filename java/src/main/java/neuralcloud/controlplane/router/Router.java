@@ -24,7 +24,8 @@ public final class Router<R extends Enum<R>> {
     // 调用方提供流程枚举，工具约束与结果解析共用同一份契约。
     public Router(Master inference, String rolePrompt, Class<R> routeType) {
         this.inference = inference;
-        this.rolePrompt = rolePrompt;
+        // 配置提示词统一用 LF 送入模型，避免 Windows 与 Linux 打包产生不同的分流结果。
+        this.rolePrompt = rolePrompt.replace("\r\n", "\n");
         this.routeType = routeType;
         var routes = Arrays.stream(routeType.getEnumConstants()).map(Enum::name).toList();
         tools = List.of(Map.of(
