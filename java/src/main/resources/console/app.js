@@ -1,7 +1,8 @@
 'use strict';
 
 // 对话记录和审计链都从服务端审计接口读取，页面不另存一份对话历史。
-const state = { nodes: [], chain: null, auditChain: null, nodesTimer: null };
+const state = { nodes: [], chain: null, auditChain: null, nodesTimer: null, auditTimer: null,
+  auditRequest: 0, auditSnapshot: null, auditPolling: false };
 
 async function api(method, path, body) {
   const response = await fetch(path, {
@@ -115,7 +116,12 @@ function showTab(name) {
   document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.tab === name));
   document.querySelectorAll('.panel').forEach((panel) => panel.classList.toggle('active', panel.id === `tab-${name}`));
   clearInterval(state.nodesTimer);
-  if (name === 'audit') loadChains();
+  clearInterval(state.auditTimer);
+  if (name === 'audit') {
+    loadChains();
+    refreshOpenAudit();
+    state.auditTimer = setInterval(refreshOpenAudit, 3000);
+  }
   if (name === 'nodes') {
     loadNodes();
     state.nodesTimer = setInterval(loadNodes, 5000);
@@ -199,8 +205,10 @@ async function loadChains() {
 }
 
 // causedBy 只在同一 runId 内有效，所以用 runId:eventId 作为事件键建树。
-function buildTree(events) {
-  const key = (runId, id) => `${runId}:${id}`;
+const auditEventKey = (runId, id) => `${runId}:${id}`;
+
+function buildTree(events, expanded) {
+  const key = auditEventKey;
   const children = new Map();
   const known = new Set(events.map((event) => key(event.runId, event.eventId)));
   const roots = [];
@@ -215,14 +223,17 @@ function buildTree(events) {
   }
   // 只有一个后续事件时画在同一层，出现分叉时才缩进，避免长链路逐级右移。
   const render = (event) => {
-    const kids = children.get(key(event.runId, event.eventId)) ?? [];
+    const eventKey = key(event.runId, event.eventId);
+    const kids = children.get(eventKey) ?? [];
+    const details = { 'data-event-key': eventKey };
+    if (expanded.has(eventKey)) details.open = '';
     const item = el('li', { class: `event ${event.type}` },
       el('div', { class: 'event-head' },
         el('span', { class: 'badge' }, `#${event.eventId}`),
         el('span', { class: 'event-type' }, event.type),
         el('span', { class: 'muted' }, `${nodeName(event.node)} · ${time(event.recordedAt)}${latency(event)}`)),
       el('div', { class: 'event-summary' }, summary(event)),
-      el('details', {}, el('summary', { class: 'muted' }, '原始事件'), el('pre', {}, JSON.stringify(event, null, 2))),
+      el('details', details, el('summary', { class: 'muted' }, '原始事件'), el('pre', {}, JSON.stringify(event, null, 2))),
       kids.length > 1 ? el('ul', {}, kids.flatMap(render)) : null);
     return kids.length === 1 ? [item, ...render(kids[0])] : [item];
   };
@@ -230,16 +241,36 @@ function buildTree(events) {
 }
 
 async function loadAudit(chain) {
+  const request = ++state.auditRequest;
   state.auditChain = chain;
   document.querySelectorAll('#audit-chains li').forEach((item) => {
     item.classList.toggle('active', item.querySelector('.id')?.textContent === chain);
   });
   const { events } = await api('GET', `/api/audit/chains/${chain}`);
+  if (request !== state.auditRequest) return;
+  const latest = events.at(-1);
+  const snapshot = JSON.stringify([chain, events.length, latest?.runId, latest?.eventId]);
+  if (snapshot === state.auditSnapshot) return;
+  state.auditSnapshot = snapshot;
+  const panel = document.getElementById('audit-events');
+  const expanded = new Set(Array.from(panel.querySelectorAll('details[open]'), (detail) => detail.dataset.eventKey));
   const runs = new Set(events.map((event) => event.runId));
-  document.getElementById('audit-events').replaceChildren(
+  panel.replaceChildren(
     el('div', { class: 'toolbar' }, el('strong', {}, chain),
       el('span', { class: 'muted' }, `${events.length} 条事件 · ${runs.size} 个进程`)),
-    buildTree(events));
+    buildTree(events, expanded));
+}
+
+async function refreshOpenAudit() {
+  if (!state.auditChain || state.auditPolling) return;
+  state.auditPolling = true;
+  try {
+    await loadAudit(state.auditChain);
+  } catch (error) {
+    console.warn('刷新当前审计链失败', error);
+  } finally {
+    state.auditPolling = false;
+  }
 }
 
 document.getElementById('audit-refresh').addEventListener('click', async () => {
