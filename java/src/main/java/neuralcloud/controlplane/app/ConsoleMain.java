@@ -9,7 +9,6 @@ import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.worker.ChatWorker;
-import neuralcloud.controlplane.worker.ReplySelector.Context;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
@@ -93,8 +92,7 @@ public final class ConsoleMain {
             var master = new Master(masterClient, masterSettings);
             var nodes = new ArrayList<>(List.of(
                     new Node("chat-worker", "Chat Worker", chatSettings.endpoint().toString(), null,
-                            (text, trace) -> new Reply("chat_worker_reply",
-                                    Map.of("text", chat.reply(Context.direct(text), text).orElseThrow())), null),
+                            conversation(chat, router), null),
                     new Node("router", "Router", routerSettings.endpoint().toString(), routerSettings.model(),
                             (text, trace) -> new Reply("router_route", Map.of("route", router.route(text).name())),
                             routerInference::probeStartup),
@@ -126,6 +124,15 @@ public final class ConsoleMain {
         var address = settings.listen();
         System.out.println("控制台已就绪：http://" + address.getHostString() + ":" + address.getPort() + "/");
         return 0;
+    }
+
+    static ConsoleServer.Exchange conversation(ChatWorker chat, Router<Route> router) {
+        return (text, trace) -> {
+            int submitted = trace.write(trace.request(), "chat-worker", "chat_worker_router_request", Map.of());
+            var conversation = chat.routeConversation(text, router);
+            int routed = trace.write(submitted, "router", "router_route", Map.of("route", conversation.route().name()));
+            return new Reply("chat_worker_reply", Map.of("text", chat.reply(conversation).orElseThrow()), routed);
+        };
     }
 
     // 后打开的先关闭：先停止接收请求，再停止状态读取、关闭模型客户端，最后关闭审计文件。

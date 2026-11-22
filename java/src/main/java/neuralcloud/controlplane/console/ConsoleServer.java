@@ -58,7 +58,10 @@ public final class ConsoleServer implements AutoCloseable {
     }
 
     // type 是写入审计链的事件类型，data 是该节点实际返回的可见内容。
-    public record Reply(String type, Map<String, Object> data) {
+    public record Reply(String type, Map<String, Object> data, Integer causedBy) {
+        public Reply(String type, Map<String, Object> data) {
+            this(type, data, null);
+        }
     }
 
     // probe 为 null 表示该节点不提供探测，状态以最近一次调用为准。
@@ -202,7 +205,8 @@ public final class ConsoleServer implements AutoCloseable {
         long latency = elapsedMillis(started);
         var data = new LinkedHashMap<>(reply.data());
         data.put("latencyMs", latency);
-        int event = audit.write(message.chain(), request, node.id(), reply.type(), data);
+        int parent = reply.causedBy() == null ? request : reply.causedBy();
+        int event = audit.write(message.chain(), parent, node.id(), reply.type(), data);
         monitor.recordCall(node.id(), new NodeMonitor.Outcome(Instant.now().toString(), true, latency, ""));
         return json(200, Map.of("eventId", event, "type", reply.type(), "data", data));
     }

@@ -38,7 +38,8 @@ public class ChatWorkerTest {
         assertEquals(1, requests.size());
         var request = requests.getFirst();
         assertEquals(APPROVED_TEXT, content(request));
-        assertEquals("只写许可正文。", instructions(request));
+        assertTrue(instructions(request).contains("只写许可正文。"));
+        assertTrue(instructions(request).contains("只传达正文明确给出的内容"));
         assertFalse(request.has("tools"));
         assertFalse(request.toString().contains("test-api-key"));
     }
@@ -76,7 +77,7 @@ public class ChatWorkerTest {
         assertEquals(Optional.of("知道了。"), invoke(200, AMBIENT, requests, completed("REPLY"), completed("知道了。")));
         assertEquals(2, requests.size());
         assertEquals(APPROVED_TEXT, content(requests.get(1)));
-        assertEquals("只写许可正文。", instructions(requests.get(1)));
+        assertTrue(instructions(requests.get(1)).contains("只传达正文明确给出的内容"));
     }
 
     private static String completed(String text) {

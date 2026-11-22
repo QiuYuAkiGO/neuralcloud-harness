@@ -7,6 +7,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
+import neuralcloud.controlplane.router.Route;
+import neuralcloud.controlplane.router.Router;
 
 import java.io.IOException;
 import java.net.URI;
@@ -21,6 +23,16 @@ import java.util.Optional;
 
 public final class ChatWorker implements ReplySelector {
     private static final Gson JSON = new GsonBuilder().setStrictness(Strictness.STRICT).create();
+    private static final String DRAFT_INSTRUCTION = """
+
+            把获准正文写成一条简短回复。保留事实、时间和不确定性，只传达正文明确给出的内容。
+            不添加承诺、推断、行动结果或额外说明。只返回给用户看的文字。
+            """;
+    private static final String CONVERSATION_INSTRUCTION = """
+
+            自然回答本轮用户的消息。只依据本轮消息和已给出的人设信息。缺少依据时坦率说明，
+            不编造经历、历史对话、实时状态或操作结果。只返回给用户看的文字。
+            """;
     private static final String SELECTION_PROMPT = """
             你是小雾（Misty），正在判断是否加入一段群聊。下面是本轮只读的参与偏好：
             %s
@@ -39,6 +51,8 @@ public final class ChatWorker implements ReplySelector {
     private final String apiKey;
     private final String rolePrompt;
     private final String selectionPrompt;
+
+    public record RoutedConversation(Context context, Route route) {}
 
     public ChatWorker(HttpClient client, URI endpoint, Duration requestTimeout, int maxOutputTokens,
                       String thinkingLevel, String apiKey, String rolePrompt, String preferences) {
@@ -78,8 +92,31 @@ public final class ChatWorker implements ReplySelector {
         if (selectReply(context) == Decision.SKIP) {
             return Optional.empty();
         }
-        return Optional.of(generate(rolePrompt, approvedText, Map.of("maxOutputTokens", maxOutputTokens,
-                "thinkingConfig", Map.of("thinkingLevel", thinkingLevel, "includeThoughts", false))).strip());
+        return Optional.of(generateReply(DRAFT_INSTRUCTION, approvedText));
+    }
+
+    public RoutedConversation routeConversation(String message, Router<Route> router)
+            throws IOException, InterruptedException {
+        var context = Context.direct(message);
+        // 首期只上报当前原文。Router 分类成功后，调用方记录分流，再交回本轮生成回复。
+        return new RoutedConversation(context, router.route(context.message()));
+    }
+
+    public Optional<String> reply(RoutedConversation conversation) throws IOException {
+        if (selectReply(conversation.context()) == Decision.SKIP) {
+            return Optional.empty();
+        }
+        // 需要执行的请求须等待有权限的执行步骤接入，分类本身不产生任何现场结果。
+        return Optional.of(switch (conversation.route()) {
+            case CONVERSATION -> generateReply(CONVERSATION_INSTRUCTION, conversation.context().message());
+            case ACTION_REQUEST -> "这个请求需要现场查询或操作。当前对话还没有接通执行步骤，我没有执行。";
+            case UNSUPPORTED -> "这个请求超出了当前对话允许的范围。";
+        });
+    }
+
+    private String generateReply(String instruction, String text) throws IOException {
+        return generate(rolePrompt + instruction, text, Map.of("maxOutputTokens", maxOutputTokens,
+                "thinkingConfig", Map.of("thinkingLevel", thinkingLevel, "includeThoughts", false))).strip();
     }
 
     private String generate(String prompt, String text, Map<String, ?> generationConfig) throws IOException {

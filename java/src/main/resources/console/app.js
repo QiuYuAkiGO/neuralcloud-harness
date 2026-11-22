@@ -41,6 +41,7 @@ function summary(event) {
   switch (event.type) {
     case 'operator_message': return data.text;
     case 'chat_worker_reply': return data.text;
+    case 'chat_worker_router_request': return '已将本轮消息交给 Router 分流';
     case 'router_route': return `流程：${data.route}`;
     case 'master_completion': return data.text || '（空正文）';
     case 'node_failed': return `失败：${data.detail}`;
