@@ -11,7 +11,9 @@ record MemoryConfig(
         String token,
         boolean scopedRecall,
         int apiVersion,
-        String grantToken) {
+        String grantToken,
+        int hotIndexTokens,
+        String historyProfile) {
     private static final Set<String> FIELDS = Set.of("endpoint", "characterId", "accessTokenEnv");
 
     static MemoryConfig load(ConfigSource source) throws IOException {
@@ -19,6 +21,8 @@ record MemoryConfig(
         var fields = new HashSet<>(properties.stringPropertyNames());
         fields.remove("recallMode");
         fields.remove("apiVersion");
+        fields.remove("hotIndexTokens");
+        fields.remove("historyProfile");
         fields.remove("grantAccessTokenEnv");
         String version = properties.getProperty("apiVersion", "1");
         if (!Set.of("1", "2").contains(version))
@@ -56,12 +60,22 @@ record MemoryConfig(
                     || grant.equals(token))
                 throw new IllegalArgumentException("渠道授权需要 v2 scoped 和独立的 grantAccessTokenEnv");
         }
+        int hotTokens = Integer.parseInt(properties.getProperty("hotIndexTokens", "0"));
+        if (hotTokens < 0
+                || hotTokens > 2048
+                || (hotTokens > 0 && !(version.equals("2") && mode.equals("scoped"))))
+            throw new IllegalArgumentException("hotIndexTokens 须为 0–2048，启用时须配置 v2 scoped");
+        String profile = properties.getProperty("historyProfile", "QUICK");
+        if (!(profile.equals("QUICK") || profile.equals("THINKING") && version.equals("2") && mode.equals("scoped")))
+            throw new IllegalArgumentException("historyProfile 须为 QUICK，或在 v2 scoped 下使用 THINKING");
         return new MemoryConfig(
                 endpoint,
                 character,
                 token,
                 "scoped".equals(mode),
                 Integer.parseInt(version),
-                grant);
+                grant,
+                hotTokens,
+                profile);
     }
 }

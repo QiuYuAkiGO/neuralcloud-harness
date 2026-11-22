@@ -17,6 +17,8 @@ public final class ResidentV2 extends ResidentMemory {
     private static final Gson JSON = new GsonBuilder().disableHtmlEscaping().create();
     private final MemoryJournal journal;
     private final String grantToken;
+    final int hotIndexTokens;
+    private final String historyProfile;
     private String stream;
     private boolean audienceReads;
 
@@ -28,7 +30,22 @@ public final class ResidentV2 extends ResidentMemory {
             boolean scoped,
             MemoryJournal journal,
             String grantToken) {
+        this(client, endpoint, character, token, scoped, journal, grantToken, 0, "QUICK");
+    }
+
+    public ResidentV2(
+            HttpClient client,
+            URI endpoint,
+            String character,
+            String token,
+            boolean scoped,
+            MemoryJournal journal,
+            String grantToken,
+            int hotIndexTokens,
+            String historyProfile) {
         super(client, endpoint, character, token, scoped);
+        this.hotIndexTokens = hotIndexTokens;
+        this.historyProfile = historyProfile;
         this.journal = journal;
         this.grantToken = grantToken;
     }
@@ -118,6 +135,7 @@ public final class ResidentV2 extends ResidentMemory {
             required.addAll(List.of("audience_reads", "author_grants"));
         }
         if (qqEnabled && scopedRecall()) required.addAll(List.of("self_identity", "self_history"));
+        if (hotIndexTokens > 0) required.add("audience_cards");
         caps.forEach(x -> required.remove(x.getAsString()));
         if (!required.isEmpty()) throw new IOException("Memory v2 缺少必需能力 " + required);
         stream = id;
@@ -139,7 +157,8 @@ public final class ResidentV2 extends ResidentMemory {
                         "onebot-grant:" + qq.accountId() + ":" + qq.peerId() + ":" + messageId);
         var grant =
                 java.util.regex.Pattern.compile(
-                                "/memory grant ([0-9a-f]{64})@([1-9][0-9]{0,17}) (\\S+) (READ|CITE) (.+)",
+                                "/memory grant ([0-9a-f]{64})@([1-9][0-9]{0,17}) (\\S+) (READ|CITE)"
+                                    + " (.+)",
                                 java.util.regex.Pattern.DOTALL)
                         .matcher(text);
         var revoke =
@@ -201,7 +220,10 @@ public final class ResidentV2 extends ResidentMemory {
                         : null;
         if (raw == null || "NOT_FOUND".equals(string(raw, "status"))) {
             try {
-                raw = request("v2/ingest", body);
+                raw = request(
+                                "impression".equals(string(body, "kind"))
+                                        ? "v2/candidates"
+                                        : "v2/ingest", body);
             } catch (ServiceError e) {
                 if (Set.of(403, 409, 413, 422).contains(e.status)) {
                     journal.ack(event, object("status", "REFUSED", "code", e.code));
@@ -400,7 +422,7 @@ public final class ResidentV2 extends ResidentMemory {
                         "query",
                         query,
                         "profile",
-                        "QUICK",
+                        kind == QueryKind.HISTORY ? historyProfile : "QUICK",
                         "limit",
                         kind == QueryKind.SELF_IDENTITY ? 1 : 4,
                         "before",
@@ -416,7 +438,7 @@ public final class ResidentV2 extends ResidentMemory {
         return snapshot(request(path, body), scope, recall);
     }
 
-    private Snapshot readItems(Trace.Scope scope, String role, String kind, List<String> ids)
+    Snapshot readItems(Trace.Scope scope, String role, String kind, List<String> ids)
             throws IOException, InterruptedException {
         return audienceRequest(
                 "v2/read",
@@ -433,12 +455,71 @@ public final class ResidentV2 extends ResidentMemory {
                 false);
     }
 
+    JsonArray cardPointers(Trace.Scope scope) throws IOException, InterruptedException {
+        var result =
+                request(
+                        "v2/cards",
+                        object("context", context(scope, "MASTER"), "view", "L0", "limit", 12));
+        if (!stream.equals(string(result, "stream_id"))
+                || !(result.get("items") instanceof JsonArray items))
+            throw new IOException("事项卡目录的流或 items 无效");
+        for (var entry : items) {
+            var card = entry.getAsJsonObject();
+            checkRef(card.getAsJsonObject("ref"));
+            string(card, "title");
+        }
+        return items;
+    }
+
+    synchronized Receipt replaceImpression(
+            Trace.Scope scope,
+            String event,
+            JsonObject previous,
+            List<JsonObject> sources,
+            String content)
+            throws IOException, InterruptedException {
+        return submit(
+                object(
+                        "context",
+                        context(scope, "ORCHESTRATOR"),
+                        "source_instance",
+                        SOURCE,
+                        "event_id",
+                        event,
+                        "kind",
+                        "impression",
+                        "author",
+                        "MASTER",
+                        "occurred_at",
+                        Instant.now().toString(),
+                        "content",
+                        content,
+                        "source_refs",
+                        sources,
+                        "replaces_impression",
+                        previous));
+    }
+
     static String render(JsonObject item, String purpose) throws IOException {
         if (!string(item, "status").equals("ONLINE")) return "此前引用的原依据已失效。";
         String value = string(item, "text");
         if (purpose.equals("SELF_IDENTITY")) return "当前账号经确认的称呼是「" + value + "」。";
         String venue = item.has("source_venue") ? "在" + string(item, "source_venue") : "";
         String who = item.has("speaker") ? string(item, "speaker") : "来源记录";
+        // A stale excerpt can be read explicitly through L2. Automatic updates convey expiry
+        // without restating the old assignment as fresh material for the next answer.
+        String expiredAt = null;
+        if (item.has("evidence_active") && !item.get("evidence_active").getAsBoolean())
+            expiredAt = string(item, "evidence_valid_until");
+        if (item.has("assertion_active") && !item.get("assertion_active").getAsBoolean()) {
+            var assertion = item.getAsJsonObject("assertion");
+            if (assertion.has("valid_until")) {
+                String end = string(assertion, "valid_until");
+                if (!Instant.now().isBefore(Instant.parse(end))) expiredAt = end;
+            }
+        }
+        if (expiredAt != null)
+            return who + venue + "的这条证据已于 " + expiredAt + " 到期，已经退出当前安排。当前状态需另有有效来源才能确认。";
         String kind = string(item, "kind");
         String label =
                 switch (kind) {
@@ -448,11 +529,19 @@ public final class ResidentV2 extends ResidentMemory {
                     case "tool_result" -> "工具执行回执";
                     default -> "原话";
                 };
-        if (item.has("assertion_active"))
-            label += item.get("assertion_active").getAsBoolean() ? "，当前安排" : "，历史安排";
+        if (item.has("assertion_active")) {
+            boolean active = item.get("assertion_active").getAsBoolean();
+            label +=
+                    switch (string(item.getAsJsonObject("assertion"), "predicate")) {
+                        case "commitment" -> active ? "，未决承诺" : "，历史承诺";
+                        case "deadline" -> active ? "，有效期限" : "，历史期限";
+                        default -> active ? "，当前安排" : "，历史安排";
+                    };
+        }
         String when =
                 string(item, "occurred_at")
                         + (item.has("action_id") ? "，动作 " + string(item, "action_id") : "");
+        if (item.has("resolved_dates")) when += "，按发言日折算 " + item.get("resolved_dates");
         return who + venue + "的" + label + "（" + when + "）：“" + value + "”。可在当前会话引用。";
     }
 
@@ -478,7 +567,19 @@ public final class ResidentV2 extends ResidentMemory {
             List<MemoryJournal.Read> bindings)
             throws IOException {
         if (!bindings.isEmpty())
-            journal.prepare(input, role, scope.conversationId(), JSON.toJson(material), bindings);
+            journal.prepare(input, role, scope.conversationId(), JSON.toJson(material), bindings, true);
+    }
+
+    void prepareHot(
+            String input, Trace.Scope scope, String block, List<MemoryJournal.Read> bindings)
+            throws IOException {
+        journal.prepare(
+                input,
+                "MASTER",
+                scope.conversationId(),
+                JSON.toJson(List.of(block)),
+                bindings,
+                false);
     }
 
     void delivered(String input) throws IOException {
@@ -520,6 +621,8 @@ public final class ResidentV2 extends ResidentMemory {
         long cursor = high;
         var affected = new LinkedHashSet<MemoryJournal.Read>();
         for (var r : registered) {
+            // 业务时间可能越过有效期，此时账本水位可以完全不动。
+            if (r.item().has("evidence_valid_until") || r.item().has("assertion")) affected.add(r);
             if (!r.stream().equals(currentStream) || r.seq() > high) affected.add(r);
             else cursor = Math.min(cursor, r.seq());
         }
@@ -600,7 +703,8 @@ public final class ResidentV2 extends ResidentMemory {
                 }
                 item = latest;
             }
-            if (seen != r.seq() || !r.stream().equals(currentStream))
+            if (seen != r.seq() || !r.stream().equals(currentStream)
+                    || !sameEvidence(r.item(), item))
                 updates.add(
                         new MemoryJournal.Read(
                                 role,
@@ -625,12 +729,15 @@ public final class ResidentV2 extends ResidentMemory {
                     || !latest.get("ref").equals(d.item().get("ref"))
                     || !latest.get("source_refs").equals(d.item().get("source_refs"))
                     || !Objects.equals(
+                            latest.get("evidence_active"), d.item().get("evidence_active"))
+                    || !Objects.equals(
                             latest.get("assertion_active"), d.item().get("assertion_active")))
                 throw new IOException("行动依据已经变化，需要重新取证");
         }
     }
 
     public void verifyDelivery(Trace trace) throws IOException, InterruptedException {
+        if (!Instant.now().isBefore(trace.validUntil())) throw new IOException("渠道交付前引用的证据已到期");
         var now =
                 readItems(
                         trace.scope(),

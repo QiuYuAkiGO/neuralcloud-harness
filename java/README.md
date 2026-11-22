@@ -157,3 +157,10 @@ java -cp $evalClasspath neuralcloud.controlplane.app.EvaluationMain --router-eva
 在上述 Router 挡板命令末尾加 `--gemini` 启用 Chat Worker。若同时指定 Master 的 `--config`，把 `--gemini` 放在它前面。Gemini 用 [Chat Worker 配置](src/main/resources/config/chat-worker-gemini.properties) 中的原生 `generateContent` 接口，默认沿用历史联调中的 `gemini-4-hydrogen`。请求经必填字段 `proxy`（`主机:端口`）指定的 HTTP 代理发出，默认是本机的 `127.0.0.1:7890`。在启动 Java 的环境中配置 `GEMINI_API_KEY`。密钥通过请求头读取。 [Gemini 接口参考](https://ai.google.dev/api/generate-content)
 
 Gemini 每次只收到该步骤获准传达的正文和 Chat Worker 职责提示。会议时间可独立生成草稿，提醒状态仍须等待对应的核对回执。生成的可见回复写为 `chat_worker_draft`，Task Worker 的核对结果仍由挡板提供。真实渠道发送和送达由后续通道接入处理。
+
+
+## Memory v2 分域目录与印象修订
+
+启用 `apiVersion=2`、`recallMode=scoped` 后，可在记忆客户端配置加入 `hotIndexTokens=96`，让正式控制台 Master 获得本轮受众可引用的未决事项和目录。取值范围为 0–2048，缺省为 0。启用时握手核对 `audience_cards`，Master 从同一推理端点的 `/v1/models` 核对单模型身份，再借助 `/tokenize` 计算完整目录文本。检查 `memory_hot_index` 审计事件可看到实际文本、token 数和预算。Chat Worker 通过已有 `memory_call` 使用所配置 Memory 服务的扩展检索。
+
+经 `POST /api/nodes/master/messages` 提交 `/memory revise 旧印象ID@版本 来源ID@版本 [更多来源]`。宿主复核 1–16 条可引用原文，将引文交给 Master，收到完整新正文后按旧版本与新证据持久提交。审计链的 `memory_impression_revised` 保存前一版本、实际来源与新回执。过期或撤权会触发重新查证。[跨仓库数据契约和验收报告](https://github.com/QiuYuAkiGO/neuralcloud-memory/blob/codex/memory-v2-stages-3-4/docs/acceptance/memory-v2-stage-3-4.md)

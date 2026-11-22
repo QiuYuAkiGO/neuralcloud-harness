@@ -206,7 +206,9 @@ public final class ConsoleMain {
                             config.token(),
                             config.scopedRecall(),
                             journal,
-                            config.grantToken());
+                            config.grantToken(),
+                            config.hotIndexTokens(),
+                            config.historyProfile());
         } else {
             memory =
                     new ResidentMemory(
@@ -229,7 +231,9 @@ public final class ConsoleMain {
                             "apiVersion",
                             2,
                             "streamId",
-                            v2.stream()));
+                            v2.stream(),
+                            "historyProfile",
+                            config.historyProfile()));
         }
         // 两端共用已核验的服务。模型节点只接收按本轮绑定的读取能力，渠道回执只交给 Router 的写入口。
         return Optional.of(new MemoryAccess(new ConversationMemory(audit, memory), new RouterMemoryWriter(audit, memory)));

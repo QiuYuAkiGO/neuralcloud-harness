@@ -45,6 +45,9 @@ public class ConsoleConversationTest {
         var events = new ArrayList<String>();
         var tracedRoute = new AtomicReference<String>();
         var trace = new Trace() {
+            public void validUntil(java.time.Instant expiry) { throw new AssertionError("unexpected timed evidence"); }
+            public java.time.Instant validUntil() { return java.time.Instant.MAX; }
+
             public java.util.Map<String, Long> sharedSources() { return java.util.Map.of(); }
             public int request() { return 1; }
 

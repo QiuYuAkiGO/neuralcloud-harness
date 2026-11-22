@@ -89,6 +89,10 @@ public final class ConsoleServer implements AutoCloseable {
 
         Map<String, Long> sharedSources();
 
+        void validUntil(java.time.Instant expiry);
+
+        java.time.Instant validUntil();
+
         default Map<String, Object> delivery(Map<String, Object> data) {
             if (sharedSources().isEmpty()) return data;
             var receipt = new LinkedHashMap<>(data);
@@ -123,6 +127,15 @@ public final class ConsoleServer implements AutoCloseable {
         private static Trace bound(AuditLog audit, Scope scope, int request) {
             return new Trace() {
                 private final Map<String, Long> shared = new LinkedHashMap<>();
+                private java.time.Instant expiry = java.time.Instant.MAX;
+
+                public void validUntil(java.time.Instant bound) {
+                    if (bound.isBefore(expiry)) expiry = bound;
+                }
+
+                public java.time.Instant validUntil() {
+                    return expiry;
+                }
 
                 public Map<String, Long> sharedSources() {
                     return shared;
@@ -402,7 +415,9 @@ public final class ConsoleServer implements AutoCloseable {
                 && (body.keySet().equals(Set.of("chain", "text"))
                         || body.keySet().equals(Set.of("chain", "text", "observation"))
                                 && body.get("observation") instanceof JsonObject source
-                                && Set.of("speaker", "source_venue", "occurred_at", "assertion")
+                                && Set.of("speaker", "source_venue", "occurred_at", "assertion",
+                                                "topic",
+                                                "reply_to")
                                         .containsAll(source.keySet()))
                 && body.get("chain") instanceof JsonPrimitive chain && chain.isString()
                 && CHAIN.matcher(chain.getAsString()).matches() && !chain.getAsString().startsWith(PROBE_CHAIN_PREFIX)

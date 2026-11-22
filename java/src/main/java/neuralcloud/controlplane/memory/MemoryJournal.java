@@ -154,7 +154,8 @@ AND json_extract(body,'$.kind') IN ('observation','self_expression') ORDER BY ro
     }
 
     synchronized void prepare(
-            String input, String worker, String scope, String material, List<Read> bindings)
+            String input, String worker, String scope, String material, List<Read> bindings,
+            boolean watch)
             throws IOException {
         try {
             db.setAutoCommit(false);
@@ -174,6 +175,10 @@ AND json_extract(body,'$.kind') IN ('observation','self_expression') ORDER BY ro
                             b.stream(),
                             b.seq(),
                             b.item().toString());
+                    if (!watch)
+                        continue; // Hot pointers are rebuilt at each turn; the audit evidence
+                                  // remains
+                    // immutable.
                     // A later-arriving input keeps its own read_seq even when an earlier input
                     // already advanced.
                     exec(

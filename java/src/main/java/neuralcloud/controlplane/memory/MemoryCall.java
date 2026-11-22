@@ -10,6 +10,8 @@ import neuralcloud.controlplane.console.ConsoleServer.Trace;
 import neuralcloud.controlplane.memory.ConversationMemory.QueryKind;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -42,6 +44,176 @@ public final class MemoryCall {
     private List<MemoryJournal.Read> bindings = List.of();
     private ResidentV2.Refresh refresh;
 
+    private List<MemoryJournal.Read> hotBindings = List.of();
+    private JsonObject previousImpression;
+
+    @FunctionalInterface
+    public interface TokenCounter {
+        int count(String block) throws IOException, InterruptedException;
+    }
+
+    /**
+     * The exact string counted below is the only persistent card block supplied to this Master
+     * turn.
+     */
+    public String hotIndex(TokenCounter tokenizer) throws IOException, InterruptedException {
+        var v = memory.v2();
+        if (caller != Caller.MASTER || v == null || v.hotIndexTokens == 0) return "";
+        var cards = v.cardPointers(trace.scope());
+        var selected = new ArrayList<JsonObject>();
+        String block = "";
+        int total = 0;
+        for (var entry : cards) {
+            var card = entry.getAsJsonObject();
+            var fields = new ArrayList<String>();
+            fields.add("OPEN".equals(ResidentV2.string(card, "priority")) ? "未决" : "目录");
+            fields.add("SUBJECT".equals(ResidentV2.string(card, "axis")) ? "事项" : "人物");
+            fields.add(ResidentV2.string(card, "title"));
+            if (card.has("deadline")) fields.add("期限 " + ResidentV2.string(card, "deadline"));
+            if (card.has("valid_until")) fields.add("有效至 " + ResidentV2.string(card, "valid_until"));
+            String line = JSON.toJson(fields);
+            String proposal = (block.isEmpty() ? "历史卡目录" : block) + "\n" + line;
+            int count;
+            try {
+                count = tokenizer.count(proposal + "\n\n");
+            } catch (IOException unavailable) {
+                trace.write(
+                        eventId,
+                        "memory",
+                        "memory_hot_index_unavailable",
+                        Map.of("reason", unavailable.toString()));
+                return "";
+            }
+            if (count <= v.hotIndexTokens) {
+                selected.add(card);
+                block = proposal;
+                total = count;
+            }
+        }
+        if (selected.isEmpty()) return "";
+        block += "\n\n";
+        var ids =
+                selected.stream()
+                        .map(c -> c.getAsJsonObject("ref").get("record_id").getAsString())
+                        .distinct()
+                        .toList();
+        var now = v.readItems(trace.scope(), caller.name(), "HISTORY", ids);
+        var watches = new LinkedHashMap<String, MemoryJournal.Read>();
+        for (var item : now.items()) {
+            if (!"ONLINE".equals(ResidentV2.string(item, "status"))
+                    || (item.has("assertion_active")
+                            && !item.get("assertion_active").getAsBoolean())) return "";
+            var id = item.getAsJsonObject("ref");
+            if (selected.stream().noneMatch(c -> c.get("ref").equals(id))) return "";
+            var read =
+                    ResidentV2.binding(
+                            trace.scope(), caller.name(), "HISTORY", item, now, inputId + "-hot");
+            watches.put(read.id(), read);
+        }
+        // Directory may have been rebuilt/revoked while the remote tokenizer was counting.
+        if (!v.cardPointers(trace.scope()).asList().containsAll(selected)) return "";
+        hotBindings = List.copyOf(watches.values());
+        v.prepareHot(inputId + "-hot", trace.scope(), block, hotBindings);
+        verifyDeliverySources(hotBindings);
+        eventId =
+                trace.write(
+                        eventId,
+                        "memory",
+                        "memory_hot_index",
+                        Map.of(
+                                "tokens",
+                                total,
+                                "budget",
+                                v.hotIndexTokens,
+                                "block",
+                                block,
+                                "input_id",
+                                inputId + "-hot"));
+        return block;
+    }
+
+    // Only a direct console Master command supplies revision IDs. Historical messages cannot
+    // initiate
+    // a write.
+    public String impressionEvidence(String spec) throws IOException, InterruptedException {
+        if (memory.v2() == null
+                || !memory.v2().scopedRecall()
+                || caller != Caller.MASTER
+                || !trace.scope().channel().equals("console"))
+            throw new IOException("印象修订需要正式控制台 Master 与 scoped Memory v2");
+        var refs = new ArrayList<JsonObject>();
+        String[] fields = spec.split(" ", -1);
+        if (fields.length < 2 || fields.length > 17)
+            throw new IOException("需提供旧印象和 1–16 项原始证据 ID@版本");
+        for (String field : fields) {
+            if (!field.matches("[0-9a-f]{64}@[1-9][0-9]{0,17}"))
+                throw new IOException("来源须为记录ID@版本");
+            var r =
+                    ResidentV2.object(
+                            "record_id",
+                            field.substring(0, 64),
+                            "revision",
+                            Long.parseLong(field.substring(65)));
+            if (refs.contains(r)) throw new IOException("来源重复");
+            refs.add(r);
+        }
+        var ids = refs.stream().map(r -> r.get("record_id").getAsString()).toList();
+        var now = memory.v2().readItems(trace.scope(), caller.name(), "HISTORY", ids);
+        var old = now.items().getFirst();
+        previousImpression = refs.getFirst();
+        if (!previousImpression.equals(old.get("ref"))
+                || !("SOURCE_CHANGED".equals(ResidentV2.string(old, "status"))
+                        || ("ONLINE".equals(ResidentV2.string(old, "status"))
+                                && "impression".equals(ResidentV2.string(old, "kind")))))
+            throw new IOException("旧印象已变化");
+        var reads = new ArrayList<MemoryJournal.Read>();
+        var evidence = new ArrayList<String>();
+        for (int i = 1; i < refs.size(); i++) {
+            var item = now.items().get(i);
+            if (!"ONLINE".equals(ResidentV2.string(item, "status"))
+                    || !refs.get(i).equals(item.get("ref"))
+                    || !"direct".equals(ResidentV2.string(item, "basis"))
+                    || item.has("assertion_active") && !item.get("assertion_active").getAsBoolean())
+                throw new IOException("修订须引用仍可见的当前原始证据");
+            evidence.add(ResidentV2.render(item, "HISTORY"));
+            reads.add(
+                    ResidentV2.binding(
+                            trace.scope(), caller.name(), "HISTORY", item, now, inputId));
+        }
+        bindings = List.copyOf(reads);
+        memory.v2().prepare(inputId, caller.name(), trace.scope(), evidence, bindings);
+        verifyDeliverySources(bindings);
+        return JSON.toJson(evidence);
+    }
+
+    public String saveImpression(String text) throws IOException, InterruptedException {
+        delivered();
+        verifyEvidence();
+        var rc =
+                memory.v2()
+                        .replaceImpression(
+                                trace.scope(),
+                                trace.scope().runId() + ":" + trace.request() + ":impression",
+                                previousImpression,
+                                bindings.stream()
+                                        .map(b -> b.item().getAsJsonObject("ref"))
+                                        .toList(),
+                                text);
+        eventId =
+                trace.write(
+                        eventId,
+                        "memory",
+                        "memory_impression_revised",
+                        Map.of(
+                                "previous",
+                                previousImpression,
+                                "receipt",
+                                rc,
+                                "source_refs",
+                                bindings.stream().map(b -> b.item().get("ref")).toList()));
+        return rc.recordId() + "@" + rc.revision();
+    }
+
     public List<String> startTurn() throws IOException, InterruptedException {
         var v = memory.v2();
         if (v == null) return List.of();
@@ -53,7 +225,7 @@ public final class MemoryCall {
                     trace.scope(),
                     refresh.messages(),
                     refresh.evidence());
-            verifyShared(refresh.evidence());
+            verifyDeliverySources(refresh.evidence());
             eventId =
                     trace.write(
                             eventId,
@@ -69,6 +241,7 @@ public final class MemoryCall {
     }
 
     public void refreshed() throws IOException {
+        if (!hotBindings.isEmpty()) memory.v2().delivered(inputId + "-hot");
         if (refresh != null && !refresh.updates().isEmpty())
             memory.v2().finishRefresh(inputId + "-refresh", refresh);
     }
@@ -77,27 +250,38 @@ public final class MemoryCall {
         if (memory.v2() != null && !bindings.isEmpty()) memory.v2().delivered(inputId);
     }
 
-    private void verifyShared(List<MemoryJournal.Read> evidence)
+    private void verifyDeliverySources(List<MemoryJournal.Read> evidence)
             throws IOException, InterruptedException {
-        var shared =
-                evidence.stream()
-                        .filter(
-                                r ->
-                                        r.item().has("grant_dependent")
-                                                && r.item().get("grant_dependent").getAsBoolean())
-                        .toList();
+        var shared = evidence.stream().filter(read -> {
+            var item = read.item();
+            return item.has("evidence_valid_until")
+                    || (item.has("assertion") && item.getAsJsonObject("assertion").has("valid_until"))
+                    || (item.has("grant_dependent") && item.get("grant_dependent").getAsBoolean());
+        }).toList();
         if (shared.isEmpty()) return;
-        // 快照可能在返回路上遇到撤权。先保存订阅再复核，失效正文不进入本次模型调用。
+        // 保存实际输入后复核渠道授权和期限，两者都可能在取证与交付之间变化。
         memory.v2().verifyEvidence(trace.scope(), caller.name(), shared);
         for (var read : shared) {
             long revision = ResidentV2.integer(read.item().getAsJsonObject("ref"), "revision", 1);
             trace.sharedSources().merge(read.id(), revision, Math::min);
+            var item = read.item();
+            if (item.has("evidence_active") && item.get("evidence_active").getAsBoolean())
+                trace.validUntil(
+                        java.time.Instant.parse(ResidentV2.string(item, "evidence_valid_until")));
+            if (item.has("assertion_active")
+                    && item.get("assertion_active").getAsBoolean()
+                    && item.getAsJsonObject("assertion").has("valid_until"))
+                trace.validUntil(
+                        java.time.Instant.parse(
+                                ResidentV2.string(
+                                        item.getAsJsonObject("assertion"), "valid_until")));
         }
     }
 
     public void verifyEvidence() throws IOException, InterruptedException {
         if (memory.v2() == null) return;
-        var current = new java.util.ArrayList<>(bindings);
+        var current = new ArrayList<>(bindings);
+        current.addAll(hotBindings);
         if (refresh != null)
             for (var r : refresh.evidence())
                 if ("ONLINE".equals(ResidentV2.string(r.item(), "status"))) current.add(r);
@@ -158,7 +342,7 @@ public final class MemoryCall {
         bindings = recalled.bindings();
         if (memory.v2() != null)
             memory.v2().prepare(inputId, caller.name(), trace.scope(), sentences, bindings);
-        verifyShared(bindings);
+        verifyDeliverySources(bindings);
         var result = new Result(kind, recalled.matchCount(), sentences);
         eventId = trace.write(recalled.eventId(), "memory", "memory_call_result", result);
         return result;
