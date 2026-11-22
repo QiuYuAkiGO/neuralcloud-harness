@@ -6,9 +6,8 @@ import com.google.gson.Gson;
 import com.sun.net.httpserver.HttpServer;
 import neuralcloud.controlplane.console.AuditLog;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
-import neuralcloud.controlplane.master.Master;
-import neuralcloud.controlplane.router.Route;
-import neuralcloud.controlplane.router.Router;
+import neuralcloud.controlplane.memory.MemoryCall.Caller;
+import neuralcloud.controlplane.router.RouterMemoryWriter;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -18,7 +17,6 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -77,55 +75,72 @@ public class ConversationMemoryTest {
         service.start();
         try (var audit = AuditLog.open(folder.getRoot().toPath()); var client = HttpClient.newHttpClient()) {
             var endpoint = URI.create("http://127.0.0.1:" + service.getAddress().getPort() + "/");
-            var memory = new ConversationMemory(audit,
-                    new ResidentMemory(client, endpoint, "misty-java", "test-token", false));
+            var resident = new ResidentMemory(client, endpoint, "misty-java", "test-token", false);
+            var memory = new ConversationMemory(audit, resident);
+            var writer = new RouterMemoryWriter(audit, resident);
             var qq = start(audit, "openqq", "QQ 私聊里的内容");
-            memory.rememberInbound(qq, "QQ 私聊里的内容");
+            writer.rememberInbound(qq, qq.request(), "QQ 私聊里的内容");
             var first = start(audit, "console", "我喜欢拍照。");
-            int stored = memory.rememberInbound(first, "我喜欢拍照。");
+            int accepted = first.write(first.request(), "chat-worker", "chat_worker_received", Map.of());
+            int stored = writer.rememberInbound(first, accepted, "我喜欢拍照。");
             int delivered = first.write(stored, "console", "console_response_written", Map.of());
-            memory.rememberDelivered(first, delivered, "我也喜欢。");
+            writer.rememberDelivered(first, delivered, "我也喜欢。");
+            var inputWrite = audit.event(first.scope(), audit.event(first.scope(), stored).causedBy());
+            assertEquals("router", inputWrite.node());
+            assertEquals("router_memory_write", inputWrite.type());
+            assertEquals(accepted, inputWrite.causedBy().intValue());
+            assertEquals(first.request(), inputWrite.data().getAsJsonObject().get("sourceEventId").getAsInt());
+            var written = List.copyOf(records.values());
+            assertEquals(first.scope().runId() + ":" + first.request(), written.get(1).get("event_id").getAsString());
+            assertEquals(first.scope().runId() + ":" + delivered, written.get(2).get("event_id").getAsString());
 
             var second = start(audit, "console", "你记得我刚才说的吗？");
-            int current = memory.rememberInbound(second, "你记得我刚才说的吗？");
-            var settings = new Master.Settings(endpoint.resolve("v1/chat/completions"), "test-router",
-                    HttpClient.Version.HTTP_1_1, Duration.ofSeconds(2), Duration.ofSeconds(2), "probe", 8, 0, false);
-            var router = new Router<>(new Master(client, settings), "选择流程。", Route.class);
-            var recalled = router.queryMemory(memory, second, current, ConversationMemory.QueryKind.HISTORY, "摄影");
-            assertEquals(3, recalled.messages().size());
-            assertEquals("本次只回读了当前会话的近期对话，共 2 条。", recalled.messages().getFirst());
-            assertTrue(recalled.messages().get(1).startsWith("用户在北京时间 "));
-            assertTrue(recalled.messages().get(1).endsWith("说：“我喜欢拍照。”。来源是当前控制台会话中已记录的用户发言。"));
-            assertTrue(recalled.messages().getLast().endsWith("说：“我也喜欢。”。来源是当前控制台会话中已记录的小雾回复。"));
+            int current = writer.rememberInbound(second, second.request(), "你记得我刚才说的吗？");
+            var reader = memory.bind(second, Caller.CHAT_WORKER, current);
+            var recalled = reader.read(ConversationMemory.QueryKind.HISTORY, "摄影");
+            assertEquals(3, recalled.sentences().size());
+            assertEquals("本次只回读了当前会话的近期对话，共 2 条。", recalled.sentences().getFirst());
+            assertTrue(recalled.sentences().get(1).startsWith("用户在北京时间 "));
+            assertTrue(recalled.sentences().get(1).endsWith("说：“我喜欢拍照。”。来源是当前控制台会话中已记录的用户发言。"));
+            assertTrue(recalled.sentences().getLast().endsWith("说：“我也喜欢。”。来源是当前控制台会话中已记录的小雾回复。"));
             var events = audit.events("shared");
             var returned = events.getLast();
-            assertEquals(recalled.eventId(), returned.eventId());
-            assertEquals("router_memory_result", returned.type());
+            assertEquals(reader.eventId(), returned.eventId());
+            assertEquals("memory_call_result", returned.type());
+            var recallEvent = audit.event(second.scope(), returned.causedBy());
+            var request = audit.event(second.scope(), recallEvent.causedBy());
+            assertEquals("memory", returned.node());
+            assertEquals("memory_recall", recallEvent.type());
+            assertEquals("memory_call", request.type());
+            assertEquals("chat-worker", request.node());
+            assertEquals(current, request.causedBy().intValue());
             assertEquals(0, returned.data().getAsJsonObject().get("count").getAsInt());
-            assertEquals(gson.toJsonTree(recalled.messages()), returned.data().getAsJsonObject().get("sentences"));
+            assertEquals(gson.toJsonTree(recalled.sentences()), returned.data().getAsJsonObject().get("sentences"));
             assertTrue(events.stream().anyMatch(event -> Integer.valueOf(delivered).equals(event.causedBy())
+                    && "router_memory_write".equals(event.type()) && "router".equals(event.node())
                     && "SELF_EXPRESSION".equals(event.data().getAsJsonObject().get("kind").getAsString())));
 
-            var empty = router.queryMemory(memory, second, current, ConversationMemory.QueryKind.SELF_IDENTITY, "");
-            assertEquals(List.of("未查到符合条件的记录。"), empty.messages());
+            var empty = reader.read(ConversationMemory.QueryKind.SELF_IDENTITY, "");
+            assertEquals(List.of("未查到符合条件的记录。"), empty.sentences());
             var unmatched = audit.events("shared").getLast().data().getAsJsonObject();
             assertEquals(0, unmatched.get("count").getAsInt());
-            assertEquals(gson.toJsonTree(empty.messages()), unmatched.get("sentences"));
+            assertEquals(gson.toJsonTree(empty.sentences()), unmatched.get("sentences"));
 
             // 同一会话已有持久回执，按话题检索仍须分别交付零命中和单条命中的真实结果。
             var scoped = new ConversationMemory(audit,
                     new ResidentMemory(client, endpoint, "misty-java", "test-token", true));
-            var miss = router.queryMemory(scoped, second, current, ConversationMemory.QueryKind.HISTORY, "露营");
-            assertEquals(List.of("当前会话中未查到符合条件的历史记录。"), miss.messages());
+            var scopedReader = scoped.bind(second, Caller.CHAT_WORKER, current);
+            var miss = scopedReader.read(ConversationMemory.QueryKind.HISTORY, "露营");
+            assertEquals(List.of("当前会话中未查到符合条件的历史记录。"), miss.sentences());
             var report = audit.events("shared").getLast().data().getAsJsonObject();
             assertEquals(0, report.get("count").getAsInt());
-            assertEquals(gson.toJsonTree(miss.messages()), report.get("sentences"));
+            assertEquals(gson.toJsonTree(miss.sentences()), report.get("sentences"));
 
-            var hit = router.queryMemory(scoped, second, current, ConversationMemory.QueryKind.HISTORY, "拍照");
-            assertEquals(List.of(recalled.messages().get(1)), hit.messages());
+            var hit = scopedReader.read(ConversationMemory.QueryKind.HISTORY, "拍照");
+            assertEquals(List.of(recalled.sentences().get(1)), hit.sentences());
             report = audit.events("shared").getLast().data().getAsJsonObject();
             assertEquals(1, report.get("count").getAsInt());
-            assertEquals(gson.toJsonTree(hit.messages()), report.get("sentences"));
+            assertEquals(gson.toJsonTree(hit.sentences()), report.get("sentences"));
         } finally {
             service.stop(0);
         }
@@ -142,6 +157,34 @@ public class ConversationMemoryTest {
         item.add("content", source.remove("content"));
         item.add("source", source);
         return item;
+    }
+
+    @Test
+    public void failedWriteStopsAnInboundTurnAndKeepsAnAcknowledgedDeliveryFinal() throws Exception {
+        var service = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        service.createContext("/v1/ingest", exchange -> {
+            try (exchange) {
+                exchange.sendResponseHeaders(503, -1);
+            }
+        });
+        service.start();
+        try (var audit = AuditLog.open(folder.getRoot().toPath()); var client = HttpClient.newHttpClient()) {
+            var endpoint = URI.create("http://127.0.0.1:" + service.getAddress().getPort() + "/");
+            var writer = new RouterMemoryWriter(audit, new ResidentMemory(client, endpoint, "misty", "token", true));
+            var trace = start(audit, "console", "收到的消息");
+            assertThrows(IOException.class, () -> writer.rememberInbound(trace, trace.request(), "收到的消息"));
+            int delivered = trace.write(trace.request(), "console", "console_response_written", Map.of());
+            writer.rememberDelivered(trace, delivered, "送达的回复");
+            var events = audit.events("shared");
+            assertEquals(List.of("input", "router_memory_write", "memory_write_failed",
+                    "console_response_written", "router_memory_write", "memory_write_failed"),
+                    events.stream().map(AuditLog.Event::type).toList());
+            assertEquals(events.get(1).eventId(), events.get(2).causedBy().intValue());
+            assertEquals(delivered, events.get(4).causedBy().intValue());
+            assertEquals(events.get(4).eventId(), events.get(5).causedBy().intValue());
+        } finally {
+            service.stop(0);
+        }
     }
 
     @Test
@@ -218,7 +261,7 @@ public class ConversationMemoryTest {
     }
 
     @Test
-    public void routesAuthoredHistoryUsingThePrivateSenderAndAuditsWhatTheWorkerReceives() throws Exception {
+    public void readsAuthoredHistoryUsingThePrivateSenderAndAuditsWhatTheWorkerReceives() throws Exception {
         var request = new AtomicReference<JsonObject>();
         var account = new AtomicReference<>("10002");
         var gson = new Gson();
@@ -239,25 +282,25 @@ public class ConversationMemoryTest {
         try (var audit = AuditLog.open(folder.getRoot().toPath()); var client = HttpClient.newHttpClient()) {
             var endpoint = URI.create("http://127.0.0.1:" + service.getAddress().getPort() + "/");
             var memory = new ConversationMemory(audit, new ResidentMemory(client, endpoint, "misty-test", "token", true));
-            var settings = new Master.Settings(endpoint.resolve("v1/chat/completions"), "test-router",
-                    HttpClient.Version.HTTP_1_1, Duration.ofSeconds(2), Duration.ofSeconds(2), "probe", 8, 0, false);
-            var router = new Router<>(new Master(client, settings), "选择流程。", Route.class);
             int input = audit.write("qq-test", null, "openqq", "qq_message", Map.of("text", "我说过摄影吗？", "messageId", 9));
             var trace = Trace.forQqPrivate(audit, "qq-test", input, 10001, 10002);
             var kind = ConversationMemory.QueryKind.SELF_HISTORY;
-            var result = router.queryMemory(memory, trace, input, kind, "摄影");
+            var reader = memory.bind(trace, Caller.CHAT_WORKER, input);
+            var result = reader.read(kind, "摄影");
             assertEquals("10002", request.get().get("account_id").getAsString());
             var at = Instant.parse(audit.events("qq-test").getFirst().recordedAt());
             assertEquals(at.getEpochSecond() + at.getNano() / 1e9, request.get().get("before").getAsDouble(), 0);
             var returned = audit.events("qq-test").getLast().data().getAsJsonObject();
             assertEquals(1, returned.get("count").getAsInt());
             assertEquals(kind.name(), returned.get("kind").getAsString());
-            assertTrue(result.messages().getFirst().contains("QQ 群聊中的发言节选：“那天去看了摄影展。”"));
-            assertEquals(gson.toJsonTree(result.messages()), returned.get("sentences"));
+            assertTrue(result.sentences().getFirst().contains("QQ 群聊中的发言节选：“那天去看了摄影展。”"));
+            assertEquals(gson.toJsonTree(result.sentences()), returned.get("sentences"));
             account.set("10003");
-            assertThrows(IOException.class, () -> router.queryMemory(memory, trace, input, kind, "摄影"));
+            assertThrows(IOException.class, () -> reader.read(kind, "摄影"));
+            assertEquals("memory_call_failed", audit.events("qq-test").getLast().type());
             request.set(null);
-            assertThrows(IOException.class, () -> router.queryMemory(memory, start(audit, "console", "摄影"), input, kind, "摄影"));
+            var console = start(audit, "console", "摄影");
+            assertThrows(IOException.class, () -> memory.bind(console, Caller.CHAT_WORKER, console.request()).read(kind, "摄影"));
             assertNull(request.get());
         } finally {
             service.stop(0);

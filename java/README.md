@@ -76,21 +76,21 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 | `gpuMetrics` | `NVIDIA_SMI` 通过本机 `nvidia-smi` 读取显存、利用率和功耗，`NONE` 不读取 |
 | `metricsIntervalSeconds`、`metricsTimeoutSeconds` | 状态读取间隔和单次读取超时，以秒为单位的正整数 |
 
-**对话。** 网页把正文发到 `POST /api/nodes/{chat-worker|router|master}/messages`，请求体只含 `chain` 与 `text`。`chain` 是网页生成的会话标识，`text` 非空。启用记忆时，Chat Worker 先接收本轮消息，普通对话直接回复，需要取证时向 Router 发起记忆查询，需要现场查询或执行时才交 Router 分流。`CONVERSATION` 生成对话，`ACTION_REQUEST` 派给已配置的任务 Worker，`UNSUPPORTED` 说明请求超出允许范围。Router 和 Master 也可由控制台单独调用。Router 请求指定 `select_route`，只接受一次原生工具调用。可选类别为 `CONVERSATION`（对话或基于已有材料作答）、`ACTION_REQUEST`（需要本轮实时查询或外部动作）和 `UNSUPPORTED`（明确越过系统边界）。单独调用 Router 和 Master 时只运行所选节点。Router 的类别不代表工具可用、已获授权或已执行。
+**对话。** 网页把正文发到 `POST /api/nodes/{chat-worker|router|master}/messages`，请求体只含 `chain` 与 `text`。`chain` 是网页生成的会话标识，`text` 非空。启用记忆时，Chat Worker 先接收本轮消息，普通对话直接回复，需要取证时直接调用记忆服务，需要现场查询或执行时才交 Router 分流。`CONVERSATION` 生成对话，`ACTION_REQUEST` 派给已配置的任务 Worker，`UNSUPPORTED` 说明请求超出允许范围。Router 和 Master 也可由控制台单独调用。Router 请求指定 `select_route`，只接受一次原生工具调用。可选类别为 `CONVERSATION`（对话或基于已有材料作答）、`ACTION_REQUEST`（需要本轮实时查询或外部动作）和 `UNSUPPORTED`（明确越过系统边界）。单独调用 Router 和 Master 时只运行所选节点。Router 的类别不代表工具可用、已获授权或已执行。
 
-**任务执行。** 配置 `taskWorkerConfig=classpath:/config/task-worker-deepseek.properties` 并通过环境提供 `DEEPSEEK_API_KEY` 后，`ACTION_REQUEST` 会派给 DeepSeek 任务 Worker。首个能力读取运行控制台的 Linux 主机的运行时间、一分钟负载、内存与根分区容量。DeepSeek 只能选择已声明的无参工具，实际读取由 Java 完成。任务回执写入同一条审计链后，Chat Worker 才按回执生成回复。
+**任务执行。** 配置 `taskWorkerConfig=classpath:/config/task-worker-deepseek.properties` 并通过环境提供 `DEEPSEEK_API_KEY` 后，`ACTION_REQUEST` 会派给 DeepSeek 任务 Worker。首个能力读取运行控制台的 Linux 主机的运行时间、一分钟负载、内存与根分区容量。启用记忆时，DeepSeek 可以先用 `memory_call` 查证任务中提到的历史约定，再选择 `read_server_status` 或 `no_supported_action`。主机状态取自 Java 的实际采样。任务回执写入同一条审计链后，Chat Worker 才按回执生成回复。
 
 **OpenQQ 私聊。** 可选的 `openQqConfig` 指向 UTF-8 配置文件，包含 `endpoint`（`ws://127.0.0.1:端口/`）、登录账号 `accountId`、允许发来测试消息的 `allowedUserId` 和令牌环境变量名 `accessTokenEnv`。接入只处理该账号发来的纯文本私聊，每条消息复用同一对话处理器。审计链 `qq-private-<accountId>-<allowedUserId>` 记录入站、分流与回复，收到 OneBot 消息 ID 才记录发送确认。发送状态不明时不会自动重发。
 
-**会话记忆。** `memoryConfig` 可接独立的常驻记忆服务，指向含 `endpoint`、`characterId` 和 `accessTokenEnv` 的配置文件。Chat Worker 接收本轮消息后先取得用户发言的持久回执。需要历史材料时由 Chat Worker 提交查询线索，Router 读取同会话记录并返回结果。QQ 发送确认或控制台 HTTP 正文写出后，才把角色回复作为自我表达写入。网页和 OpenQQ 分别使用 `console:` 和 `openqq:` 会话命名空间。
+**会话记忆。** `memoryConfig` 可接独立的常驻记忆服务，指向含 `endpoint`、`characterId` 和 `accessTokenEnv` 的配置文件。启用记忆时，Master 配置使用支持原生工具调用的 `/v1/chat/completions`。Chat Worker、任务 Worker 和 Master 均可直接发起只读的 `memory_call`，模型只提交 `kind` 和 `query`。Router 负责写入。Chat Worker 收到消息后，Router 先取得用户发言的持久回执。QQ 确认送达或控制台写出 HTTP 正文后，Router 才提交角色回复入库。两次写入均沿用原始渠道事件作为幂等键。网页和 OpenQQ 分别使用 `console:` 和 `openqq:` 会话命名空间。
 
-**生产记忆。** 使用生产 Misty 服务时，在记忆配置中设 `recallMode=scoped`（省略时为 `recent`）。OpenQQ 私聊沿用生产的 `c2c:onebot:<账号>:<用户>` 会话标识，写入携带实际消息 ID 和发言者的 v2 事件。历史查询检索同一会话在本轮之前的记录，再按原始写入方、发言者和可见性筛选。查询本人身份时，Router 从 OpenQQ 发件人绑定当前 QQ 账号，只返回记忆服务提供的已确认称呼。控制台沿用自身会话范围。既有测试库的回执保留在原审计链，生产读取只使用生产回执。
+**生产记忆。** 使用生产 Misty 服务时，在记忆配置中设 `recallMode=scoped`（省略时为 `recent`）。OpenQQ 私聊沿用生产的 `c2c:onebot:<账号>:<用户>` 会话标识，写入携带实际消息 ID 和发言者的 v2 事件。历史查询检索同一会话在本轮之前的记录，再按原始写入方、发言者和可见性筛选。查询本人身份时，记忆接口使用 OpenQQ 入站事件绑定的发件人账号，只返回记忆服务提供的已确认称呼。控制台沿用自身会话范围。既有测试库的回执保留在原审计链，生产读取只使用生产回执。
 
-`router_memory_result.data.count` 记录话题或身份检索的实际命中数，`sentences` 保存交给 Chat Worker 的原样材料。生产历史检索零命中时，材料说明当前会话的查询结果。`recent` 模式只按回执重读近期对话，在材料中注明回读条数，话题命中数为零。
+审计中的 `memory_call` 归属发起查询的节点，`memory_recall` 列出读取的记录 ID，`memory_call_result.data` 包含 `kind`、实际命中数 `count` 和原样交给调用方的 `sentences`。Router 的写入请求为 `router_memory_write`，持久化成功后才有 `memory_durable` 回执。生产历史检索零命中时，材料说明当前会话的查询结果。`recent` 模式只按回执重读近期对话，在材料中注明回读条数，话题命中数为零。
 
-生产 QQ 私聊另提供 `SELF_HISTORY`。当用户问自己以前说过什么，Chat Worker 提交话题关键词，Router 从入站私聊绑定本人账号，再向记忆服务查询本轮之前在 QQ 群聊或私聊的原话。审计记录查询类别、命中数以及 Worker 收到的带时间、渠道来源的节选。`HISTORY` 继续表示当前会话历史，`SELF_IDENTITY` 用来查询本人已确认的称呼。
+生产 QQ 私聊另提供 `SELF_HISTORY`。当用户问自己以前说过什么，Chat Worker 提交话题关键词，只读接口使用入站私聊绑定的本人账号，向记忆服务查询本轮之前在 QQ 群聊或私聊的原话。审计记录查询类别、命中数以及 Worker 收到的带时间、渠道来源的节选。`HISTORY` 继续表示当前会话历史，`SELF_IDENTITY` 用来查询本人已确认的称呼。
 
-**对话上下文。** Chat Worker 按原顺序重放同渠道、同会话的用户消息和已确认送出的 Misty 回复。原文保留在审计链，单次请求的历史部分最多使用 48,000 个 UTF-16 代码单元，超出时按整条消息从最早处缩减请求前缀。历史消息维持原文和角色，Router 本轮取证材料附在当前消息之后。`chat_worker_turn_plan` 记录历史消息条数，以及 Gemini 实际返回的输入和缓存 token 计数。
+**对话上下文。** Chat Worker 按原顺序重放同渠道、同会话的用户消息和已确认送出的 Misty 回复。原文保留在审计链，单次请求的历史部分最多使用 48,000 个 UTF-16 代码单元，超出时按整条消息从最早处缩减请求前缀。历史消息维持原文和角色，本轮直接读取的记忆材料附在当前消息之后。`chat_worker_turn_plan` 记录历史消息条数，以及 Gemini 实际返回的输入和缓存 token 计数。
 
 **参与判断。** 渠道通过 `ReplySelector.Context` 提供发言是否直接指向 Misty、本条正文及同一会话的近期原文。控制台发给 Chat Worker 的消息属于 `DIRECT`，选择 `REPLY`。群聊普通消息使用 `AMBIENT`，由 Chat Worker 用只读摘要判断。Gemini 配置的 `replyPreferences` 指向摘要资源，默认的首版根据 Misty 人设与远端历史记忆提炼。`ChatWorker.reply` 每次先判断参与，`REPLY` 才生成获准正文，`SKIP` 返回空结果，判断失败则抛出异常。
 

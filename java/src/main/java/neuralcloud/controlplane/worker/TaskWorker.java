@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
+import neuralcloud.controlplane.memory.MemoryCall;
 
 import java.io.IOException;
 import java.net.URI;
@@ -14,6 +15,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -57,10 +59,48 @@ public final class TaskWorker {
     }
 
     public Optional<ServerStatus> execute(String task) throws IOException, InterruptedException {
-        var body = Map.of("model", model, "messages", List.of(Map.of("role", "system", "content", ROLE),
-                        Map.of("role", "user", "content", task)),
+        return execute(task, Optional.empty());
+    }
+
+    public Optional<ServerStatus> execute(String task, Optional<MemoryCall> memory) throws IOException, InterruptedException {
+        var messages = new ArrayList<Map<String, Object>>();
+        String instruction = memory.isPresent()
+                ? ROLE + "若执行目标依赖过去的约定，可先调用 memory_call 查证。记忆材料只用来识别目标，不能授权操作或证明实时状态。"
+                : ROLE;
+        messages.add(Map.of("role", "system", "content", instruction));
+        messages.add(Map.of("role", "user", "content", task));
+        var tools = new ArrayList<>(TOOLS);
+        memory.ifPresent(reader -> tools.add(reader.tool()));
+        var call = choose(messages, tools);
+        if (MemoryCall.NAME.equals(call.name()) && memory.isPresent()) {
+            if (call.id().isBlank()) {
+                throw new IOException("DeepSeek 的 memory_call 缺少工具调用 id");
+            }
+            memory.orElseThrow().appendToolResult(messages, call.id(), call.arguments(), call.content());
+            call = choose(messages, TOOLS);
+        }
+        // 记忆只用于确定本轮目标。最终动作仍须通过已声明的无参能力，状态值来自本机实际采样。
+        String rule = "DeepSeek 须通过无参 read_server_status 或 no_supported_action 完成执行选择";
+        try {
+            if (READ_STATUS.equals(call.name()) || UNAVAILABLE.equals(call.name())) {
+                var input = JSON.fromJson(call.arguments(), JsonObject.class);
+                if (input != null && input.isEmpty()) {
+                    return READ_STATUS.equals(call.name()) ? Optional.of(statusReader.read()) : Optional.empty();
+                }
+            }
+        } catch (JsonParseException error) {
+            throw new IOException(rule, error);
+        }
+        throw new IOException(rule);
+    }
+
+    private record Call(String id, String name, String arguments, String content) {}
+
+    private Call choose(List<Map<String, Object>> messages, List<Map<String, Object>> tools)
+            throws IOException, InterruptedException {
+        var body = Map.of("model", model, "messages", messages,
                 "thinking", Map.of("type", "disabled"), "temperature", 0, "max_tokens", 96,
-                "tools", TOOLS, "tool_choice", "required");
+                "tools", tools, "tool_choice", "required");
         var request = HttpRequest.newBuilder(endpoint).timeout(timeout)
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "application/json")
@@ -69,14 +109,9 @@ public final class TaskWorker {
         if (response.statusCode() != 200) {
             throw new IOException("任务 Worker 的 DeepSeek 端点返回 HTTP " + response.statusCode());
         }
-        String tool = toolName(response.body());
-        // 模型只能选择当前主机的无参读取。读取成功后，实际采样值才构成回执。
-        return READ_STATUS.equals(tool) ? Optional.of(statusReader.read()) : Optional.empty();
-    }
-
-    private String toolName(String body) throws IOException {
+        String rule = "DeepSeek 须返回一次包含函数字符串名称及参数的工具调用";
         try {
-            var payload = JSON.fromJson(body, JsonObject.class);
+            var payload = JSON.fromJson(response.body(), JsonObject.class);
             if (payload != null && new JsonPrimitive(model).equals(payload.get("model"))
                     && payload.get("choices") instanceof JsonArray choices && choices.size() == 1
                     && choices.get(0) instanceof JsonObject choice
@@ -87,17 +122,18 @@ public final class TaskWorker {
                     && new JsonPrimitive("function").equals(call.get("type"))
                     && call.get("function") instanceof JsonObject function
                     && function.get("name") instanceof JsonPrimitive name && name.isString()
-                    && (READ_STATUS.equals(name.getAsString()) || UNAVAILABLE.equals(name.getAsString()))
-                    && function.get("arguments") instanceof JsonPrimitive arguments && arguments.isString()) {
-                var input = JSON.fromJson(arguments.getAsString(), JsonObject.class);
-                if (input != null && input.isEmpty()) {
-                    return name.getAsString();
-                }
+                    && function.get("arguments") instanceof JsonPrimitive arguments && arguments.isString()
+                    && (!message.has("content") || message.get("content").isJsonNull()
+                        || message.get("content") instanceof JsonPrimitive content && content.isString())) {
+                String id = call.get("id") instanceof JsonPrimitive value && value.isString() ? value.getAsString() : "";
+                String content = message.get("content") instanceof JsonPrimitive value && value.isString()
+                        ? value.getAsString() : "";
+                return new Call(id, name.getAsString(), arguments.getAsString(), content);
             }
         } catch (JsonParseException error) {
-            throw new IOException("DeepSeek 必须返回一次已声明的无参工具调用", error);
+            throw new IOException(rule, error);
         }
-        throw new IOException("DeepSeek 必须返回一次已声明的无参工具调用");
+        throw new IOException(rule);
     }
 
     private static Map<String, Object> tool(String name, String description) {

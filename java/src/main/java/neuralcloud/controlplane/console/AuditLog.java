@@ -120,6 +120,12 @@ public final class AuditLog implements AutoCloseable {
         return events.stream().filter(event -> event.chain().equals(chain)).toList();
     }
 
+    // 回读原始渠道事件时同时匹配运行和会话，重启后 eventId 会重新编号。
+    public synchronized Event event(ConsoleServer.Trace.Scope scope, int id) {
+        return events.reversed().stream().filter(event -> event.eventId() == id
+                && scope.runId().equals(event.runId()) && scope.chain().equals(event.chain())).findFirst().orElseThrow();
+    }
+
     public synchronized List<DialogueMessage> dialogueBefore(String channel, String chain, int request) {
         var dialogue = new ArrayList<DialogueMessage>();
         var byRun = new HashMap<String, HashMap<Integer, Event>>();

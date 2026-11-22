@@ -111,7 +111,7 @@ public final class ResidentMemory {
         return new Receipt(id, revision, seq);
     }
 
-    String character() {
+    public String character() {
         return character;
     }
 

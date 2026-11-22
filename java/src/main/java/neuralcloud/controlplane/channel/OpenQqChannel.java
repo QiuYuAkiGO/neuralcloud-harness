@@ -12,7 +12,7 @@ import neuralcloud.controlplane.console.AuditLog;
 import neuralcloud.controlplane.console.ConsoleServer.Exchange;
 import neuralcloud.controlplane.console.ConsoleServer.Reply;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
-import neuralcloud.controlplane.memory.ConversationMemory;
+import neuralcloud.controlplane.router.RouterMemoryWriter;
 
 import java.io.IOException;
 import java.net.URI;
@@ -46,12 +46,12 @@ public final class OpenQqChannel implements AutoCloseable {
     private final String chain;
     private final AuditLog audit;
     private final Exchange conversation;
-    private final Optional<ConversationMemory> memory;
+    private final Optional<RouterMemoryWriter> writes;
     private final Thread runner;
     private volatile boolean closed;
 
     public OpenQqChannel(HttpClient client, URI endpoint, String token, long accountId, long allowedUserId,
-                         AuditLog audit, Exchange conversation, Optional<ConversationMemory> memory) {
+                         AuditLog audit, Exchange conversation, Optional<RouterMemoryWriter> writes) {
         this.client = client;
         this.endpoint = endpoint;
         this.token = token;
@@ -60,7 +60,7 @@ public final class OpenQqChannel implements AutoCloseable {
         this.chain = "qq-private-" + accountId + "-" + allowedUserId;
         this.audit = audit;
         this.conversation = conversation;
-        this.memory = memory;
+        this.writes = writes;
         this.runner = Thread.ofVirtual().name("openqq-channel").unstarted(this::run);
     }
 
@@ -120,8 +120,8 @@ public final class OpenQqChannel implements AutoCloseable {
         if (successful(receipt) && receipt.get("data") instanceof JsonObject data
                 && id(data.get("message_id")) > 0) {
             int delivered = trace.write(sending, "openqq", "qq_delivery", Map.of("messageId", id(data.get("message_id"))));
-            if (memory.isPresent()) {
-                memory.orElseThrow().rememberDelivered(trace, delivered, (String) reply.data().get("text"));
+            if (writes.isPresent()) {
+                writes.orElseThrow().rememberDelivered(trace, delivered, (String) reply.data().get("text"));
             }
         } else if ("failed".equals(string(receipt.get("status")))
                 && receipt.get("retcode") instanceof JsonPrimitive code && code.isNumber()) {

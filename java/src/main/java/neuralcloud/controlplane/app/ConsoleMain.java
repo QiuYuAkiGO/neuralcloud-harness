@@ -8,10 +8,12 @@ import neuralcloud.controlplane.console.ConsoleServer.Reply;
 import neuralcloud.controlplane.console.NodeMonitor;
 import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.memory.ConversationMemory;
-import neuralcloud.controlplane.memory.ConversationMemory.QueryKind;
+import neuralcloud.controlplane.memory.MemoryCall;
+import neuralcloud.controlplane.memory.MemoryCall.Caller;
 import neuralcloud.controlplane.memory.ResidentMemory;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
+import neuralcloud.controlplane.router.RouterMemoryWriter;
 import neuralcloud.controlplane.worker.ChatWorker;
 import neuralcloud.controlplane.worker.TaskWorker;
 
@@ -44,6 +46,8 @@ public final class ConsoleMain {
     record Components(ChatWorker chat, Master routerInference, Master master, Master.Settings routerSettings,
                       Master.Settings masterSettings) {
     }
+
+    record MemoryAccess(ConversationMemory reads, RouterMemoryWriter writes) {}
 
     public static void main(String[] args) {
         exitOnFailure(run(Main.configSource(args, DEFAULT_CONFIG), components -> List.of()));
@@ -83,6 +87,9 @@ public final class ConsoleMain {
             if (!routerSettings.usesChat()) {
                 throw new IllegalArgumentException("Router 需要支持 tool_calls 的 /v1/chat/completions 端点");
             }
+            if (memorySettings.isPresent() && !masterSettings.usesChat()) {
+                throw new IllegalArgumentException("配置会话记忆时，Master 需要支持 memory_call 的 /v1/chat/completions 端点");
+            }
         } catch (IOException | IllegalArgumentException error) {
             System.err.println("配置阶段失败：" + error.getMessage());
             return 2;
@@ -120,13 +127,8 @@ public final class ConsoleMain {
                             (text, trace) -> new Reply("router_route", Map.of("route", router.route(text).name())),
                             routerInference::probeStartup),
                     new Node("master", "Master", masterSettings.endpoint().toString(), masterSettings.model(),
-                            (text, trace) -> {
-                                var completion = master.complete(text, settings.masterMaxTokens(),
-                                        settings.masterTemperature(), List.of());
-                                return new Reply("master_completion", Map.of("text", completion.text(),
-                                        "finishReason", completion.finishReason(),
-                                        "reasoningFieldPresent", completion.reasoningFieldPresent()));
-                            },
+                            masterConversation(master, settings.masterMaxTokens(), settings.masterTemperature(),
+                                    memory.map(MemoryAccess::reads)),
                             master::probeStartup)));
             nodes.addAll(extension.nodes(new Components(chat, routerInference, master, routerSettings, masterSettings)));
 
@@ -135,7 +137,8 @@ public final class ConsoleMain {
             opened.push(monitor);
             monitor.start(settings.metricsInterval());
 
-            var server = ConsoleServer.start(settings.listen(), audit, monitor, nodes, memory);
+            var writes = memory.map(MemoryAccess::writes);
+            var server = ConsoleServer.start(settings.listen(), audit, monitor, nodes, writes);
             opened.push(server);
 
             // 两个入口使用同一对话处理器。QQ 登录验证在后台连接中完成，断开时可独立重连。
@@ -143,7 +146,7 @@ public final class ConsoleMain {
                 var openQqClient = HttpClient.newHttpClient();
                 opened.push(openQqClient);
                 var channel = new OpenQqChannel(openQqClient, configured.endpoint(), configured.accessToken(),
-                        configured.accountId(), configured.allowedUserId(), audit, chatExchange, memory);
+                        configured.accountId(), configured.allowedUserId(), audit, chatExchange, writes);
                 opened.push(channel);
                 channel.start();
             });
@@ -162,8 +165,8 @@ public final class ConsoleMain {
         return 0;
     }
 
-    private static Optional<ConversationMemory> openMemory(Optional<MemoryConfig> settings,
-                                                            Deque<AutoCloseable> opened, AuditLog audit, boolean qqPrivateEnabled)
+    private static Optional<MemoryAccess> openMemory(Optional<MemoryConfig> settings,
+                                                     Deque<AutoCloseable> opened, AuditLog audit, boolean qqPrivateEnabled)
             throws IOException, InterruptedException {
         if (settings.isEmpty()) {
             return Optional.empty();
@@ -174,64 +177,73 @@ public final class ConsoleMain {
         var memory = new ResidentMemory(client, config.endpoint(), config.characterId(), config.token(),
                 config.scopedRecall());
         memory.verify(qqPrivateEnabled);
-        return Optional.of(new ConversationMemory(audit, memory));
+        // 两端共用已核验的服务。模型节点只接收按本轮绑定的读取能力，渠道回执只交给 Router 的写入口。
+        return Optional.of(new MemoryAccess(new ConversationMemory(audit, memory), new RouterMemoryWriter(audit, memory)));
+    }
+
+    static ConsoleServer.Exchange masterConversation(Master master, int maxTokens, double temperature,
+                                                     Optional<ConversationMemory> memory) {
+        return (text, trace) -> {
+            var read = memory.map(store -> store.bind(trace, Caller.MASTER, trace.request()));
+            var completion = read.isPresent() ? master.completeWithMemory(text, maxTokens, temperature, read.orElseThrow())
+                    : master.complete(text, maxTokens, temperature, List.of());
+            return new Reply("master_completion", Map.of("text", completion.text(), "finishReason", completion.finishReason(),
+                    "reasoningFieldPresent", completion.reasoningFieldPresent()), read.map(MemoryCall::eventId).orElse(trace.request()));
+        };
     }
 
     static ConsoleServer.Exchange conversation(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task,
-                                                Optional<ConversationMemory> memory) {
+                                                Optional<MemoryAccess> memory) {
         return (text, trace) -> {
             if (memory.isEmpty()) {
-                return routeAction(chat, router, task, text, trace, trace.request());
+                return routeAction(chat, router, task, text, trace, trace.request(), Optional.empty());
             }
             int accepted = trace.write(trace.request(), "chat-worker", "chat_worker_received", Map.of());
             var store = memory.orElseThrow();
-            int input = store.rememberInbound(trace, accepted, text);
-            var turn = chat.planTurn(text, trace.dialogue(), store.canSearchSelfHistory(trace.scope()));
+            int input = store.writes().rememberInbound(trace, accepted, text);
+            var turn = chat.planTurn(text, trace.dialogue(), store.reads().canSearchSelfHistory(trace.scope()));
             int planned = trace.write(input, "chat-worker", "chat_worker_turn_plan",
                     Map.of("kind", turn.kind().name(), "dialogueMessages", turn.dialogue().size(), "usage", turn.usage()));
             return switch (turn.kind()) {
                 case REPLY, CLARIFY -> new Reply("chat_worker_reply",
                         Map.of("text", chat.replyToTurn(turn, List.of()).orElseThrow()), planned);
-                case ACTION -> routeAction(chat, router, task, text, trace, planned);
-                case HISTORY, SELF_IDENTITY, SELF_HISTORY -> replyWithMemory(chat, router, store, turn, trace, planned);
+                case ACTION -> routeAction(chat, router, task, text, trace, planned, Optional.of(store.reads()));
+                case HISTORY, SELF_IDENTITY, SELF_HISTORY -> {
+                    var read = store.reads().bind(trace, Caller.CHAT_WORKER, planned);
+                    String reply = chat.replyWithMemory(turn, read).orElseThrow();
+                    yield new Reply("chat_worker_reply", Map.of("text", reply), read.eventId());
+                }
             };
         };
     }
 
-    private static Reply replyWithMemory(ChatWorker chat, Router<Route> router, ConversationMemory memory,
-                                         ChatWorker.Turn turn, ConsoleServer.Trace trace, int planned)
-            throws IOException, InterruptedException {
-        var kind = QueryKind.valueOf(turn.kind().name());
-        int requested = trace.write(planned, "chat-worker", "chat_worker_memory_request",
-                Map.of("kind", kind.name(), "query", turn.query()));
-        var recalled = router.queryMemory(memory, trace, requested, kind, turn.query());
-        return new Reply("chat_worker_reply",
-                Map.of("text", chat.replyToTurn(turn, recalled.messages()).orElseThrow()), recalled.eventId());
-    }
-
     private static Reply routeAction(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task, String text,
-                                     ConsoleServer.Trace trace, int parent) throws IOException, InterruptedException {
+                                     ConsoleServer.Trace trace, int parent, Optional<ConversationMemory> memory)
+            throws IOException, InterruptedException {
         int submitted = trace.write(parent, "chat-worker", "chat_worker_router_request", Map.of());
         var conversation = chat.routeConversation(text, router);
         int routed = trace.write(submitted, "router", "router_route", Map.of("route", conversation.route().name()));
         if (conversation.route() == Route.ACTION_REQUEST && task.isPresent()) {
-            return executeTask(chat, task.orElseThrow(), conversation, trace, routed);
+            return executeTask(chat, task.orElseThrow(), conversation, trace, routed, memory);
         }
         return new Reply("chat_worker_reply", Map.of("text", chat.reply(conversation).orElseThrow()), routed);
     }
 
     private static Reply executeTask(ChatWorker chat, TaskWorker task, ChatWorker.RoutedConversation conversation,
-                                     ConsoleServer.Trace trace, int routed) throws IOException, InterruptedException {
+                                     ConsoleServer.Trace trace, int routed, Optional<ConversationMemory> memory)
+            throws IOException, InterruptedException {
         int dispatched = trace.write(routed, "task-worker", "task_worker_dispatch",
                 Map.of("provider", "DeepSeek", "model", task.model()));
-        var status = task.execute(conversation.context().message());
+        var read = memory.map(store -> store.bind(trace, Caller.TASK_WORKER, dispatched));
+        var status = task.execute(conversation.context().message(), read);
+        int parent = read.map(MemoryCall::eventId).orElse(dispatched);
         if (status.isEmpty()) {
-            int receipt = trace.write(dispatched, "task-worker", "task_worker_unavailable", Map.of());
+            int receipt = trace.write(parent, "task-worker", "task_worker_unavailable", Map.of());
             return new Reply("chat_worker_reply", Map.of("text", chat.reply(conversation).orElseThrow()), receipt);
         }
         var result = status.orElseThrow();
         // 持久回执后再回复。角色模型润色已完成读取的说明，采样值按回执呈现。
-        int receipt = trace.write(dispatched, "task-worker", "task_worker_result",
+        int receipt = trace.write(parent, "task-worker", "task_worker_result",
                 Map.of("capability", "read_server_status", "status", result));
         String reply = chat.replyToServerStatus(conversation.context(), result).orElseThrow();
         return new Reply("chat_worker_reply", Map.of("text", reply), receipt);

@@ -8,7 +8,7 @@ import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import neuralcloud.controlplane.memory.ConversationMemory;
+import neuralcloud.controlplane.router.RouterMemoryWriter;
 import neuralcloud.controlplane.worker.DialogueMessage;
 
 import java.io.IOException;
@@ -155,24 +155,24 @@ public final class ConsoleServer implements AutoCloseable {
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private final AuditLog audit;
     private final NodeMonitor monitor;
-    private final Optional<ConversationMemory> memory;
+    private final Optional<RouterMemoryWriter> writes;
     private final Map<String, Node> nodes = new LinkedHashMap<>();
     private final String probeChain;
 
     private ConsoleServer(HttpServer server, AuditLog audit, NodeMonitor monitor, List<Node> nodes,
-                          Optional<ConversationMemory> memory) {
+                          Optional<RouterMemoryWriter> writes) {
         this.server = server;
         this.audit = audit;
         this.monitor = monitor;
-        this.memory = memory;
+        this.writes = writes;
         nodes.forEach(node -> this.nodes.put(node.id(), node));
         // 同一进程内的手动探测串成一条审计链，不混入会话。
         probeChain = PROBE_CHAIN_PREFIX + audit.runId();
     }
 
     public static ConsoleServer start(InetSocketAddress address, AuditLog audit, NodeMonitor monitor,
-                                      List<Node> nodes, Optional<ConversationMemory> memory) throws IOException {
-        var console = new ConsoleServer(HttpServer.create(address, 0), audit, monitor, nodes, memory);
+                                      List<Node> nodes, Optional<RouterMemoryWriter> writes) throws IOException {
+        var console = new ConsoleServer(HttpServer.create(address, 0), audit, monitor, nodes, writes);
         console.server.createContext("/", console::handle);
         console.server.setExecutor(console.executor);
         console.server.start();
@@ -275,11 +275,11 @@ public final class ConsoleServer implements AutoCloseable {
         int event = audit.write(message.chain(), parent, node.id(), reply.type(), data);
         monitor.recordCall(node.id(), new NodeMonitor.Outcome(Instant.now().toString(), true, latency, ""));
         var response = json(200, Map.of("eventId", event, "type", reply.type(), "data", data));
-        if ("chat_worker_reply".equals(reply.type()) && memory.isPresent()) {
+        if ("chat_worker_reply".equals(reply.type()) && writes.isPresent()) {
             // HTTP 正文成功写出才记为渠道回执，服务端无法证明浏览器已渲染。
             return new Response(response.status(), response.contentType(), response.body(), () -> {
                 int written = trace.write(event, "console", "console_response_written", Map.of());
-                memory.orElseThrow().rememberDelivered(trace, written, (String) reply.data().get("text"));
+                writes.orElseThrow().rememberDelivered(trace, written, (String) reply.data().get("text"));
             });
         }
         return response;
