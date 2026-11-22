@@ -5,8 +5,6 @@ import neuralcloud.controlplane.master.Master;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Properties;
 
@@ -14,15 +12,15 @@ final class MasterConfig {
     private MasterConfig() {
     }
 
-    // 启动入口在此校验外部配置，Master 只接收已校验的类型和值。
-    static Master.Settings load(Path path) throws IOException {
-        Properties properties = new Properties();
-        try (var reader = Files.newBufferedReader(path)) {
-            properties.load(reader);
+    // 启动入口在此校验配置，Master 只接收已校验的类型和值。
+    static Master.Settings load(ConfigSource source) throws IOException {
+        Properties properties;
+        try {
+            properties = source.readProperties();
         } catch (IOException error) {
-            throw new IOException("无法读取配置文件 " + path + "（" + error.getMessage() + "）", error);
+            throw new IOException("无法读取配置文件 " + source.location() + "（" + error.getMessage() + "）", error);
         } catch (IllegalArgumentException error) {
-            throw new IllegalArgumentException("配置文件格式无效 " + path, error);
+            throw new IllegalArgumentException("配置文件格式无效 " + source.location(), error);
         }
 
         URI endpoint = endpoint(required(properties, "endpoint"));

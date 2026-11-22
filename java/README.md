@@ -12,11 +12,11 @@ mvn -f java/pom.xml verify
 
 ## 启动试验
 
-启动入口先读取并校验外部配置，再由 Master 发起一次真实的短续写请求。从仓库根目录运行时，默认读取 [java/src/java/resources/master.properties](src/java/resources/master.properties)。也可用 `--config` 指定另一份文件。更改配置后再次运行即可生效。
+启动入口先读取并校验配置，再由 Master 发起一次真实的短续写请求。默认配置 [master.properties](src/main/resources/config/master.properties) 随 JAR 打包，从任意工作目录启动时都可读取。可用 `--config` 指定外部文件，修改外部文件后重启即可生效。修改内置配置后需重新打包。
 
 ```powershell
 java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar
-java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --config java/src/java/resources/master.properties
+java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --config java/src/main/resources/config/master.properties
 ```
 
 配置文件使用 UTF-8。下列字段按所选接口校验，未知字段会被拒绝。
@@ -34,13 +34,15 @@ java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --config java
 
 ## 网页控制台
 
-控制台是一个常驻进程，网页可以直接与 Chat Worker、Router、Master 交互，回看审计链，并查看各节点的运行状态。先用上文的 `verify` 构建 JAR，在启动 Java 的环境中配置 `GEMINI_API_KEY`，再从仓库根目录运行以下命令。默认读取 [console.properties](src/java/resources/console.properties)，也可用 `--config` 指定另一份文件。看到“控制台已就绪”后，打开 <http://127.0.0.1:18900/>。
+控制台是一个常驻进程，网页可以直接与 Chat Worker、Router、Master 交互，回看审计链，并查看各节点的运行状态。先用上文的 `verify` 构建 JAR，在启动 Java 的环境中配置 `GEMINI_API_KEY`，再运行以下命令。默认读取 JAR 内的 [console.properties](src/main/resources/config/console.properties)，也可用 `--config` 指定外部文件。看到“控制台已就绪”后，打开 <http://127.0.0.1:18900/>。
 
 ```powershell
 java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.controlplane.app.ConsoleMain
 ```
 
 启动时依次校验控制台和三个节点各自的配置，打开审计目录，组装节点，开始读取状态，最后开放端口。任一阶段失败时释放已打开的资源并退出，配置错误的退出码为 `2`，启动失败为 `1`。控制台没有身份校验，`listenHost` 只接受本机回环地址。
+
+控制台的模型配置和提示词字段可使用 `classpath:/config/文件名` 引用内置资源，也可指定文件系统路径。相对文件路径和相对审计目录均按 Java 进程的工作目录解析。
 
 | 字段 | 取值 |
 | --- | --- |
@@ -110,6 +112,6 @@ java -cp $evalClasspath neuralcloud.controlplane.app.EvaluationMain --router-eva
 
 ## Chat Worker Gemini 草稿
 
-在上述 Router 挡板命令末尾加 `--gemini` 启用 Chat Worker。若同时指定 Master 的 `--config`，把 `--gemini` 放在它前面。Gemini 用 [Chat Worker 配置](src/java/resources/chat-worker-gemini.properties) 中的原生 `generateContent` 接口，默认沿用历史联调中的 `gemini-4-hydrogen`。请求经必填字段 `proxy`（`主机:端口`）指定的 HTTP 代理发出，默认是本机的 `127.0.0.1:7890`。在启动 Java 的环境中配置 `GEMINI_API_KEY`。密钥通过请求头读取。 [Gemini 接口参考](https://ai.google.dev/api/generate-content)
+在上述 Router 挡板命令末尾加 `--gemini` 启用 Chat Worker。若同时指定 Master 的 `--config`，把 `--gemini` 放在它前面。Gemini 用 [Chat Worker 配置](src/main/resources/config/chat-worker-gemini.properties) 中的原生 `generateContent` 接口，默认沿用历史联调中的 `gemini-4-hydrogen`。请求经必填字段 `proxy`（`主机:端口`）指定的 HTTP 代理发出，默认是本机的 `127.0.0.1:7890`。在启动 Java 的环境中配置 `GEMINI_API_KEY`。密钥通过请求头读取。 [Gemini 接口参考](https://ai.google.dev/api/generate-content)
 
 Gemini 每次只收到该步骤获准传达的正文和 Chat Worker 职责提示。会议时间可独立生成草稿，提醒状态仍须等待对应的核对回执。生成的可见回复写为 `chat_worker_draft`，Task Worker 的核对结果仍由挡板提供。真实渠道发送和送达由后续通道接入处理。

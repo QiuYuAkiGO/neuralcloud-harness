@@ -7,7 +7,7 @@ import java.net.http.HttpClient;
 import java.nio.file.Path;
 
 public final class Main {
-    private static final Path DEFAULT_CONFIG = Path.of("java", "src", "java", "resources", "master.properties");
+    private static final ConfigSource DEFAULT_CONFIG = ConfigSource.bundled("master.properties");
 
     private Main() {
     }
@@ -19,7 +19,7 @@ public final class Main {
     private static int run(String[] args) {
         Master.Settings settings;
         try {
-            settings = MasterConfig.load(configPath(args, DEFAULT_CONFIG));
+            settings = MasterConfig.load(configSource(args, DEFAULT_CONFIG));
         } catch (IOException | IllegalArgumentException error) {
             System.err.println("配置阶段失败：" + error.getMessage());
             return 2;
@@ -43,12 +43,12 @@ public final class Main {
         }
     }
 
-    static Path configPath(String[] args, Path defaultConfig) {
+    static ConfigSource configSource(String[] args, ConfigSource defaultConfig) {
         if (args.length == 0) {
             return defaultConfig;
         }
         if (args.length == 2 && args[0].equals("--config") && !args[1].isBlank()) {
-            return Path.of(args[1]);
+            return ConfigSource.file(Path.of(args[1]));
         }
         throw new IllegalArgumentException("指定配置文件时请使用 --config <文件路径>");
     }

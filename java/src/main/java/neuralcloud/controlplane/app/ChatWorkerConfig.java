@@ -7,8 +7,6 @@ import java.net.InetSocketAddress;
 import java.net.ProxySelector;
 import java.net.URI;
 import java.net.http.HttpClient;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Properties;
@@ -22,11 +20,8 @@ final class ChatWorkerConfig {
 
     private ChatWorkerConfig() {}
 
-    static Settings load(Path path) throws IOException {
-        var properties = new Properties();
-        try (var reader = Files.newBufferedReader(path)) {
-            properties.load(reader);
-        }
+    static Settings load(ConfigSource source) throws IOException {
+        var properties = source.readProperties();
         if (!properties.stringPropertyNames().equals(FIELDS)
                 || properties.values().stream().anyMatch(value -> value.toString().isBlank())) {
             throw new IllegalArgumentException("Chat Worker 配置须包含以下非空字段 " + FIELDS);

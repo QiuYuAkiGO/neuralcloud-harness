@@ -21,7 +21,7 @@ import java.util.Map;
  */
 public final class ConsoleScenarioMain {
     private static final Path RESOURCES = Path.of("java", "src", "test", "resources", "evaluation");
-    private static final Path DEFAULT_CONFIG = RESOURCES.resolve("console-scenario.properties");
+    private static final ConfigSource DEFAULT_CONFIG = ConfigSource.file(RESOURCES.resolve("console-scenario.properties"));
     private static final Path MASTER_ROLE_PROMPT = RESOURCES.resolve("master-role-prompt.txt");
     private static final String USAGE =
             "请使用 --scenario <样例 JSON> <用例 ID> <PRESENT|CANCELLED|FAILED> [--config <控制台配置>]";
@@ -50,7 +50,7 @@ public final class ConsoleScenarioMain {
         Path fixtures;
         String caseId;
         Outcome outcome;
-        Path config;
+        ConfigSource config;
         try {
             if (args.length < 4 || !args[0].equals("--scenario")
                     || Arrays.stream(args, 1, 4).anyMatch(arg -> arg.isBlank() || arg.startsWith("--"))) {
@@ -59,7 +59,7 @@ public final class ConsoleScenarioMain {
             fixtures = Path.of(args[1]);
             caseId = args[2];
             outcome = Outcome.valueOf(args[3]);
-            config = Main.configPath(Arrays.copyOfRange(args, 4, args.length), DEFAULT_CONFIG);
+            config = Main.configSource(Arrays.copyOfRange(args, 4, args.length), DEFAULT_CONFIG);
         } catch (IllegalArgumentException error) {
             System.err.println("配置阶段失败：" + error.getMessage());
             System.exit(2);

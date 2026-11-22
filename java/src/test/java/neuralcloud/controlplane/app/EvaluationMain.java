@@ -16,11 +16,11 @@ import java.util.Arrays;
 public final class EvaluationMain {
     private static final Path RESOURCES = Path.of("java", "src", "test", "resources", "evaluation");
     private static final Path MASTER_ROLE_PROMPT = RESOURCES.resolve("master-role-prompt.txt");
-    private static final Path ROUTER_CONFIG = RESOURCES.resolve("router-qwen35.properties");
+    private static final ConfigSource ROUTER_CONFIG = ConfigSource.file(RESOURCES.resolve("router-qwen35.properties"));
     private static final Path ROUTER_ROLE_PROMPT = RESOURCES.resolve("router-role-prompt.txt");
-    private static final Path MASTER_CONFIG = RESOURCES.resolve("master-qwen38.properties");
-    private static final Path CHAT_CONFIG = Path.of("java", "src", "java", "resources", "chat-worker-gemini.properties");
-    private static final Path CHAT_PROMPT = CHAT_CONFIG.resolveSibling("chat-worker-role-prompt.txt");
+    private static final ConfigSource MASTER_CONFIG = ConfigSource.file(RESOURCES.resolve("master-qwen38.properties"));
+    private static final ConfigSource CHAT_CONFIG = ConfigSource.bundled("chat-worker-gemini.properties");
+    private static final ConfigSource CHAT_PROMPT = ConfigSource.bundled("chat-worker-role-prompt.txt");
 
     private EvaluationMain() {
     }
@@ -67,7 +67,7 @@ public final class EvaluationMain {
             } else {
                 throw new IllegalArgumentException("请指定 --master-eval 或 --router-eval 挡板场景");
             }
-            settings = MasterConfig.load(Main.configPath(args, MASTER_CONFIG));
+            settings = MasterConfig.load(Main.configSource(args, MASTER_CONFIG));
             if (!settings.usesChat() || (routerSettings != null && !routerSettings.usesChat())) {
                 throw new IllegalArgumentException("挡板的模型配置需要支持 tool_calls 的 /v1/chat/completions");
             }
@@ -86,7 +86,7 @@ public final class EvaluationMain {
                             Route.class);
                     if (chatSettings != null) {
                         try (HttpClient chatClient = chatSettings.newClient()) {
-                            var chat = chatSettings.create(chatClient, geminiKey, Files.readString(CHAT_PROMPT));
+                            var chat = chatSettings.create(chatClient, geminiKey, CHAT_PROMPT.readText());
                             return new RouterEvaluation(router::route, evaluation, chat::draftReply).run(
                                     tracePath, caseId, outcome, routerSettings.model(), settings.model());
                         }

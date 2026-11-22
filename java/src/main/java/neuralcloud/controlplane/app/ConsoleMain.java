@@ -12,8 +12,6 @@ import neuralcloud.controlplane.worker.ChatWorker;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -25,7 +23,7 @@ import java.util.Map;
  * 启动节点状态读取，最后开放 HTTP 端口。端口开放后才报告就绪；任一阶段失败都释放已打开的资源并退出。
  */
 public final class ConsoleMain {
-    private static final Path DEFAULT_CONFIG = Path.of("java", "src", "java", "resources", "console.properties");
+    private static final ConfigSource DEFAULT_CONFIG = ConfigSource.bundled("console.properties");
 
     private ConsoleMain() {
     }
@@ -41,7 +39,7 @@ public final class ConsoleMain {
     }
 
     public static void main(String[] args) {
-        exitOnFailure(run(Main.configPath(args, DEFAULT_CONFIG), components -> List.of()));
+        exitOnFailure(run(Main.configSource(args, DEFAULT_CONFIG), components -> List.of()));
     }
 
     static void exitOnFailure(int code) {
@@ -50,7 +48,7 @@ public final class ConsoleMain {
         }
     }
 
-    static int run(Path config, Extension extension) {
+    static int run(ConfigSource config, Extension extension) {
         ConsoleConfig.Settings settings;
         ChatWorkerConfig.Settings chatSettings;
         Master.Settings routerSettings;
@@ -62,9 +60,9 @@ public final class ConsoleMain {
             settings = ConsoleConfig.load(config);
             chatSettings = ChatWorkerConfig.load(settings.chatWorkerConfig());
             chatKey = chatSettings.apiKey();
-            chatPrompt = Files.readString(settings.chatWorkerRolePrompt());
+            chatPrompt = settings.chatWorkerRolePrompt().readText();
             routerSettings = MasterConfig.load(settings.routerConfig());
-            routerPrompt = Files.readString(settings.routerRolePrompt());
+            routerPrompt = settings.routerRolePrompt().readText();
             masterSettings = MasterConfig.load(settings.masterConfig());
             if (!routerSettings.usesChat()) {
                 throw new IllegalArgumentException("Router 需要支持 tool_calls 的 /v1/chat/completions 端点");

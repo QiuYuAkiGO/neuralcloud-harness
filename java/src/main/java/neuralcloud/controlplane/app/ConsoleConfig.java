@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Arrays;
@@ -22,18 +21,16 @@ final class ConsoleConfig {
     private ConsoleConfig() {
     }
 
-    record Settings(InetSocketAddress listen, Path auditDirectory, Path chatWorkerConfig, Path chatWorkerRolePrompt,
-                    Path routerConfig, Path routerRolePrompt, NodeMonitor.Metrics routerMetrics, Path masterConfig,
-                    NodeMonitor.Metrics masterMetrics, int masterMaxTokens, double masterTemperature,
+    record Settings(InetSocketAddress listen, Path auditDirectory,
+                    ConfigSource chatWorkerConfig, ConfigSource chatWorkerRolePrompt,
+                    ConfigSource routerConfig, ConfigSource routerRolePrompt, NodeMonitor.Metrics routerMetrics,
+                    ConfigSource masterConfig, NodeMonitor.Metrics masterMetrics, int masterMaxTokens, double masterTemperature,
                     NodeMonitor.GpuSource gpuMetrics, Duration metricsInterval, Duration metricsTimeout) {
     }
 
     // 控制台没有身份校验，只允许监听本机回环地址。各节点的模型配置沿用各自的配置文件和校验。
-    static Settings load(Path path) throws IOException {
-        var properties = new Properties();
-        try (var reader = Files.newBufferedReader(path)) {
-            properties.load(reader);
-        }
+    static Settings load(ConfigSource source) throws IOException {
+        var properties = source.readProperties();
         if (!properties.stringPropertyNames().equals(FIELDS)
                 || properties.values().stream().anyMatch(value -> value.toString().isBlank())) {
             throw new IllegalArgumentException("控制台配置须包含以下非空字段 " + FIELDS);
@@ -56,9 +53,10 @@ final class ConsoleConfig {
             throw new IllegalArgumentException("masterTemperature 须为非负有限数值");
         }
         return new Settings(new InetSocketAddress(host, port), Path.of(properties.getProperty("auditDirectory")),
-                Path.of(properties.getProperty("chatWorkerConfig")), Path.of(properties.getProperty("chatWorkerRolePrompt")),
-                Path.of(properties.getProperty("routerConfig")), Path.of(properties.getProperty("routerRolePrompt")),
-                metrics(properties, "routerMetrics"), Path.of(properties.getProperty("masterConfig")),
+                new ConfigSource(properties.getProperty("chatWorkerConfig")),
+                new ConfigSource(properties.getProperty("chatWorkerRolePrompt")),
+                new ConfigSource(properties.getProperty("routerConfig")), new ConfigSource(properties.getProperty("routerRolePrompt")),
+                metrics(properties, "routerMetrics"), new ConfigSource(properties.getProperty("masterConfig")),
                 metrics(properties, "masterMetrics"), positive(properties, "masterMaxTokens"), temperature,
                 enumValue(NodeMonitor.GpuSource.class, properties, "gpuMetrics"),
                 Duration.ofSeconds(positive(properties, "metricsIntervalSeconds")),
