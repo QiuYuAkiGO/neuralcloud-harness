@@ -48,12 +48,18 @@ function summary(event) {
     case 'qq_delivery_unknown': return 'OpenQQ 发送状态未确认：' + data.detail;
     case 'console_response_written': return '控制台已写出 HTTP 回复';
     case 'memory_durable': return data.kind === 'OBSERVATION' ? '用户发言已写入记忆' : '小雾的回复已写入记忆';
-    case 'memory_recall': return '记忆查询命中 ' + data.recordIds.length + ' 条';
+    case 'memory_recall': {
+      if (!data.historicalRecordIds) return `读取了 ${data.recordIds.length} 条记忆材料`;
+      // 旧事件的 recordIds 同时包含历史检索结果和额外回读的近期对话。
+      const hits = new Set(data.historicalRecordIds);
+      const recent = data.recordIds.filter(id => !hits.has(id)).length;
+      return `历史检索命中 ${hits.size} 条` + (recent ? `，另有 ${recent} 条近期对话` : '');
+    }
     case 'chat_worker_received': return 'Chat Worker 已接收本轮消息';
     case 'chat_worker_turn_plan': return 'Chat Worker 选择 ' + data.kind;
     case 'chat_worker_memory_request': return data.query ? '请求查询记忆：' + data.query : '请求查询当前用户身份';
     case 'router_memory_query': return 'Router 已发起记忆查询';
-    case 'router_memory_result': return data.sentences?.join('\n') || 'Router 已返回 ' + data.count + ' 条查询结果';
+    case 'router_memory_result': return data.sentences?.join('\n') || 'Router 已回传 ' + data.count + ' 条材料';
     case 'memory_write_failed': return '回复记忆写入失败：' + data.detail;
     case 'chat_worker_reply': return data.text;
     case 'chat_worker_router_request': return '已将本轮消息交给 Router 分流';

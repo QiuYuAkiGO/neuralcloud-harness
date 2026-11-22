@@ -107,6 +107,10 @@ public final class ResidentMemory {
         return character;
     }
 
+    boolean scopedRecall() {
+        return scopedRecall;
+    }
+
     public Optional<String> read(Scope scope, String recordId) throws IOException, InterruptedException {
         var reply = request("v1/records/" + recordId + "?length=2048", null);
         String status = text(reply, "status");
@@ -133,7 +137,7 @@ public final class ResidentMemory {
     }
 
     public List<Match> search(Scope scope, String query, Instant receivedAt) throws IOException, InterruptedException {
-        // Recall 的最大查询长度是 256 个 Unicode 字符。长消息仍有按 ID 重读的近期对话。
+        // recent 模式使用按 ID 回读的接口，检索接口的线索长度上限是 256 个 Unicode 字符。
         if (!scopedRecall || query.codePointCount(0, query.length()) > 256) {
             return List.of();
         }

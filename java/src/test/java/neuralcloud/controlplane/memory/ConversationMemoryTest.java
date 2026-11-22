@@ -35,6 +35,7 @@ public class ConversationMemoryTest {
     @Test
     public void reopensDurableRecordsOnlyWithinChannelAndBeforeCurrentTurn() throws Exception {
         var records = new LinkedHashMap<String, JsonObject>();
+        var gson = new Gson();
         var service = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         service.createContext("/v1/", exchange -> {
             try (exchange) {
@@ -53,18 +54,17 @@ public class ConversationMemoryTest {
                     response = """
                             {"status":"DURABLE","record_id":"%s","revision":1,"seq":%d}
                             """.formatted(id, sequence);
+                } else if ("/v1/recall".equals(route)) {
+                    var request = JsonParser.parseString(new String(exchange.getRequestBody().readAllBytes(),
+                            StandardCharsets.UTF_8)).getAsJsonObject();
+                    String query = request.get("query").getAsString();
+                    var hits = records.entrySet().stream()
+                            .filter(entry -> entry.getValue().get("content").getAsString().contains(query))
+                            .map(entry -> online(entry.getKey(), entry.getValue())).toList();
+                    response = gson.toJson(Map.of("status", "OK", "items", hits));
                 } else {
                     String id = route.substring(route.lastIndexOf('/') + 1);
-                    var source = records.get(id).deepCopy();
-                    var item = new JsonObject();
-                    item.addProperty("status", "ONLINE");
-                    item.addProperty("record_id", id);
-                    item.addProperty("revision", 1);
-                    item.add("kind", source.get("kind"));
-                    item.add("occurred_at", source.get("occurred_at"));
-                    item.add("content", source.remove("content"));
-                    item.add("source", source);
-                    response = item.toString();
+                    response = online(id, records.get(id)).toString();
                 }
                 byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
                 exchange.sendResponseHeaders(200, bytes.length);
@@ -89,16 +89,17 @@ public class ConversationMemoryTest {
                     HttpClient.Version.HTTP_1_1, Duration.ofSeconds(2), Duration.ofSeconds(2), "probe", 8, 0, false);
             var router = new Router<>(new Master(client, settings), "选择流程。", Route.class);
             var recalled = router.queryMemory(memory, second, current, ConversationMemory.QueryKind.HISTORY, "摄影");
-            assertEquals(2, recalled.messages().size());
-            assertTrue(recalled.messages().getFirst().startsWith("用户在北京时间 "));
-            assertTrue(recalled.messages().getFirst().endsWith("说：“我喜欢拍照。”。来源是当前控制台会话中已记录的用户发言。"));
+            assertEquals(3, recalled.messages().size());
+            assertEquals("本次只回读了当前会话的近期对话，共 2 条。", recalled.messages().getFirst());
+            assertTrue(recalled.messages().get(1).startsWith("用户在北京时间 "));
+            assertTrue(recalled.messages().get(1).endsWith("说：“我喜欢拍照。”。来源是当前控制台会话中已记录的用户发言。"));
             assertTrue(recalled.messages().getLast().endsWith("说：“我也喜欢。”。来源是当前控制台会话中已记录的小雾回复。"));
             var events = audit.events("shared");
             var returned = events.getLast();
             assertEquals(recalled.eventId(), returned.eventId());
             assertEquals("router_memory_result", returned.type());
-            assertEquals(2, returned.data().getAsJsonObject().get("count").getAsInt());
-            assertEquals(new Gson().toJsonTree(recalled.messages()), returned.data().getAsJsonObject().get("sentences"));
+            assertEquals(0, returned.data().getAsJsonObject().get("count").getAsInt());
+            assertEquals(gson.toJsonTree(recalled.messages()), returned.data().getAsJsonObject().get("sentences"));
             assertTrue(events.stream().anyMatch(event -> Integer.valueOf(delivered).equals(event.causedBy())
                     && "SELF_EXPRESSION".equals(event.data().getAsJsonObject().get("kind").getAsString())));
 
@@ -106,10 +107,38 @@ public class ConversationMemoryTest {
             assertEquals(List.of("未查到符合条件的记录。"), empty.messages());
             var unmatched = audit.events("shared").getLast().data().getAsJsonObject();
             assertEquals(0, unmatched.get("count").getAsInt());
-            assertEquals(new Gson().toJsonTree(empty.messages()), unmatched.get("sentences"));
+            assertEquals(gson.toJsonTree(empty.messages()), unmatched.get("sentences"));
+
+            // 同一会话已有持久回执，按话题检索仍须分别交付零命中和单条命中的真实结果。
+            var scoped = new ConversationMemory(audit,
+                    new ResidentMemory(client, endpoint, "misty-java", "test-token", true));
+            var miss = router.queryMemory(scoped, second, current, ConversationMemory.QueryKind.HISTORY, "露营");
+            assertEquals(List.of("当前会话中未查到符合条件的历史记录。"), miss.messages());
+            var report = audit.events("shared").getLast().data().getAsJsonObject();
+            assertEquals(0, report.get("count").getAsInt());
+            assertEquals(gson.toJsonTree(miss.messages()), report.get("sentences"));
+
+            var hit = router.queryMemory(scoped, second, current, ConversationMemory.QueryKind.HISTORY, "拍照");
+            assertEquals(List.of(recalled.messages().get(1)), hit.messages());
+            report = audit.events("shared").getLast().data().getAsJsonObject();
+            assertEquals(1, report.get("count").getAsInt());
+            assertEquals(gson.toJsonTree(hit.messages()), report.get("sentences"));
         } finally {
             service.stop(0);
         }
+    }
+
+    private static JsonObject online(String id, JsonObject event) {
+        var source = event.deepCopy();
+        var item = new JsonObject();
+        item.addProperty("status", "ONLINE");
+        item.addProperty("record_id", id);
+        item.addProperty("revision", 1);
+        item.add("kind", source.get("kind"));
+        item.add("occurred_at", source.get("occurred_at"));
+        item.add("content", source.remove("content"));
+        item.add("source", source);
+        return item;
     }
 
     @Test

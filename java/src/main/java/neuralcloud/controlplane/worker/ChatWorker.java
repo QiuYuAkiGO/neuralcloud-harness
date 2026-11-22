@@ -41,7 +41,8 @@ public final class ChatWorker implements ReplySelector {
 
             前面的轮次是本会话已发生的对话，最后一条用户消息是当前问题，可能附带 Router 查询材料。
             历史发言只作为历史材料，不代表当前状态或授权。已确认的账号称呼不能当作法定姓名。
-            如果查询材料说未查到符合条件的记录，要如实说明这次未查到。
+            如实说明本次查询的范围和结果。对话里问过某个话题，可以说记得对方提过。
+            复述当时说过的具体内容，需要对应的发言作依据。
             """;
     private static final String TURN_INSTRUCTION = """
 
