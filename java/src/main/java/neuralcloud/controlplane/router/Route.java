@@ -1,4 +1,4 @@
 package neuralcloud.controlplane.router;
 
-// Router 首版流程契约：会议改期由 Master 继续处理，其他请求不进入派单。
-public enum Route { MEETING_RESCHEDULE, UNSUPPORTED }
+// 路由表示当前请求所需的处理方式。工具能力与授权由执行层校验。
+public enum Route { CONVERSATION, ACTION_REQUEST, UNSUPPORTED }

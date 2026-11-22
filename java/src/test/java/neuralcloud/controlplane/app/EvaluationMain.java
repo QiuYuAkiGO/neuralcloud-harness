@@ -3,8 +3,8 @@ package neuralcloud.controlplane.app;
 import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.evaluation.MasterEvaluation;
 import neuralcloud.controlplane.evaluation.RouterEvaluation;
+import neuralcloud.controlplane.evaluation.RouterEvaluation.MeetingRoute;
 import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Outcome;
-import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.worker.ReplySelector.Context;
 
@@ -84,7 +84,7 @@ public final class EvaluationMain {
                 // 同一联调进程组装两个端点。Router 分流通过后才向 Master 发起本轮取证。
                 try (HttpClient routerClient = HttpClient.newBuilder().connectTimeout(routerSettings.connectTimeout()).build()) {
                     var router = new Router<>(new Master(routerClient, routerSettings), Files.readString(ROUTER_ROLE_PROMPT),
-                            Route.class);
+                            MeetingRoute.class);
                     if (chatSettings != null) {
                         try (HttpClient chatClient = chatSettings.newClient()) {
                             var chat = chatSettings.create(chatClient, geminiKey, CHAT_PROMPT.readText());

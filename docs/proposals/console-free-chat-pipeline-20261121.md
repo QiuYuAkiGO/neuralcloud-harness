@@ -9,7 +9,7 @@
 | 环节 | 现状 | 自由对话需要的能力 |
 | --- | --- | --- |
 | Chat Worker | 只有 `draftReply`，把获准正文改写成 Misty 口吻 | 接收用户消息，向 Router 上报消息与自己的印象；按 Router 的对话指令生成回复 |
-| Router | 只在 `MEETING_RESCHEDULE` 与 `UNSUPPORTED` 中选流程 | 增加日常对话流程；把 Master 的意图拆成派单计划 |
+| Router | 正式节点已区分 `CONVERSATION`、`ACTION_REQUEST` 与 `UNSUPPORTED`。会议改期路由属于联调场景。 | 将日常对话接入完整流程，并把 Master 的意图拆成派单计划 |
 | 记忆 | `memory` 包为空，Master 读样例中的证据 | 真实的记忆读写适配器：写入发言与回复，按事实源、印象源查询，返回样板句 |
 | Master | 必交结果由各样例定义，如 `meetingTime`、`verifyReminder` | 与事项无关的通用意图契约 |
 | 编排器 | 正式 `Orchestrator` 已能按依赖派发 | 执行 Router 生成的计划，回执交回 Router 入库 |
@@ -87,7 +87,7 @@ Chat Worker 的印象只随本轮材料交给 Master，不入库；Master 评价
 
 ## 5. Router 的扩展
 
-- **流程枚举。** `Route` 增加 `CONVERSATION`（日常对话）。会议改期仍由 `MEETING_RESCHEDULE` 处理；`UNSUPPORTED` 时 Router 只让 Chat Worker 告知暂时处理不了，不调用 Master。
+- **流程枚举。** `CONVERSATION` 进入日常对话链路。`ACTION_REQUEST` 识别本轮实时查询或外部行动需求，能力及授权由执行层判定。首期未接入的动作返回对应的能力状态。`UNSUPPORTED` 用于明确越过系统边界的请求。会议改期的 `MEETING_RESCHEDULE` 仍用于独立联调场景。
 - **意图拆解。** Router 用 `submit_plan` 工具提交步骤列表，每步含 `id`、`worker`、`text`、`dependsOn`。`worker` 首期只允许 `CHAT_WORKER`，`text` 是给 Chat Worker 的纯文本指令。计划交给正式 `Orchestrator`，它已在任何 Worker 动作前校验标识唯一、依赖存在且无环。
 - **拆解由 Router 的 0.8B 生成。** 首期计划只有一步对话指令，仍由模型生成，以便提前暴露小模型拆解的稳定性问题。若实测不稳定，改由 Java 从 `replyIntent` 生成，并记录原因和实测样例。
 

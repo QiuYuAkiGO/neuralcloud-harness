@@ -4,8 +4,10 @@ import neuralcloud.controlplane.console.ConsoleServer.Node;
 import neuralcloud.controlplane.console.ConsoleServer.Reply;
 import neuralcloud.controlplane.evaluation.MasterEvaluation;
 import neuralcloud.controlplane.evaluation.RouterEvaluation;
+import neuralcloud.controlplane.evaluation.RouterEvaluation.MeetingRoute;
 import neuralcloud.controlplane.evaluation.TraceSink;
 import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Outcome;
+import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.worker.ReplySelector.Context;
 
 import java.io.IOException;
@@ -24,6 +26,7 @@ public final class ConsoleScenarioMain {
     private static final Path RESOURCES = Path.of("java", "src", "test", "resources", "evaluation");
     private static final ConfigSource DEFAULT_CONFIG = ConfigSource.file(RESOURCES.resolve("console-scenario.properties"));
     private static final Path MASTER_ROLE_PROMPT = RESOURCES.resolve("master-role-prompt.txt");
+    private static final Path MEETING_ROUTER_PROMPT = RESOURCES.resolve("router-role-prompt.txt");
     private static final String USAGE =
             "请使用 --scenario <样例 JSON> <用例 ID> <PRESENT|CANCELLED|FAILED> [--config <控制台配置>]";
 
@@ -76,7 +79,10 @@ public final class ConsoleScenarioMain {
             throw new IllegalArgumentException("会议改期链路的 Master 需要支持 tool_calls 的 /v1/chat/completions 端点");
         }
         var evaluation = new MasterEvaluation(components.master(), fixtures, Files.readString(MASTER_ROLE_PROMPT));
-        var pipeline = new RouterEvaluation(components.router()::route, evaluation,
+        // 同一推理端点使用两份路由契约。会议节点独立组装测试枚举和提示词。
+        var meetingRouter = new Router<>(components.routerInference(), Files.readString(MEETING_ROUTER_PROMPT),
+                MeetingRoute.class);
+        var pipeline = new RouterEvaluation(meetingRouter::route, evaluation,
                 text -> components.chat().reply(Context.direct(text), text).orElseThrow());
         pipeline.requireScenario(caseId);
         String routerModel = components.routerSettings().model();

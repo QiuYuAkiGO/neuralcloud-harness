@@ -76,7 +76,7 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 | `gpuMetrics` | `NVIDIA_SMI` 通过本机 `nvidia-smi` 读取显存、利用率和功耗，`NONE` 不读取 |
 | `metricsIntervalSeconds`、`metricsTimeoutSeconds` | 状态读取间隔和单次读取超时，以秒为单位的正整数 |
 
-**对话。** 网页把正文发到 `POST /api/nodes/{chat-worker|router|master}/messages`，请求体只含 `chain` 与 `text`。`chain` 是网页生成的会话标识，`text` 非空。Chat Worker 返回 Gemini 草稿，Router 返回所选流程，Master 返回一次续写或聊天正文。三者都是单轮调用，不经过编排器，也不读写记忆。
+**对话。** 网页把正文发到 `POST /api/nodes/{chat-worker|router|master}/messages`，请求体只含 `chain` 与 `text`。`chain` 是网页生成的会话标识，`text` 非空。Chat Worker 返回 Gemini 草稿，Master 返回一次续写或聊天正文。Router 请求指定 `select_route`，只接受一次原生工具调用。可选类别为 `CONVERSATION`（对话或基于已有材料作答）、`ACTION_REQUEST`（需要本轮实时查询或外部动作）和 `UNSUPPORTED`（明确越过系统边界）。这三个单轮节点不经过编排器，也不读写记忆。Router 的类别不代表工具可用、已获授权或已执行。
 
 **参与判断。** 渠道通过 `ReplySelector.Context` 提供发言是否直接指向 Misty、本条正文及同一会话的近期原文。控制台发给 Chat Worker 的消息属于 `DIRECT`，选择 `REPLY`。群聊普通消息使用 `AMBIENT`，由 Chat Worker 用只读摘要判断。Gemini 配置的 `replyPreferences` 指向摘要资源，默认的首版根据 Misty 人设与远端历史记忆提炼。`ChatWorker.reply` 每次先判断参与，`REPLY` 才生成获准正文，`SKIP` 返回空结果，判断失败则抛出异常。
 
@@ -121,7 +121,7 @@ JSONL 轨迹按 `runId`、`caseId` 和 `eventId` 定位。顺着 `causedBy` 可�
 
 ## Router 单会话联调挡板
 
-先同时启动两组支持原生工具调用的本机服务。Router 用 Qwen3.5-0.8B，读取 [router-qwen35.properties](src/test/resources/evaluation/router-qwen35.properties)。vLLM 需启用自动工具调用和 `qwen3_coder` 解析器。同卡运行时为 0.8B 限制 KV 缓存大小。Master 默认用 [master-qwen38.properties](src/test/resources/evaluation/master-qwen38.properties) 中的 27B 聊天端点。两个端点均通过配置关闭思考。
+先同时启动两组支持原生工具调用的本机服务。Router 用 Qwen3.5-0.8B，读取 [router-qwen35.properties](src/test/resources/evaluation/router-qwen35.properties)。vLLM 需启用自动工具调用和 `qwen3_coder` 解析器，并接受指定函数的 `tool_choice`。同卡运行时为 0.8B 限制 KV 缓存大小。Master 默认用 [master-qwen38.properties](src/test/resources/evaluation/master-qwen38.properties) 中的 27B 聊天端点。两个端点均通过配置关闭思考。
 
 ```powershell
 $evalClasspath = 'java/target/test-classes;java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar'

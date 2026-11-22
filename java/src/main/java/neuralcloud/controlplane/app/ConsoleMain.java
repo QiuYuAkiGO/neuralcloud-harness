@@ -35,7 +35,7 @@ public final class ConsoleMain {
         List<Node> nodes(Components components) throws IOException;
     }
 
-    record Components(ChatWorker chat, Router<Route> router, Master master, Master.Settings routerSettings,
+    record Components(ChatWorker chat, Master routerInference, Master master, Master.Settings routerSettings,
                       Master.Settings masterSettings) {
     }
 
@@ -107,7 +107,7 @@ public final class ConsoleMain {
                                         "reasoningFieldPresent", completion.reasoningFieldPresent()));
                             },
                             master::probeStartup)));
-            nodes.addAll(extension.nodes(new Components(chat, router, master, routerSettings, masterSettings)));
+            nodes.addAll(extension.nodes(new Components(chat, routerInference, master, routerSettings, masterSettings)));
 
             var monitor = new NodeMonitor(metricsClient, settings.metricsTimeout(), settings.gpuMetrics(),
                     Map.of("router", settings.routerMetrics(), "master", settings.masterMetrics()));

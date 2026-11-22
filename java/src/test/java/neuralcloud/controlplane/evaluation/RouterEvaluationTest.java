@@ -6,7 +6,7 @@ import neuralcloud.controlplane.orchestration.MeetingOrchestrator;
 import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Action;
 import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Outcome;
 import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Result;
-import neuralcloud.controlplane.router.Route;
+import neuralcloud.controlplane.evaluation.RouterEvaluation.MeetingRoute;
 import neuralcloud.controlplane.orchestration.Orchestrator.Receipt;
 import neuralcloud.controlplane.orchestration.Orchestrator.Scope;
 import org.junit.Rule;
@@ -50,7 +50,7 @@ public class RouterEvaluationTest {
         var evaluation = new RouterEvaluation(text -> {
             assertTrue(text.startsWith("用户问：会议改好了吗？旧提醒取消了吗？"));
             assertFalse(text.contains("事项：会议改期"));
-            return Route.MEETING_RESCHEDULE;
+            return MeetingRoute.MEETING_RESCHEDULE;
         }, master, text -> {
             approvedForChat.add(text);
             return text;

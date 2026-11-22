@@ -7,7 +7,6 @@ import neuralcloud.controlplane.orchestration.MeetingOrchestrator.Result;
 import neuralcloud.controlplane.orchestration.Orchestrator.Plan;
 import neuralcloud.controlplane.orchestration.Orchestrator.Receipt;
 import neuralcloud.controlplane.orchestration.Orchestrator.Scope;
-import neuralcloud.controlplane.router.Route;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -17,9 +16,12 @@ import java.util.Map;
 import java.util.UUID;
 
 public final class RouterEvaluation {
+    // 只供会议回归使用，正式 Router 的工具枚举来自 controlplane.router.Route。
+    public enum MeetingRoute { MEETING_RESCHEDULE, UNSUPPORTED }
+
     @FunctionalInterface
     public interface Classifier {
-        Route route(String text) throws IOException, InterruptedException;
+        MeetingRoute route(String text) throws IOException, InterruptedException;
     }
 
     @FunctionalInterface
@@ -61,7 +63,7 @@ public final class RouterEvaluation {
         int run = trace.write(caseId, cause, "router_run_started", Map.of(
                 "routerModel", routerModel, "masterModel", masterModel, "workerMode", workerMode));
         int input = trace.write(caseId, run, "router_input", Map.of("text", question));
-        Route route;
+        MeetingRoute route;
         try {
             route = classifier.route(question);
         } catch (IOException error) {
@@ -69,7 +71,7 @@ public final class RouterEvaluation {
             throw error;
         }
         int routed = trace.write(caseId, input, "router_route", Map.of("route", route));
-        if (route != Route.MEETING_RESCHEDULE) {
+        if (route != MeetingRoute.MEETING_RESCHEDULE) {
             trace.write(caseId, routed, "router_rejected", Map.of("detail", "本用例应选择会议改期流程"));
             return new Run(false, List.of());
         }

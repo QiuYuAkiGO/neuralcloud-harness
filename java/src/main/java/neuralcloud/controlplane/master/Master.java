@@ -86,12 +86,20 @@ public final class Master {
     /** 多轮聊天只从原生 tool_calls 读取动作，普通正文不会被执行。 */
     public ChatTurn chat(List<Map<String, Object>> messages, List<Map<String, Object>> tools,
                          int maxTokens, double temperature) throws IOException, InterruptedException {
+        return chat(messages, tools, maxTokens, temperature, null);
+    }
+
+    public ChatTurn chat(List<Map<String, Object>> messages, List<Map<String, Object>> tools,
+                         int maxTokens, double temperature, String requiredTool) throws IOException, InterruptedException {
         if (!settings.usesChat()) {
             throw new IOException("工具调用需要配置 /v1/chat/completions");
         }
         JsonObject payload = new JsonObject();
         payload.add("messages", JSON.toJsonTree(messages));
         payload.add("tools", JSON.toJsonTree(tools));
+        if (requiredTool != null) {
+            payload.add("tool_choice", JSON.toJsonTree(Map.of("type", "function", "function", Map.of("name", requiredTool))));
+        }
         payload.addProperty("parallel_tool_calls", false);
         payload.add("chat_template_kwargs", JSON.toJsonTree(Map.of("enable_thinking", settings.enableThinking())));
         JsonObject choice = request(payload, maxTokens, temperature);

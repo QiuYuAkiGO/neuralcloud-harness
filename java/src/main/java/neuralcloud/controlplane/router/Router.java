@@ -29,17 +29,17 @@ public final class Router<R extends Enum<R>> {
         var routes = Arrays.stream(routeType.getEnumConstants()).map(Enum::name).toList();
         tools = List.of(Map.of(
                 "type", "function",
-                "function", Map.of("name", ROUTE_TOOL, "description", "选择当前事项的业务流程",
+                "function", Map.of("name", ROUTE_TOOL, "description", "选择当前事项的业务流程", "strict", true,
                         "parameters", Map.of("type", "object", "additionalProperties", false,
                                 "required", List.of("route"), "properties", Map.of("route", Map.of(
                                         "type", "string", "enum", routes))))));
     }
 
     public R route(String report) throws IOException, InterruptedException {
-        // 模型只选择流程。会话标识和执行数据由 Java 保留，正文只含事项材料。
+        // 分类必须通过唯一指定的工具输出，避免把小模型的正文当作有效路由。
         var response = inference.chat(List.of(
                 Map.of("role", "system", "content", rolePrompt),
-                Map.of("role", "user", "content", report)), tools, 96, 0);
+                Map.of("role", "user", "content", report)), tools, 96, 0, ROUTE_TOOL);
         var calls = response.calls();
         if (calls.size() == 1 && ROUTE_TOOL.equals(calls.getFirst().name())) {
             try {
