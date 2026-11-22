@@ -1,6 +1,8 @@
 package neuralcloud.controlplane.app;
 
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
@@ -27,10 +29,12 @@ import static org.junit.Assert.assertTrue;
 
 public class ConsoleConversationTest {
     @Test
-    public void routesBeforeReplyAndDoesNotGenerateForActionsOrRouterFailures() throws Exception {
+    public void routesBeforeGeneratingEveryReplyWithTheSamePersona() throws Exception {
         var route = new AtomicReference<>("CONVERSATION");
         var report = new AtomicReference<String>();
         var drafts = new AtomicInteger();
+        var generation = new AtomicReference<JsonObject>();
+        var draftedText = new AtomicReference<>("喜欢摄影。");
         var events = new ArrayList<String>();
         var tracedRoute = new AtomicReference<String>();
         var trace = new Trace() {
@@ -58,9 +62,11 @@ public class ConsoleConversationTest {
         });
         backend.createContext("/generate", exchange -> {
             drafts.incrementAndGet();
+            generation.set(JsonParser.parseString(new String(exchange.getRequestBody().readAllBytes(),
+                    StandardCharsets.UTF_8)).getAsJsonObject());
             send(exchange, """
-                    {"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"喜欢摄影。"}]}}]}
-                    """);
+                    {"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":%s}]}}]}
+                    """.formatted(new JsonPrimitive(draftedText.get())));
         });
         backend.start();
         try (var client = HttpClient.newHttpClient()) {
@@ -75,23 +81,47 @@ public class ConsoleConversationTest {
             var reply = entry.send("你喜欢什么？", trace);
             assertEquals("你喜欢什么？", report.get());
             assertEquals("喜欢摄影。", reply.data().get("text"));
+            assertTrue(systemInstruction(generation.get()).startsWith("你是小雾。"));
             assertEquals(List.of("chat-worker:chat_worker_router_request", "router:router_route"), events);
             assertEquals(Integer.valueOf(3), reply.causedBy());
 
             events.clear();
             route.set("ACTION_REQUEST");
+            draftedText.set("这次我还没法查，手上也没有结果。");
             var action = entry.send("检查服务器当前状态。", trace);
             assertEquals("{route=ACTION_REQUEST}", tracedRoute.get());
-            assertTrue(action.data().get("text").toString().contains("我没有执行"));
+            assertEquals(draftedText.get(), action.data().get("text"));
+            assertTrue(systemInstruction(generation.get()).startsWith("你是小雾。"));
+            assertEquals("我目前无法执行这项现场查询或操作。这一轮没有执行，也没有获得现场结果。",
+                    generationInput(generation.get()));
+
+            events.clear();
+            route.set("UNSUPPORTED");
+            draftedText.set("嗯，这个我没有权限，就没做。");
+            var unsupported = entry.send("这是越权请求。", trace);
+            assertEquals("{route=UNSUPPORTED}", tracedRoute.get());
+            assertEquals(draftedText.get(), unsupported.data().get("text"));
+            assertTrue(systemInstruction(generation.get()).startsWith("你是小雾。"));
+            assertEquals("这个请求超出了我能处理的权限范围，我没有执行。", generationInput(generation.get()));
 
             events.clear();
             route.set("INVALID");
             assertThrows(IOException.class, () -> entry.send("你好。", trace));
             assertEquals(List.of("chat-worker:chat_worker_router_request"), events);
-            assertEquals(1, drafts.get());
+            assertEquals(3, drafts.get());
         } finally {
             backend.stop(0);
         }
+    }
+
+    private static String systemInstruction(JsonObject request) {
+        return request.getAsJsonObject("systemInstruction").getAsJsonArray("parts").get(0)
+                .getAsJsonObject().get("text").getAsString();
+    }
+
+    private static String generationInput(JsonObject request) {
+        return request.getAsJsonArray("contents").get(0).getAsJsonObject()
+                .getAsJsonArray("parts").get(0).getAsJsonObject().get("text").getAsString();
     }
 
     private static void send(HttpExchange exchange, String json) throws IOException {

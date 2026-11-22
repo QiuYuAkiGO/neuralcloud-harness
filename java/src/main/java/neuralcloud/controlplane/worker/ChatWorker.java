@@ -26,6 +26,7 @@ public final class ChatWorker implements ReplySelector {
     private static final String DRAFT_INSTRUCTION = """
 
             把获准正文写成一条简短回复。保留事实、时间和不确定性，只传达正文明确给出的内容。
+            正文说明未执行或未取得结果时，回复须保留相应状态。
             不添加承诺、推断、行动结果或额外说明。只返回给用户看的文字。
             """;
     private static final String CONVERSATION_INSTRUCTION = """
@@ -106,11 +107,13 @@ public final class ChatWorker implements ReplySelector {
         if (selectReply(conversation.context()) == Decision.SKIP) {
             return Optional.empty();
         }
-        // 需要执行的请求须等待有权限的执行步骤接入，分类本身不产生任何现场结果。
+        // 所有对外回复共用角色提示。受限分支只传入已确认的处理状态，分类本身不产生现场结果。
         return Optional.of(switch (conversation.route()) {
             case CONVERSATION -> generateReply(CONVERSATION_INSTRUCTION, conversation.context().message());
-            case ACTION_REQUEST -> "这个请求需要现场查询或操作。当前对话还没有接通执行步骤，我没有执行。";
-            case UNSUPPORTED -> "这个请求超出了当前对话允许的范围。";
+            case ACTION_REQUEST -> generateReply(DRAFT_INSTRUCTION,
+                    "我目前无法执行这项现场查询或操作。这一轮没有执行，也没有获得现场结果。");
+            case UNSUPPORTED -> generateReply(DRAFT_INSTRUCTION,
+                    "这个请求超出了我能处理的权限范围，我没有执行。");
         });
     }
 
