@@ -136,29 +136,36 @@ public class ConsoleConversationTest {
             var withTask = ConsoleMain.conversation(chat, router, Optional.of(task));
             route.set("ACTION_REQUEST");
             events.clear();
-            draftedText.set("嗯，刚看了一眼，结果在这儿。");
+            draftedText.set("嗯，我刚看了下这台服务器。");
             var status = withTask.send("检查服务器当前状态。", trace);
             assertEquals(List.of("chat-worker:chat_worker_router_request", "router:router_route",
                     "task-worker:task_worker_dispatch", "task-worker:task_worker_result"), events);
             assertEquals(Integer.valueOf(5), status.causedBy());
-            assertEquals("我刚查了这台 Linux 的状态，结果在下面。", generationInput(generation.get()));
+            assertEquals("本轮已完成服务器状态读取。", generationInput(generation.get()));
+            assertEquals("text/x.enum", generation.get().getAsJsonObject("generationConfig")
+                    .get("responseMimeType").getAsString());
             assertEquals(draftedText.get() + "\n已运行 2.0 小时，一分钟负载 0.50。"
                     + "内存可用 2.0 / 4.0 GiB，根分区可用 8.0 / 16.0 GiB。", status.data().get("text"));
             assertTrue(systemInstruction(generation.get()).startsWith("你是小雾。"));
+
+            events.clear();
+            draftedText.set("咦，好像没看到结果呢。");
+            assertThrows(IOException.class, () -> withTask.send("再检查一次服务器状态。", trace));
+            assertEquals("task-worker:task_worker_result", events.getLast());
 
             capability.set("no_supported_action");
             events.clear();
             withTask.send("重启服务器。", trace);
             assertEquals("task-worker:task_worker_unavailable", events.getLast());
-            assertEquals(1, reads.get());
+            assertEquals(2, reads.get());
 
             capability.set("read_server_status");
             arguments.set("{\"host\":\"another-host\"}");
             events.clear();
             assertThrows(IOException.class, () -> withTask.send("查另一台服务器。", trace));
             assertEquals("task-worker:task_worker_dispatch", events.getLast());
-            assertEquals(1, reads.get());
-            assertEquals(5, drafts.get());
+            assertEquals(2, reads.get());
+            assertEquals(6, drafts.get());
         } finally {
             backend.stop(0);
         }

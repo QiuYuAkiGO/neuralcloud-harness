@@ -34,6 +34,8 @@ public final class ChatWorker implements ReplySelector {
             自然回答本轮用户的消息。只依据本轮消息和已给出的人设信息。缺少依据时坦率说明，
             不编造经历、历史对话、实时状态或操作结果。只返回给用户看的文字。
             """;
+    private static final List<String> STATUS_INTROS = List.of(
+            "嗯，我刚看了下这台服务器。", "刚查过这台服务器，结果在这儿。");
     private static final String SELECTION_PROMPT = """
             你是小雾（Misty），正在判断是否加入一段群聊。下面是本轮只读的参与偏好：
             %s
@@ -115,6 +117,22 @@ public final class ChatWorker implements ReplySelector {
             case UNSUPPORTED -> generateReply(DRAFT_INSTRUCTION,
                     "这个请求超出了我能处理的权限范围，我没有执行。");
         });
+    }
+
+    public Optional<String> replyToServerStatus(Context context, ServerStatus status) throws IOException {
+        if (selectReply(context) == Decision.SKIP) {
+            return Optional.empty();
+        }
+        // 模型只选择角色开场，读取完成与各项数值由回执确定。
+        String intro = generate(rolePrompt + "\n选择一句简短的开场，告诉用户本轮已完成服务器状态读取。",
+                "本轮已完成服务器状态读取。", Map.of("maxOutputTokens", maxOutputTokens,
+                        "thinkingConfig", Map.of("thinkingLevel", thinkingLevel, "includeThoughts", false),
+                        "responseMimeType", "text/x.enum",
+                        "responseSchema", Map.of("type", "STRING", "enum", STATUS_INTROS)));
+        if (!STATUS_INTROS.contains(intro)) {
+            throw new IOException("Chat Worker 服务器状态回复须使用已声明的角色开场");
+        }
+        return Optional.of(intro + "\n" + status.measurements());
     }
 
     private String generateReply(String instruction, String text) throws IOException {

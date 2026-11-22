@@ -161,8 +161,8 @@ public final class ConsoleMain {
         // 持久回执后再回复。角色模型润色已完成读取的说明，采样值按回执呈现。
         int receipt = trace.write(dispatched, "task-worker", "task_worker_result",
                 Map.of("capability", "read_server_status", "status", result));
-        String reply = chat.reply(conversation.context(), "我刚查了这台 Linux 的状态，结果在下面。").orElseThrow();
-        return new Reply("chat_worker_reply", Map.of("text", reply + "\n" + result.measurements()), receipt);
+        String reply = chat.replyToServerStatus(conversation.context(), result).orElseThrow();
+        return new Reply("chat_worker_reply", Map.of("text", reply), receipt);
     }
 
     // 后打开的先关闭：先停止接收请求，再停止状态读取、关闭模型客户端，最后关闭审计文件。
