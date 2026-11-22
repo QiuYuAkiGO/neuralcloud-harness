@@ -136,12 +136,14 @@ public class ConsoleConversationTest {
             var withTask = ConsoleMain.conversation(chat, router, Optional.of(task));
             route.set("ACTION_REQUEST");
             events.clear();
-            draftedText.set("刚查过了，已经跑了 2 个小时。");
+            draftedText.set("嗯，刚看了一眼，结果在这儿。");
             var status = withTask.send("检查服务器当前状态。", trace);
             assertEquals(List.of("chat-worker:chat_worker_router_request", "router:router_route",
                     "task-worker:task_worker_dispatch", "task-worker:task_worker_result"), events);
             assertEquals(Integer.valueOf(5), status.causedBy());
-            assertTrue(generationInput(generation.get()).contains("已运行 2.0 小时"));
+            assertEquals("我刚查了这台 Linux 的状态，结果在下面。", generationInput(generation.get()));
+            assertEquals(draftedText.get() + "\n已运行 2.0 小时，一分钟负载 0.50。"
+                    + "内存可用 2.0 / 4.0 GiB，根分区可用 8.0 / 16.0 GiB。", status.data().get("text"));
             assertTrue(systemInstruction(generation.get()).startsWith("你是小雾。"));
 
             capability.set("no_supported_action");

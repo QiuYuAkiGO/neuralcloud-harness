@@ -158,11 +158,11 @@ public final class ConsoleMain {
             return new Reply("chat_worker_reply", Map.of("text", chat.reply(conversation).orElseThrow()), receipt);
         }
         var result = status.orElseThrow();
-        // 写入实际读取回执后，Chat Worker 才能把采样值作为获准正文告知用户。
+        // 持久回执后再回复。角色模型润色已完成读取的说明，采样值按回执呈现。
         int receipt = trace.write(dispatched, "task-worker", "task_worker_result",
                 Map.of("capability", "read_server_status", "status", result));
-        String reply = chat.reply(conversation.context(), result.approvedReply()).orElseThrow();
-        return new Reply("chat_worker_reply", Map.of("text", reply), receipt);
+        String reply = chat.reply(conversation.context(), "我刚查了这台 Linux 的状态，结果在下面。").orElseThrow();
+        return new Reply("chat_worker_reply", Map.of("text", reply + "\n" + result.measurements()), receipt);
     }
 
     // 后打开的先关闭：先停止接收请求，再停止状态读取、关闭模型客户端，最后关闭审计文件。

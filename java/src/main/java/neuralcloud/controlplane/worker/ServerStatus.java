@@ -33,8 +33,8 @@ public record ServerStatus(String observedAt, long uptimeSeconds, double loadOne
         }
     }
 
-    public String approvedReply() {
-        return String.format(Locale.ROOT, "我刚查了这台 Linux：已运行 %.1f 小时，一分钟负载 %.2f。"
+    public String measurements() {
+        return String.format(Locale.ROOT, "已运行 %.1f 小时，一分钟负载 %.2f。"
                         + "内存可用 %.1f / %.1f GiB，根分区可用 %.1f / %.1f GiB。",
                 uptimeSeconds / 3600.0, loadOneMinute, gib(memoryAvailableBytes), gib(memoryTotalBytes),
                 gib(rootAvailableBytes), gib(rootTotalBytes));
