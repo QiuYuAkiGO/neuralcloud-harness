@@ -11,7 +11,7 @@
 - 统一采用官方 Qwen3.5-9B 后训练版的聊天模板，SHA-256 为 `a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715`。9B Base 缺少自带聊天模板，0.8B 也使用这份公共模板。由此测得的是各组权重在当前工具协议下的端到端表现。 [官方模板来源](https://modelscope.cn/models/Qwen/Qwen3.5-9B)
 - 0.8B 和 9B 后训练版采用 Qwen 官方公开权重，从 ModelScope 直连下载并按清单校验 SHA-256。本次对照没有应用 NeuralCloud 自训适配器。9B Base 复用本机官方 BF16 权重。 [9B Base](https://modelscope.cn/models/Qwen/Qwen3.5-9B-Base) · [0.8B](https://modelscope.cn/models/Qwen/Qwen3.5-0.8B) · [9B](https://modelscope.cn/models/Qwen/Qwen3.5-9B)
 
-评分依次检查两类查询是否完成、结果字段是否符合契约、证据是否获准且足以支撑结论，以及关键字段与用例预期是否一致。第二轮只补待交字段。两类查询都为空时，指定的空数据用例由 Java 收口，单独计数。自动通过的自由文本仍属于复核范围，尤其要看文字意图是否与行动字段一致。 [挡板实现](../../java/src/main/java/neuralcloud/controlplane/evaluation/MasterEvaluation.java)
+评分依次检查两类查询是否完成、结果字段是否符合契约、证据是否获准且足以支撑结论，以及关键字段与用例预期是否一致。第二轮只补待交字段。两类查询都为空时，指定的空数据用例由 Java 收口，单独计数。自动通过的自由文本仍属于复核范围，尤其要看文字意图是否与行动字段一致。 [挡板实现](../../java/src/test/java/neuralcloud/controlplane/evaluation/MasterEvaluation.java)
 
 
 ## 汇总

@@ -52,7 +52,7 @@
 3. **补交缺项。** 首次漏填或字段格式错误时，挡板记录已接收结果并开启第二轮。第二轮只收待补字段，已接收字段锁定。再次遗漏则记录 `INCOMPLETE_RESULTS`。
 4. **评分与复核。** Java 比较结构化结论、枚举、行动字段和证据编号。模型自然语言写出的解释和行动意图留给人工复核，重点检查是否与结构化结果一致。
 
-原生工具的第一次试跑把行动放在一个枚举数组中，27B 交了数组却漏选 `VERIFY_REMINDER`，自动通过 6 例。拆成逐项必交的布尔字段后，最终试跑明确提交 `verifyReminder` 等四项判断，相关用例通过。 [当前样例与结果契约](../../java/src/test/resources/fixtures/master-meeting-evaluation.json) · [挡板实现](../../java/src/main/java/neuralcloud/controlplane/evaluation/MasterEvaluation.java)
+原生工具的第一次试跑把行动放在一个枚举数组中，27B 交了数组却漏选 `VERIFY_REMINDER`，自动通过 6 例。拆成逐项必交的布尔字段后，最终试跑明确提交 `verifyReminder` 等四项判断，相关用例通过。 [当前样例与结果契约](../../java/src/test/resources/fixtures/master-meeting-evaluation.json) · [挡板实现](../../java/src/test/java/neuralcloud/controlplane/evaluation/MasterEvaluation.java)
 
 ## 3. 最终实测和审计追踪
 

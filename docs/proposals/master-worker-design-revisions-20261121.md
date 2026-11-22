@@ -22,7 +22,7 @@
 
 例如，A 在项目群收到小林的改期消息。更正入库时，B 给该群的流式回复已经显示“周五 15 时”。编排器记下更正，B 完成本轮回复。B 的下一轮对话开始时，首个模型输入包含“小林在项目群里说，会议时间已从周五 15 时改为周六 10 时。这条消息仅可在该群引用。”
 
-下一轮重读还需识别**依据失效但版本号未变**的情形。现有记忆服务在来源更正后，可将此前生成的摘要标为 `SOURCE_CHANGED`，摘要自身的版本号仍保持原值。初版评估也复现了另一种顺序，即旧摘要可能在更正后才提交。前者要求重读时检查有效状态，后者要求在派生摘要的写入事务内复核来源版本。[初版可行性评估第 4 页](NeuralCloud重构可行性评估报告-初版-20261121.pdf#page=4) · [记忆存储实现](../../src/neuralcloud/storage.py)
+下一轮重读还需识别**依据失效但版本号未变**的情形。现有记忆服务在来源更正后，可将此前生成的摘要标为 `SOURCE_CHANGED`，摘要自身的版本号仍保持原值。初版评估也复现了另一种顺序，即旧摘要可能在更正后才提交。前者要求重读时检查有效状态，后者要求在派生摘要的写入事务内复核来源版本。[初版可行性评估第 4 页](NeuralCloud重构可行性评估报告-初版-20261121.pdf#page=4) · [记忆存储实现](https://github.com/QiuYuAkiGO/NeuralCloud/blob/1c44702af88ec991f3813f18fbf8cc1358dadc9e/src/neuralcloud/storage.py)
 
 ### 待细化的实现问题
 
@@ -46,7 +46,7 @@ Java 实施稿第 1.2 节也用“样板”描述检索和写入请求。本草�
 - **私聊记忆**　“小林私下和我说，会议改到周六 10 时。这条消息仅可在我与小林的私聊中引用。”
 - **群聊记忆**　“小林在项目群里说，会议改到周六 10 时。这条消息仅可在项目群内引用。”
 
-“私下”和群名取自已核实的来源会话，“可在哪里引用”取自实际授权。当前事件的 `privacy` 字段表示隐私等级，单凭其默认值无法判断发言场合。旧记录缺少场合信息时，样板句只写能够确认的来源和范围。验收时将同一正文分别作为私聊、群聊记录召回，直接检查模型收到的两条正文，并检查未获授权的另一会话收不到该条正文。[现有事件与渠道字段](../../src/neuralcloud/contracts.py#L84) · [现有插件召回裁剪](../../plugins/dsh-neuralcloud/src/index.mjs#L82)
+“私下”和群名取自已核实的来源会话，“可在哪里引用”取自实际授权。当前事件的 `privacy` 字段表示隐私等级，单凭其默认值无法判断发言场合。旧记录缺少场合信息时，样板句只写能够确认的来源和范围。验收时将同一正文分别作为私聊、群聊记录召回，直接检查模型收到的两条正文，并检查未获授权的另一会话收不到该条正文。[现有事件与渠道字段](https://github.com/QiuYuAkiGO/NeuralCloud/blob/1c44702af88ec991f3813f18fbf8cc1358dadc9e/src/neuralcloud/contracts.py#L84) · [现有插件召回裁剪](https://github.com/QiuYuAkiGO/NeuralCloud/blob/1c44702af88ec991f3813f18fbf8cc1358dadc9e/plugins/dsh-neuralcloud/src/index.mjs#L82)
 
 ### TODO　通过决策提升记忆可见性
 
@@ -72,10 +72,10 @@ Java 实施稿第 1.2 节也用“样板”描述检索和写入请求。本草�
 
 ### 接口与恢复仍需细化的问题
 
-1. **更正游标的提交时点。** 插件的会话日志暂存游标与记忆变更流的消费游标各自记录不同的进度。编排器拥有后者。可用“已收到更正、尚未通知 B 就崩溃”验证待通知事项和游标能否一同恢复。具体持久化方式待定。[插件会话游标](../../plugins/dsh-neuralcloud/src/index.mjs#L166) · [记忆变更流](../../src/neuralcloud/storage.py#L346)
+1. **更正游标的提交时点。** 插件的会话日志暂存游标与记忆变更流的消费游标各自记录不同的进度。编排器拥有后者。可用“已收到更正、尚未通知 B 就崩溃”验证待通知事项和游标能否一同恢复。具体持久化方式待定。[插件会话游标](https://github.com/QiuYuAkiGO/NeuralCloud/blob/1c44702af88ec991f3813f18fbf8cc1358dadc9e/plugins/dsh-neuralcloud/src/index.mjs#L166) · [记忆变更流](https://github.com/QiuYuAkiGO/NeuralCloud/blob/1c44702af88ec991f3813f18fbf8cc1358dadc9e/src/neuralcloud/storage.py#L346)
 2. **多来源的披露范围。** 单条召回结果按修订二传达可见范围。从多条私聊观察派生的摘要或 Master 指令可能同时涉及不同参与者，向另一 Worker 转交时，允许披露给谁仍需明确。
-3. **为样板句保留可验证的原始证据。** 现有 `SourceEvent` 对类型和附加字段有明确限制。应逐类核对用户陈述、工具尝试、送达回执、暂定印象如何持久表达，再决定哪些字段需要扩展。Router 做语义分流或去噪时，可将改写另存为带来源及读取版本的派生内容。原始消息和实际回执仍可追溯，权限过滤、去重、预算及依赖登记由执行代码落实。[事件契约](../../src/neuralcloud/contracts.py#L84) · [带来源的派生写入](../../src/neuralcloud/api.py#L154)
-4. **更正与撤回的操作权限。** 当前服务使用共享令牌，`expected_revision` 校验写入依据的版本。接入多个角色时，需界定谁有权改动哪类记录。Worker 表达异议按修订三处理。[服务鉴权](../../src/neuralcloud/api.py#L41) · [更正处理](../../src/neuralcloud/storage.py#L233)
+3. **为样板句保留可验证的原始证据。** 现有 `SourceEvent` 对类型和附加字段有明确限制。应逐类核对用户陈述、工具尝试、送达回执、暂定印象如何持久表达，再决定哪些字段需要扩展。Router 做语义分流或去噪时，可将改写另存为带来源及读取版本的派生内容。原始消息和实际回执仍可追溯，权限过滤、去重、预算及依赖登记由执行代码落实。[事件契约](https://github.com/QiuYuAkiGO/NeuralCloud/blob/1c44702af88ec991f3813f18fbf8cc1358dadc9e/src/neuralcloud/contracts.py#L84) · [带来源的派生写入](https://github.com/QiuYuAkiGO/NeuralCloud/blob/1c44702af88ec991f3813f18fbf8cc1358dadc9e/src/neuralcloud/api.py#L154)
+4. **更正与撤回的操作权限。** 当前服务使用共享令牌，`expected_revision` 校验写入依据的版本。接入多个角色时，需界定谁有权改动哪类记录。Worker 表达异议按修订三处理。[服务鉴权](https://github.com/QiuYuAkiGO/NeuralCloud/blob/1c44702af88ec991f3813f18fbf8cc1358dadc9e/src/neuralcloud/api.py#L41) · [更正处理](https://github.com/QiuYuAkiGO/NeuralCloud/blob/1c44702af88ec991f3813f18fbf8cc1358dadc9e/src/neuralcloud/storage.py#L233)
 
 ### 在相应功能引入前验证
 

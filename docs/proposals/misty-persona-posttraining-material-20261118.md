@@ -1,6 +1,6 @@
 # 小雾（Misty）角色设定与 Qwen Base 后训练素材
 
-小雾的身份和核心气质以 `MistyDigitalBody` 冻结设定包 `v0.2.0` 为准。爱好、代表句和个人物品可追溯到 `FlowerInMirror` 早期设定稿，并由 NeuralCloud 的历史人格预设承接。对话语气参考历史预设及「口语表达 v2」。本稿供构造与审核样本使用。模型沿用现有 Master 基线提案的候选 `Qwen/Qwen3.5-9B-Base`，后训练目标以 P0 结果为依据。 [冻结设定包][frozen] · [原始角色卡][sheet] · [Master P0 提案][p0] · [Qwen 官方模型卡][qwen]
+小雾的身份和核心气质以 `MistyDigitalBody` 冻结设定包 `v0.2.0` 为准。爱好、代表句和个人物品可追溯到 `FlowerInMirror` 早期设定稿，并由 NeuralCloud 的历史人格预设承接。对话语气参考历史预设及「口语表达 v2」。本稿供构造与审核样本使用。模型沿用现有 Master 基线提案的候选 `Qwen/Qwen3.5-9B-Base`，后训练目标以 P0 结果为依据。查看冻结设定包和原始角色卡需要 `MistyDigitalBody` 仓库的读取权限。 [冻结设定包][frozen] · [原始角色卡][sheet] · [Master P0 提案][p0] · [Qwen 官方模型卡][qwen]
 
 ## 有出处的角色设定
 
@@ -48,14 +48,14 @@
 - `NeuralCloud@2956dc83dab1b809b4bac542504ee16f44cedda5` 的 `presets/builtin/misty.json` 包含 `persona_misty_v020`，运行时版本名为 `misty-digitalbody-0.2.2`。该版本名用于定位历史预设，视觉设计本身采用冻结包 `v0.2.0`。可用 `git show 2956dc8:presets/builtin/misty.json` 查阅。 [历史人格预设][preset]
 - NeuralCloud 的「口语表达 v2」随 `89fdd9a` 入库，部署记录保留了 2026-10-28 的应用证据。 [口语表达 v2][oral] · [部署记录][oral-deploy]
 
-[frozen]: ../../../MistyDigitalBody/design/misty/v0.2.0/README.md#2-身份锁
-[owner]: ../../../MistyDigitalBody/design/misty/v0.2.0/owner-confirmation.md
-[early]: ../../../MistyDigitalBody/design/misty/v0.1.0/analysis/early-design-evidence.md
-[sheet]: ../../../MistyDigitalBody/provenance/sources/misty-early-character-sheet.png
-[expression]: ../../../MistyDigitalBody/design/misty/v0.2.0/expression-and-motion-semantics.md
+[frozen]: https://github.com/QiuYuAkiGO/MistyDigitalBody/blob/10e6966fd579647225dc806ec565b88932e8c83a/design/misty/v0.2.0/README.md#2-身份锁
+[owner]: https://github.com/QiuYuAkiGO/MistyDigitalBody/blob/10e6966fd579647225dc806ec565b88932e8c83a/design/misty/v0.2.0/owner-confirmation.md
+[early]: https://github.com/QiuYuAkiGO/MistyDigitalBody/blob/10e6966fd579647225dc806ec565b88932e8c83a/design/misty/v0.1.0/analysis/early-design-evidence.md
+[sheet]: https://github.com/QiuYuAkiGO/MistyDigitalBody/blob/10e6966fd579647225dc806ec565b88932e8c83a/provenance/sources/misty-early-character-sheet.png
+[expression]: https://github.com/QiuYuAkiGO/MistyDigitalBody/blob/10e6966fd579647225dc806ec565b88932e8c83a/design/misty/v0.2.0/expression-and-motion-semantics.md
 [preset]: https://github.com/QiuYuAkiGO/NeuralCloud/blob/2956dc83dab1b809b4bac542504ee16f44cedda5/presets/builtin/misty.json
-[oral]: ../../tools/deploy/misty_oral_v2/oral-expression.mjs
-[oral-deploy]: ../harness/evidence/oral-expression-v2-20261028/deployment.json
+[oral]: https://github.com/QiuYuAkiGO/NeuralCloud/blob/1c44702af88ec991f3813f18fbf8cc1358dadc9e/tools/deploy/misty_oral_v2/oral-expression.mjs
+[oral-deploy]: https://github.com/QiuYuAkiGO/NeuralCloud/blob/1c44702af88ec991f3813f18fbf8cc1358dadc9e/docs/harness/evidence/oral-expression-v2-20261028/deployment.json
 [p0]: master-qwen35-9b-base-baseline-20261117.md
 [java]: master-worker-router-java-implementation-20261118.md
 [qwen]: https://huggingface.co/Qwen/Qwen3.5-9B-Base
