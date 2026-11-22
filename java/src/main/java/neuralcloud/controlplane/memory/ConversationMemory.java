@@ -7,6 +7,7 @@ import neuralcloud.controlplane.memory.ResidentMemory.Kind;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -27,27 +28,32 @@ public final class ConversationMemory {
 
     public record Recall(List<String> messages, int eventId) {}
 
-    public Recall recent(Trace trace, int causedBy) throws IOException, InterruptedException {
+    public Recall recall(Trace trace, int causedBy, String text) throws IOException, InterruptedException {
         var scope = trace.scope();
         var records = audit.events(scope.chain()).reversed().stream()
                 .filter(event -> DURABLE.equals(event.type()))
                 .filter(event -> !scope.runId().equals(event.runId()) || event.eventId() < trace.request())
                 .map(event -> event.data().getAsJsonObject())
                 .filter(event -> scope.sessionId().equals(event.get("sessionId").getAsString()))
+                .filter(memory::acceptsReceipt)
                 .map(event -> event.get("recordId").getAsString())
                 .distinct().limit(RECENT_LIMIT).toList();
-        var messages = new ArrayList<String>();
-        var recalled = new ArrayList<String>();
+        var messages = new LinkedHashMap<String, String>();
+        var historical = new ArrayList<String>();
+        for (var match : memory.search(scope, text, Instant.parse(event(trace, trace.request()).recordedAt()))) {
+            messages.put(match.recordId(), match.message());
+            historical.add(match.recordId());
+        }
         // 从记忆服务重读同会话已有持久回执的记录，以服务当前的可见状态为准。
         for (String id : records.reversed()) {
-            var value = memory.read(scope.sessionId(), id);
+            var value = memory.read(scope, id);
             if (value.isPresent()) {
-                messages.add(value.orElseThrow());
-                recalled.add(id);
+                messages.put(id, value.orElseThrow());
             }
         }
-        int event = trace.write(causedBy, "memory", "memory_recall", Map.of("recordIds", recalled));
-        return new Recall(List.copyOf(messages), event);
+        int event = trace.write(causedBy, "memory", "memory_recall",
+                Map.of("recordIds", List.copyOf(messages.keySet()), "historicalRecordIds", historical));
+        return new Recall(List.copyOf(messages.values()), event);
     }
 
     public void rememberDelivered(Trace trace, int delivered, String text) throws IOException {
@@ -69,12 +75,20 @@ public final class ConversationMemory {
 
     private int remember(Trace trace, int cause, Kind kind, String text) throws IOException, InterruptedException {
         var scope = trace.scope();
-        var source = audit.events(scope.chain()).stream()
-                .filter(event -> event.eventId() == cause && scope.runId().equals(event.runId()))
-                .findFirst().orElseThrow();
-        var receipt = memory.ingest(scope.sessionId(), scope.runId() + ":" + cause,
-                Instant.parse(source.recordedAt()), kind, text);
+        var source = event(trace, cause);
+        String messageId = scope.qq().map(qq -> source.data().getAsJsonObject().get("messageId").getAsString())
+                .orElse("");
+        var receipt = memory.ingest(scope, scope.runId() + ":" + cause, Instant.parse(source.recordedAt()), kind,
+                text, messageId);
         return trace.write(cause, "memory", DURABLE, Map.of("sessionId", scope.sessionId(), "kind", kind.name(),
-                "recordId", receipt.recordId(), "revision", receipt.revision(), "sequence", receipt.sequence()));
+                "characterId", memory.character(), "recordId", receipt.recordId(), "revision", receipt.revision(),
+                "sequence", receipt.sequence()));
+    }
+
+    private AuditLog.Event event(Trace trace, int id) {
+        var scope = trace.scope();
+        return audit.events(scope.chain()).stream()
+                .filter(event -> event.eventId() == id && scope.runId().equals(event.runId()))
+                .findFirst().orElseThrow();
     }
 }

@@ -96,7 +96,7 @@ public final class OpenQqChannel implements AutoCloseable {
         }
         int request = audit.write(chain, null, "openqq", "qq_message",
                 Map.of("text", incoming.text(), "messageId", incoming.messageId()));
-        var trace = Trace.forChain(audit, "openqq", chain, request);
+        var trace = Trace.forQqPrivate(audit, chain, request, accountId, allowedUserId);
         Reply reply;
         try {
             reply = conversation.send(incoming.text(), trace);

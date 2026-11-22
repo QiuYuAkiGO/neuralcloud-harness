@@ -49,9 +49,23 @@ public final class ConsoleServer implements AutoCloseable {
 
     // 绑定本轮会话的审计链。多步节点把中间步骤写在这里；request 是本轮操作者正文的事件 ID。
     public interface Trace {
-        record Scope(String channel, String chain, String runId) {
+        record QqPrivate(long accountId, long peerId) {
+            public String conversationId() {
+                return "c2c:onebot:" + accountId + ":" + peerId;
+            }
+        }
+
+        record Scope(String channel, String chain, String runId, Optional<QqPrivate> qq) {
+            public Scope(String channel, String chain, String runId) {
+                this(channel, chain, runId, Optional.empty());
+            }
+
             public String sessionId() {
                 return channel + ":" + chain;
+            }
+
+            public String conversationId() {
+                return qq.map(QqPrivate::conversationId).orElseGet(this::sessionId);
             }
         }
 
@@ -62,7 +76,15 @@ public final class ConsoleServer implements AutoCloseable {
         int write(Integer causedBy, String node, String type, Object data) throws IOException;
 
         static Trace forChain(AuditLog audit, String channel, String chain, int request) {
-            var scope = new Scope(channel, chain, audit.runId());
+            return bound(audit, new Scope(channel, chain, audit.runId()), request);
+        }
+
+        static Trace forQqPrivate(AuditLog audit, String chain, int request, long accountId, long peerId) {
+            return bound(audit, new Scope("openqq", chain, audit.runId(), Optional.of(new QqPrivate(accountId, peerId))),
+                    request);
+        }
+
+        private static Trace bound(AuditLog audit, Scope scope, int request) {
             return new Trace() {
                 @Override
                 public int request() {
@@ -76,7 +98,7 @@ public final class ConsoleServer implements AutoCloseable {
 
                 @Override
                 public int write(Integer causedBy, String node, String type, Object data) throws IOException {
-                    return audit.write(chain, causedBy, node, type, data);
+                    return audit.write(scope.chain(), causedBy, node, type, data);
                 }
             };
         }

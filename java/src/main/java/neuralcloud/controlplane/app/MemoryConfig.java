@@ -2,14 +2,17 @@ package neuralcloud.controlplane.app;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.HashSet;
 import java.util.Set;
 
-record MemoryConfig(URI endpoint, String characterId, String token) {
+record MemoryConfig(URI endpoint, String characterId, String token, boolean scopedRecall) {
     private static final Set<String> FIELDS = Set.of("endpoint", "characterId", "accessTokenEnv");
 
     static MemoryConfig load(ConfigSource source) throws IOException {
         var properties = source.readProperties();
-        if (!properties.stringPropertyNames().equals(FIELDS)
+        var fields = new HashSet<>(properties.stringPropertyNames());
+        fields.remove("recallMode");
+        if (!fields.equals(FIELDS)
                 || properties.values().stream().anyMatch(value -> value.toString().isBlank())) {
             throw new IllegalArgumentException("记忆配置须包含以下非空字段 " + FIELDS);
         }
@@ -28,6 +31,10 @@ record MemoryConfig(URI endpoint, String characterId, String token) {
         if (token == null || !token.matches("[!-~]{32,256}")) {
             throw new IllegalArgumentException("记忆令牌环境变量须为 32 至 256 位可见 ASCII 字符 " + keyEnvironment);
         }
-        return new MemoryConfig(endpoint, character, token);
+        String mode = properties.getProperty("recallMode", "recent");
+        if (!Set.of("recent", "scoped").contains(mode)) {
+            throw new IllegalArgumentException("记忆 recallMode 须为 recent 或 scoped");
+        }
+        return new MemoryConfig(endpoint, character, token, "scoped".equals(mode));
     }
 }

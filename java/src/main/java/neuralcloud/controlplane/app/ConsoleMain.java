@@ -170,7 +170,8 @@ public final class ConsoleMain {
         var config = settings.orElseThrow();
         var client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
         opened.push(client);
-        var memory = new ResidentMemory(client, config.endpoint(), config.characterId(), config.token());
+        var memory = new ResidentMemory(client, config.endpoint(), config.characterId(), config.token(),
+                config.scopedRecall());
         memory.verify();
         return Optional.of(new ConversationMemory(audit, memory));
     }
@@ -186,7 +187,7 @@ public final class ConsoleMain {
                 return executeTask(chat, task.orElseThrow(), conversation, trace, routed);
             }
             if (conversation.route() == Route.CONVERSATION && memory.isPresent()) {
-                var recalled = memory.orElseThrow().recent(trace, routed);
+                var recalled = memory.orElseThrow().recall(trace, routed, text);
                 return new Reply("chat_worker_reply",
                         Map.of("text", chat.reply(conversation, recalled.messages()).orElseThrow()), recalled.eventId());
             }

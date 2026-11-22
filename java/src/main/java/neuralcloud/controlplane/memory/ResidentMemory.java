@@ -2,10 +2,12 @@ package neuralcloud.controlplane.memory;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
+import neuralcloud.controlplane.console.ConsoleServer.Trace.Scope;
 
 import java.io.IOException;
 import java.net.URI;
@@ -14,6 +16,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -35,17 +41,24 @@ public final class ResidentMemory {
     }
 
     public record Receipt(String recordId, long revision, long sequence) {}
+    public record Match(String recordId, double occurredAt, String message) {}
 
     private final HttpClient client;
     private final URI endpoint;
     private final String character;
     private final String token;
+    private final boolean scopedRecall;
 
-    public ResidentMemory(HttpClient client, URI endpoint, String character, String token) {
+    public ResidentMemory(HttpClient client, URI endpoint, String character, String token, boolean scopedRecall) {
         this.client = client;
         this.endpoint = endpoint;
         this.character = character;
         this.token = token;
+        this.scopedRecall = scopedRecall;
+    }
+
+    boolean acceptsReceipt(JsonObject event) {
+        return (!scopedRecall && !event.has("characterId")) || character.equals(text(event, "characterId"));
     }
 
     public void verify() throws IOException, InterruptedException {
@@ -53,17 +66,30 @@ public final class ResidentMemory {
         if (!character.equals(text(result, "character_id")) || !"TEXT_READY".equals(text(result, "status"))) {
             throw new IOException("记忆服务未就绪或 character_id 与配置不符");
         }
+        if (scopedRecall && (!(result.get("workflow") instanceof JsonObject)
+                || !(result.get("source_event_versions") instanceof JsonArray versions)
+                || !versions.contains(new JsonPrimitive(2)))) {
+            throw new IOException("生产记忆服务须支持按会话检索和来源事件 v2");
+        }
     }
 
-    public Receipt ingest(String session, String event, Instant at, Kind kind, String content)
+    public Receipt ingest(Scope scope, String event, Instant at, Kind kind, String content, String channelMessageId)
             throws IOException, InterruptedException {
         if (content.codePointCount(0, content.length()) > 32768) {
             throw new IOException("记忆 content 最多允许 32768 个 Unicode 字符");
         }
-        var reply = request("v1/ingest", Map.of("schema_version", 1, "source_instance", SOURCE,
-                "character_id", character, "session_id", session, "conversation_id", session,
-                "event_id", event, "occurred_at", at.getEpochSecond() + at.getNano() / 1_000_000_000.0,
-                "kind", kind.value, "privacy", "private", "content", content));
+        var body = new HashMap<String, Object>(Map.of("schema_version", 1, "source_instance", SOURCE,
+                "character_id", character, "session_id", scope.sessionId(), "conversation_id", conversationId(scope),
+                "event_id", event, "occurred_at", epochSeconds(at), "kind", kind.value, "privacy", "private",
+                "content", content));
+        if (scopedRecall && scope.qq().isPresent()) {
+            var channel = scope.qq().orElseThrow();
+            body.put("schema_version", 2);
+            body.put("channel", Map.of("platform", "qq", "account_id", Long.toString(channel.accountId()),
+                    "sender_id", Long.toString(kind == Kind.OBSERVATION ? channel.peerId() : channel.accountId()),
+                    "conversation_id", channel.conversationId(), "message_id", channelMessageId));
+        }
+        var reply = request("v1/ingest", body);
         String id = text(reply, "record_id");
         long revision = positive(reply, "revision");
         long seq = positive(reply, "seq");
@@ -73,7 +99,11 @@ public final class ResidentMemory {
         return new Receipt(id, revision, seq);
     }
 
-    public Optional<String> read(String session, String recordId) throws IOException, InterruptedException {
+    String character() {
+        return character;
+    }
+
+    public Optional<String> read(Scope scope, String recordId) throws IOException, InterruptedException {
         var reply = request("v1/records/" + recordId + "?length=2048", null);
         String status = text(reply, "status");
         if (!recordId.equals(text(reply, "record_id"))) {
@@ -87,12 +117,79 @@ public final class ResidentMemory {
         if (!"ONLINE".equals(status) || positive(reply, "revision") == 0 || content.isBlank()
                 || !(reply.get("source") instanceof JsonObject source)
                 || !character.equals(text(source, "character_id")) || !SOURCE.equals(text(source, "source_instance"))
-                || !session.equals(text(source, "session_id")) || !session.equals(text(source, "conversation_id"))
+                || !scope.sessionId().equals(text(source, "session_id"))
+                || !conversationId(scope).equals(text(source, "conversation_id"))
                 || !"private".equals(text(source, "privacy")) || !kind.equals(text(source, "kind"))
                 || !(Kind.OBSERVATION.value.equals(kind) || Kind.SELF_EXPRESSION.value.equals(kind))) {
             throw new IOException("记忆记录不符合当前会话的来源或内容契约");
         }
-        return Optional.of((Kind.OBSERVATION.value.equals(kind) ? "用户说：" : "小雾说：") + content);
+        return Optional.of(render(kind, content));
+    }
+
+    public List<Match> search(Scope scope, String query, Instant receivedAt) throws IOException, InterruptedException {
+        // Recall 的最大查询长度是 256 个 Unicode 字符。长消息仍有按 ID 重读的近期对话。
+        if (!scopedRecall || query.codePointCount(0, query.length()) > 256) {
+            return List.of();
+        }
+        double until = Math.nextDown(epochSeconds(receivedAt));
+        var reply = request("v1/recall", Map.of("query", query, "limit", 16, "mode", "auto", "workflow", "enabled",
+                "constraints", Map.of("conversation_id", scope.conversationId(), "until", until)));
+        if (!"OK".equals(text(reply, "status")) || !(reply.get("items") instanceof JsonArray items)) {
+            throw new IOException("生产记忆未返回有效的召回结果");
+        }
+        var matches = new ArrayList<Match>();
+        // 索引的候选结果还须通过渠道、原始来源、可见性和时间边界检查。
+        for (var raw : items) {
+            if (raw instanceof JsonObject item && item.get("source") instanceof JsonObject source) {
+                String id = text(item, "record_id");
+                String kind = text(item, "kind");
+                String content = text(item, "content");
+                if ("ONLINE".equals(text(item, "status")) && !id.isBlank() && id.length() <= 256
+                        && !content.isBlank() && positive(item, "revision") > 0
+                        && item.get("occurred_at") instanceof JsonPrimitive time && time.isNumber()
+                        && time.getAsDouble() >= 0 && time.getAsDouble() <= until
+                        && kind.equals(text(source, "kind")) && allowed(scope, source, kind)) {
+                    matches.add(new Match(id, time.getAsDouble(), render(kind, content)));
+                }
+            }
+        }
+        return matches.stream().distinct().limit(4).sorted(Comparator.comparingDouble(Match::occurredAt)).toList();
+    }
+
+    private boolean allowed(Scope scope, JsonObject source, String kind) {
+        boolean observation = Kind.OBSERVATION.value.equals(kind);
+        String writer = text(source, "source_instance");
+        if ((!observation && !Kind.SELF_EXPRESSION.value.equals(kind)) || !character.equals(text(source, "character_id"))
+                || !scope.conversationId().equals(text(source, "conversation_id"))
+                || !Set.of("private", "public").contains(text(source, "privacy"))) {
+            return false;
+        }
+        if (scope.qq().isEmpty()) {
+            return SOURCE.equals(writer) && scope.sessionId().equals(text(source, "session_id"));
+        }
+        var qq = scope.qq().orElseThrow();
+        String originalWriter = observation ? "onebot:" + qq.accountId() : "harness-sent:" + character;
+        if (source.get("channel") instanceof JsonObject channel) {
+            return (SOURCE.equals(writer) || originalWriter.equals(writer))
+                    && "qq".equals(text(channel, "platform"))
+                    && Long.toString(qq.accountId()).equals(text(channel, "account_id"))
+                    && Long.toString(observation ? qq.peerId() : qq.accountId()).equals(text(channel, "sender_id"))
+                    && qq.conversationId().equals(text(channel, "conversation_id"));
+        }
+        // 现有历史的 v1 记录没有 channel，按生产写入方和同一私聊 ID 核对。
+        return originalWriter.equals(writer);
+    }
+
+    private String conversationId(Scope scope) {
+        return scopedRecall ? scope.conversationId() : scope.sessionId();
+    }
+
+    private static double epochSeconds(Instant time) {
+        return time.getEpochSecond() + time.getNano() / 1_000_000_000.0;
+    }
+
+    private static String render(String kind, String content) {
+        return (Kind.OBSERVATION.value.equals(kind) ? "用户说：" : "小雾说：") + content;
     }
 
     private JsonObject request(String path, Map<String, ?> body) throws IOException, InterruptedException {
