@@ -93,6 +93,29 @@ public class ChatWorkerTest {
                 completed("{\"kind\":\"SELF_IDENTITY\",\"query\":\"90001\"}")));
     }
 
+    @Test
+    public void keepsPreviousTurnAsPrefixForFollowUpAndRejectsPlaceholderQueries() throws IOException {
+        var requests = new CopyOnWriteArrayList<JsonObject>();
+        String first = "你还记得我是谁吗？";
+        String followUp = "要不再想想看";
+        String identity = completed("{\"kind\":\"SELF_IDENTITY\",\"query\":\"\"}");
+        var next = withWorker(200, requests, worker -> {
+            worker.planTurn(first);
+            return worker.planTurn(followUp, List.of(new DialogueMessage(DialogueMessage.Speaker.USER, first),
+                    new DialogueMessage(DialogueMessage.Speaker.MISTY, "我想再查一下。")));
+        }, identity, identity);
+        assertEquals(ChatWorker.TurnKind.SELF_IDENTITY, next.kind());
+        assertEquals("", next.query());
+        var before = requests.getFirst().getAsJsonArray("contents");
+        var after = requests.getLast().getAsJsonArray("contents");
+        assertEquals(before.asList(), after.asList().subList(0, before.size()));
+        assertEquals("model", after.get(1).getAsJsonObject().get("role").getAsString());
+        assertEquals(followUp, after.get(2).getAsJsonObject().getAsJsonArray("parts").get(0)
+                .getAsJsonObject().get("text").getAsString());
+        assertThrows(IOException.class, () -> withWorker(200, requests, worker -> worker.planTurn(followUp),
+                completed("{\"kind\":\"HISTORY\",\"query\":\"上文内容\"}")));
+    }
+
     private static String completed(String text) {
         return """
                 {"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":%s}]}}]}

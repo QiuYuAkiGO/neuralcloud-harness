@@ -5,6 +5,8 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
 import com.google.gson.Strictness;
+import neuralcloud.controlplane.worker.DialogueMessage;
+import neuralcloud.controlplane.worker.DialogueMessage.Speaker;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -15,6 +17,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -25,6 +28,7 @@ import java.util.UUID;
  * causedBy 只引用同一 runId 内的 eventId；chain 把同一会话或同一进程的探测串成一条链。
  */
 public final class AuditLog implements AutoCloseable {
+    private static final int DIALOGUE_CHAR_BUDGET = 48_000;
     private static final Gson JSON = new GsonBuilder().disableHtmlEscaping().setStrictness(Strictness.STRICT).create();
     private static final DateTimeFormatter FILE_TIME = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssSSS'Z'")
             .withZone(ZoneOffset.UTC);
@@ -114,6 +118,44 @@ public final class AuditLog implements AutoCloseable {
 
     public synchronized List<Event> events(String chain) {
         return events.stream().filter(event -> event.chain().equals(chain)).toList();
+    }
+
+    public synchronized List<DialogueMessage> dialogueBefore(String channel, String chain, int request) {
+        var dialogue = new ArrayList<DialogueMessage>();
+        var byRun = new HashMap<String, HashMap<Integer, Event>>();
+        boolean qq = "openqq".equals(channel);
+        for (Event event : events) {
+            if (!chain.equals(event.chain())) {
+                continue;
+            }
+            if (runId.equals(event.runId()) && event.eventId() >= request) {
+                break;
+            }
+            var causalEvents = byRun.computeIfAbsent(event.runId(), ignored -> new HashMap<>());
+            causalEvents.put(event.eventId(), event);
+            if (qq ? "qq_message".equals(event.type()) && "openqq".equals(event.node())
+                    : "operator_message".equals(event.type()) && "chat-worker".equals(event.node())) {
+                dialogue.add(new DialogueMessage(Speaker.USER, event.data().getAsJsonObject().get("text").getAsString()));
+                continue;
+            }
+            // 只回放经当前渠道确认写出的角色正文，消息 ID 只在同一个 runId 内回溯。
+            var parent = causalEvents.get(event.causedBy());
+            if (qq && "qq_delivery".equals(event.type()) && "openqq".equals(event.node()) && parent != null
+                    && "qq_send_requested".equals(parent.type()) && "openqq".equals(parent.node())) {
+                parent = causalEvents.get(parent.causedBy());
+            } else if (qq || !"console_response_written".equals(event.type()) || !"console".equals(event.node())) {
+                continue;
+            }
+            if (parent != null && "chat_worker_reply".equals(parent.type()) && "chat-worker".equals(parent.node())) {
+                dialogue.add(new DialogueMessage(Speaker.MISTY, parent.data().getAsJsonObject().get("text").getAsString()));
+            }
+        }
+        int remaining = DIALOGUE_CHAR_BUDGET;
+        int start = dialogue.size();
+        while (start > 0 && dialogue.get(start - 1).text().length() <= remaining) {
+            remaining -= dialogue.get(--start).text().length();
+        }
+        return List.copyOf(dialogue.subList(start, dialogue.size()));
     }
 
     @Override

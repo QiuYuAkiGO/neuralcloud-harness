@@ -186,10 +186,11 @@ public final class ConsoleMain {
             int accepted = trace.write(trace.request(), "chat-worker", "chat_worker_received", Map.of());
             var store = memory.orElseThrow();
             int input = store.rememberInbound(trace, accepted, text);
-            var turn = chat.planTurn(text);
-            int planned = trace.write(input, "chat-worker", "chat_worker_turn_plan", Map.of("kind", turn.kind().name()));
+            var turn = chat.planTurn(text, trace.dialogue());
+            int planned = trace.write(input, "chat-worker", "chat_worker_turn_plan",
+                    Map.of("kind", turn.kind().name(), "dialogueMessages", turn.dialogue().size(), "usage", turn.usage()));
             return switch (turn.kind()) {
-                case REPLY -> new Reply("chat_worker_reply",
+                case REPLY, CLARIFY -> new Reply("chat_worker_reply",
                         Map.of("text", chat.replyToTurn(turn, List.of()).orElseThrow()), planned);
                 case ACTION -> routeAction(chat, router, task, text, trace, planned);
                 case HISTORY, SELF_IDENTITY -> replyWithMemory(chat, router, store, turn, trace, planned);

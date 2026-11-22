@@ -1,5 +1,7 @@
 package neuralcloud.controlplane.console;
 
+import neuralcloud.controlplane.worker.DialogueMessage;
+import neuralcloud.controlplane.worker.DialogueMessage.Speaker;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -42,6 +44,31 @@ public class ConsoleAuditTest {
         }
         try (var files = Files.list(directory)) {
             assertEquals(2, files.count());
+        }
+    }
+
+    @Test
+    public void replaysOnlyVisibleSameChannelConversationAcrossRestarts() throws Exception {
+        var directory = folder.getRoot().toPath();
+        try (var audit = AuditLog.open(directory)) {
+            int input = audit.write("qq-chain", null, "openqq", "qq_message", Map.of("text", "你还记得我是谁吗"));
+            int answer = audit.write("qq-chain", input, "chat-worker", "chat_worker_reply", Map.of("text", "我再找找。"));
+            int send = audit.write("qq-chain", answer, "openqq", "qq_send_requested", Map.of());
+            audit.write("qq-chain", send, "openqq", "qq_delivery", Map.of());
+            audit.write("qq-chain", send, "chat-worker", "chat_worker_reply", Map.of("text", "这一条没有确认发送。"));
+            int console = audit.write("qq-chain", null, "chat-worker", "operator_message", Map.of("text", "控制台输入"));
+            int draft = audit.write("qq-chain", console, "chat-worker", "chat_worker_reply", Map.of("text", "控制台回复"));
+            audit.write("qq-chain", draft, "console", "console_response_written", Map.of());
+        }
+        try (var audit = AuditLog.open(directory)) {
+            int current = audit.write("qq-chain", null, "openqq", "qq_message", Map.of("text", "要不再想想看"));
+            audit.write("qq-chain", null, "openqq", "qq_message", Map.of("text", "后来的消息"));
+            assertEquals(List.of(new DialogueMessage(Speaker.USER, "你还记得我是谁吗"),
+                    new DialogueMessage(Speaker.MISTY, "我再找找。")),
+                    audit.dialogueBefore("openqq", "qq-chain", current));
+            assertEquals(List.of(new DialogueMessage(Speaker.USER, "控制台输入"),
+                    new DialogueMessage(Speaker.MISTY, "控制台回复")),
+                    audit.dialogueBefore("console", "qq-chain", current));
         }
     }
 

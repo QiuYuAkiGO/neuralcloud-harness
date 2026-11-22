@@ -86,6 +86,8 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 
 **生产记忆。** 使用生产 Misty 服务时，在记忆配置中设 `recallMode=scoped`（省略时为 `recent`）。OpenQQ 私聊沿用生产的 `c2c:onebot:<账号>:<用户>` 会话标识，写入携带实际消息 ID 和发言者的 v2 事件。历史查询检索同一会话在本轮之前的记录，再按原始写入方、发言者和可见性筛选。查询本人身份时，Router 从 OpenQQ 发件人绑定当前 QQ 账号，只返回记忆服务提供的已确认称呼。控制台沿用自身会话范围。既有测试库的回执保留在原审计链，生产读取只使用生产回执。
 
+**对话上下文。** Chat Worker 按原顺序重放同渠道、同会话的用户消息和已确认送出的 Misty 回复。原文保留在审计链，单次请求的历史部分最多使用 48,000 个 UTF-16 代码单元，超出时按整条消息从最早处缩减请求前缀。历史消息维持原文和角色，Router 本轮取证材料附在当前消息之后。`chat_worker_turn_plan` 记录历史消息条数，以及 Gemini 实际返回的输入和缓存 token 计数。
+
 **参与判断。** 渠道通过 `ReplySelector.Context` 提供发言是否直接指向 Misty、本条正文及同一会话的近期原文。控制台发给 Chat Worker 的消息属于 `DIRECT`，选择 `REPLY`。群聊普通消息使用 `AMBIENT`，由 Chat Worker 用只读摘要判断。Gemini 配置的 `replyPreferences` 指向摘要资源，默认的首版根据 Misty 人设与远端历史记忆提炼。`ChatWorker.reply` 每次先判断参与，`REPLY` 才生成获准正文，`SKIP` 返回空结果，判断失败则抛出异常。
 
 **审计链。** 每条正文先记为 `operator_message`，节点的实际返回或 `node_failed` 以 `causedBy` 指向它。手动推理探测记在 `probe-<runId>` 链上。每个进程在审计目录写一份新文件，启动时按文件名顺序读回历史文件。若某行不符合事件契约，启动失败并指出文件和行号。

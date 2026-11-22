@@ -10,6 +10,7 @@ import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.worker.ChatWorker;
+import neuralcloud.controlplane.worker.DialogueMessage;
 import neuralcloud.controlplane.worker.ServerStatus;
 import neuralcloud.controlplane.worker.TaskWorker;
 import org.junit.Test;
@@ -47,6 +48,8 @@ public class ConsoleConversationTest {
             public int request() { return 1; }
 
             public Scope scope() { return new Scope("console", "test", "test-run"); }
+
+            public List<DialogueMessage> dialogue() { return List.of(); }
 
             public int write(Integer parent, String node, String type, Object data) {
                 events.add(node + ":" + type);

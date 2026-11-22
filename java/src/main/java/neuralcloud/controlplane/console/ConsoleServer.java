@@ -9,6 +9,7 @@ import com.google.gson.Strictness;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import neuralcloud.controlplane.memory.ConversationMemory;
+import neuralcloud.controlplane.worker.DialogueMessage;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -73,6 +74,8 @@ public final class ConsoleServer implements AutoCloseable {
 
         Scope scope();
 
+        List<DialogueMessage> dialogue();
+
         int write(Integer causedBy, String node, String type, Object data) throws IOException;
 
         static Trace forChain(AuditLog audit, String channel, String chain, int request) {
@@ -94,6 +97,11 @@ public final class ConsoleServer implements AutoCloseable {
                 @Override
                 public Scope scope() {
                     return scope;
+                }
+
+                @Override
+                public List<DialogueMessage> dialogue() {
+                    return audit.dialogueBefore(scope.channel(), scope.chain(), request);
                 }
 
                 @Override
