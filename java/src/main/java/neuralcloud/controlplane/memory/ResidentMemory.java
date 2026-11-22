@@ -132,11 +132,10 @@ public final class ResidentMemory {
             return List.of();
         }
         double until = Math.nextDown(epochSeconds(receivedAt));
-        var reply = request("v1/recall", Map.of("query", query, "limit", 16, "mode", "auto", "workflow", "enabled",
-                "constraints", Map.of("conversation_id", scope.conversationId(), "until", until)));
-        if (!"OK".equals(text(reply, "status")) || !(reply.get("items") instanceof JsonArray items)) {
-            throw new IOException("生产记忆未返回有效的召回结果");
-        }
+        var body = new HashMap<String, Object>(Map.of("query", query, "limit", 16, "mode", "auto",
+                "workflow", "enabled", "constraints", Map.of("conversation_id", scope.conversationId(), "until", until)));
+        scope.qq().ifPresent(qq -> body.put("subject", subject(qq.peerId())));
+        var items = recallItems(request("v1/recall", body));
         var matches = new ArrayList<Match>();
         // 索引的候选结果还须通过渠道、原始来源、可见性和时间边界检查。
         for (var raw : items) {
@@ -154,6 +153,48 @@ public final class ResidentMemory {
             }
         }
         return matches.stream().distinct().limit(4).sorted(Comparator.comparingDouble(Match::occurredAt)).toList();
+    }
+
+    public Optional<Match> selfIdentity(Scope scope) throws IOException, InterruptedException {
+        if (!scopedRecall || scope.qq().isEmpty()) {
+            return Optional.empty();
+        }
+        long account = scope.qq().orElseThrow().peerId();
+        var result = request("v1/recall", Map.of("query", "我是谁", "intent", "identity",
+                "workflow", "enabled", "subject", subject(account), "limit", 12));
+        var items = recallItems(result);
+        var matches = new ArrayList<Match>();
+        // 身份索引跨会话定位当前本人，只交付确证的称呼，不传递来源正文或其他账号资料。
+        for (var raw : items) {
+            if (raw instanceof JsonObject item && "ONLINE".equals(text(item, "status"))
+                    && item.get("source") instanceof JsonObject source && character.equals(text(source, "character_id"))
+                    && Set.of("private", "public").contains(text(source, "privacy"))
+                    && item.get("identity") instanceof JsonObject identity
+                    && "qq".equals(text(identity, "platform"))
+                    && Long.toString(account).equals(text(identity, "account_id"))
+                    && "operator_confirmed".equals(text(identity, "confirmation"))
+                    && new JsonPrimitive(false).equals(identity.get("conflict"))) {
+                String id = text(item, "record_id");
+                String name = text(identity, "name");
+                if (!id.isBlank() && !name.isBlank() && name.length() <= 128
+                        && name.codePoints().noneMatch(Character::isISOControl)) {
+                    matches.add(new Match(id, 0, "当前 QQ 账号经确认的称呼是「" + name + "」。"));
+                }
+            }
+        }
+        return matches.stream().map(Match::message).distinct().count() == 1
+                ? Optional.of(matches.getFirst()) : Optional.empty();
+    }
+
+    private static Map<String, String> subject(long account) {
+        return Map.of("platform", "qq", "account_id", Long.toString(account));
+    }
+
+    private static JsonArray recallItems(JsonObject reply) throws IOException {
+        if (!"OK".equals(text(reply, "status")) || !(reply.get("items") instanceof JsonArray items)) {
+            throw new IOException("生产记忆未返回有效的召回结果");
+        }
+        return items;
     }
 
     private boolean allowed(Scope scope, JsonObject source, String kind) {

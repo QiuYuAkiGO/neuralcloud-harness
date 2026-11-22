@@ -23,10 +23,23 @@ public final class ConversationMemory {
     }
 
     public int rememberInbound(Trace trace, String text) throws IOException, InterruptedException {
-        return remember(trace, trace.request(), Kind.OBSERVATION, text);
+        return rememberInbound(trace, trace.request(), text);
+    }
+
+    public int rememberInbound(Trace trace, int accepted, String text) throws IOException, InterruptedException {
+        return remember(trace, trace.request(), accepted, Kind.OBSERVATION, text);
     }
 
     public record Recall(List<String> messages, int eventId) {}
+    public enum QueryKind { HISTORY, SELF_IDENTITY }
+
+    public Recall identity(Trace trace, int causedBy) throws IOException, InterruptedException {
+        var match = memory.selfIdentity(trace.scope());
+        var messages = match.stream().map(ResidentMemory.Match::message).toList();
+        int event = trace.write(causedBy, "memory", "memory_recall",
+                Map.of("recordIds", match.stream().map(ResidentMemory.Match::recordId).toList()));
+        return new Recall(messages, event);
+    }
 
     public Recall recall(Trace trace, int causedBy, String text) throws IOException, InterruptedException {
         var scope = trace.scope();
@@ -58,7 +71,7 @@ public final class ConversationMemory {
 
     public void rememberDelivered(Trace trace, int delivered, String text) throws IOException {
         try {
-            remember(trace, delivered, Kind.SELF_EXPRESSION, text);
+            remember(trace, delivered, delivered, Kind.SELF_EXPRESSION, text);
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
             deliveryWriteFailed(trace, delivered, error);
@@ -73,14 +86,15 @@ public final class ConversationMemory {
         trace.write(delivered, "memory", "memory_write_failed", Map.of("detail", error.toString()));
     }
 
-    private int remember(Trace trace, int cause, Kind kind, String text) throws IOException, InterruptedException {
+    private int remember(Trace trace, int sourceId, int causedBy, Kind kind, String text)
+            throws IOException, InterruptedException {
         var scope = trace.scope();
-        var source = event(trace, cause);
+        var source = event(trace, sourceId);
         String messageId = scope.qq().map(qq -> source.data().getAsJsonObject().get("messageId").getAsString())
                 .orElse("");
-        var receipt = memory.ingest(scope, scope.runId() + ":" + cause, Instant.parse(source.recordedAt()), kind,
+        var receipt = memory.ingest(scope, scope.runId() + ":" + sourceId, Instant.parse(source.recordedAt()), kind,
                 text, messageId);
-        return trace.write(cause, "memory", DURABLE, Map.of("sessionId", scope.sessionId(), "kind", kind.name(),
+        return trace.write(causedBy, "memory", DURABLE, Map.of("sessionId", scope.sessionId(), "kind", kind.name(),
                 "characterId", memory.character(), "recordId", receipt.recordId(), "revision", receipt.revision(),
                 "sequence", receipt.sequence()));
     }

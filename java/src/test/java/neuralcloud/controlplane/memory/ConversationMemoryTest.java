@@ -104,7 +104,14 @@ public class ConversationMemoryTest {
             try (exchange) {
                 received.set(JsonParser.parseString(new String(exchange.getRequestBody().readAllBytes(),
                         StandardCharsets.UTF_8)).getAsJsonObject());
-                byte[] bytes = gson.toJson(Map.of("status", "OK", "items", List.of(
+                boolean identity = received.get().has("intent");
+                var items = identity ? List.of(
+                        identity("verified", "10002", "operator_confirmed", "private", false, "测试称呼"),
+                        identity("other", "10003", "operator_confirmed", "private", false, "他人称呼"),
+                        identity("unverified", "10002", "self_reported", "private", false, "自报称呼"),
+                        identity("conflict", "10002", "operator_confirmed", "private", true, "冲突称呼"),
+                        identity("sensitive", "10002", "operator_confirmed", "sensitive", false, "敏感称呼"))
+                        : List.of(
                         indexed("old", conversation, "onebot:10001", "private", 10, Map.of()),
                         indexed("foreign", "group:onebot:10001:10009", "onebot:10001", "private", 11, Map.of()),
                         indexed("sensitive", conversation, "onebot:10001", "sensitive", 12, Map.of()),
@@ -112,7 +119,8 @@ public class ConversationMemoryTest {
                         indexed("wrong-sender", conversation, "neuralcloud-java", "private", 13, Map.of("channel",
                                 channel(conversation, "10003"))),
                         indexed("new", conversation, "neuralcloud-java", "private", 14, Map.of("channel",
-                                channel(conversation, "10002")))))).getBytes(StandardCharsets.UTF_8);
+                                channel(conversation, "10002"))));
+                byte[] bytes = gson.toJson(Map.of("status", "OK", "items", items)).getBytes(StandardCharsets.UTF_8);
                 exchange.sendResponseHeaders(200, bytes.length);
                 exchange.getResponseBody().write(bytes);
             }
@@ -143,6 +151,13 @@ public class ConversationMemoryTest {
             assertEquals(conversation, ingested.get().get("conversation_id").getAsString());
             assertEquals("10002", ingested.get().getAsJsonObject("channel").get("sender_id").getAsString());
             assertEquals("47", ingested.get().getAsJsonObject("channel").get("message_id").getAsString());
+
+            var mine = memory.selfIdentity(scope).orElseThrow();
+            assertEquals("verified", mine.recordId());
+            assertEquals("当前 QQ 账号经确认的称呼是「测试称呼」。", mine.message());
+            assertEquals("10002", received.get().getAsJsonObject("subject").get("account_id").getAsString());
+            assertTrue(!received.get().has("constraints"));
+            assertTrue(memory.selfIdentity(new Trace.Scope("console", "test", "run")).isEmpty());
         } finally {
             service.stop(0);
         }
@@ -151,6 +166,13 @@ public class ConversationMemoryTest {
     private static Map<String, String> channel(String conversation, String sender) {
         return Map.of("platform", "qq", "account_id", "10001", "sender_id", sender,
                 "conversation_id", conversation);
+    }
+
+    private static Map<String, Object> identity(String id, String account, String confirmation, String privacy,
+                                                boolean conflict, String name) {
+        return Map.of("status", "ONLINE", "record_id", id, "source", Map.of("character_id", "misty", "privacy", privacy),
+                "content", "来源原文不对外返回", "identity", Map.of("platform", "qq", "account_id", account,
+                        "confirmation", confirmation, "conflict", conflict, "name", name));
     }
 
     private static Map<String, Object> indexed(String id, String conversation, String writer, String privacy,

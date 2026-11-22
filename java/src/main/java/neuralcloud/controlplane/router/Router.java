@@ -6,7 +6,10 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
+import neuralcloud.controlplane.console.ConsoleServer.Trace;
 import neuralcloud.controlplane.master.Master;
+import neuralcloud.controlplane.memory.ConversationMemory;
+import neuralcloud.controlplane.memory.ConversationMemory.QueryKind;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -54,5 +57,19 @@ public final class Router<R extends Enum<R>> {
             }
         }
         throw new IOException("Router 须通过一次 select_route 调用提交唯一的 route 字段");
+    }
+
+    public ConversationMemory.Recall queryMemory(ConversationMemory memory, Trace trace, int requested,
+                                                  QueryKind kind, String query)
+            throws IOException, InterruptedException {
+        // Router 从渠道绑定的 trace 取得查询范围，Chat Worker 只提交类型和线索。
+        int querying = trace.write(requested, "router", "router_memory_query", Map.of("kind", kind.name()));
+        var recalled = switch (kind) {
+            case HISTORY -> memory.recall(trace, querying, query);
+            case SELF_IDENTITY -> memory.identity(trace, querying);
+        };
+        int returned = trace.write(recalled.eventId(), "router", "router_memory_result",
+                Map.of("count", recalled.messages().size()));
+        return new ConversationMemory.Recall(recalled.messages(), returned);
     }
 }

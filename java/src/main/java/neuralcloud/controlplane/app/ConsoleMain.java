@@ -8,6 +8,7 @@ import neuralcloud.controlplane.console.ConsoleServer.Reply;
 import neuralcloud.controlplane.console.NodeMonitor;
 import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.memory.ConversationMemory;
+import neuralcloud.controlplane.memory.ConversationMemory.QueryKind;
 import neuralcloud.controlplane.memory.ResidentMemory;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
@@ -179,20 +180,43 @@ public final class ConsoleMain {
     static ConsoleServer.Exchange conversation(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task,
                                                 Optional<ConversationMemory> memory) {
         return (text, trace) -> {
-            int input = memory.isPresent() ? memory.orElseThrow().rememberInbound(trace, text) : trace.request();
-            int submitted = trace.write(input, "chat-worker", "chat_worker_router_request", Map.of());
-            var conversation = chat.routeConversation(text, router);
-            int routed = trace.write(submitted, "router", "router_route", Map.of("route", conversation.route().name()));
-            if (conversation.route() == Route.ACTION_REQUEST && task.isPresent()) {
-                return executeTask(chat, task.orElseThrow(), conversation, trace, routed);
+            if (memory.isEmpty()) {
+                return routeAction(chat, router, task, text, trace, trace.request());
             }
-            if (conversation.route() == Route.CONVERSATION && memory.isPresent()) {
-                var recalled = memory.orElseThrow().recall(trace, routed, text);
-                return new Reply("chat_worker_reply",
-                        Map.of("text", chat.reply(conversation, recalled.messages()).orElseThrow()), recalled.eventId());
-            }
-            return new Reply("chat_worker_reply", Map.of("text", chat.reply(conversation).orElseThrow()), routed);
+            int accepted = trace.write(trace.request(), "chat-worker", "chat_worker_received", Map.of());
+            var store = memory.orElseThrow();
+            int input = store.rememberInbound(trace, accepted, text);
+            var turn = chat.planTurn(text);
+            int planned = trace.write(input, "chat-worker", "chat_worker_turn_plan", Map.of("kind", turn.kind().name()));
+            return switch (turn.kind()) {
+                case REPLY -> new Reply("chat_worker_reply",
+                        Map.of("text", chat.replyToTurn(turn, List.of()).orElseThrow()), planned);
+                case ACTION -> routeAction(chat, router, task, text, trace, planned);
+                case HISTORY, SELF_IDENTITY -> replyWithMemory(chat, router, store, turn, trace, planned);
+            };
         };
+    }
+
+    private static Reply replyWithMemory(ChatWorker chat, Router<Route> router, ConversationMemory memory,
+                                         ChatWorker.Turn turn, ConsoleServer.Trace trace, int planned)
+            throws IOException, InterruptedException {
+        var kind = turn.kind() == ChatWorker.TurnKind.SELF_IDENTITY ? QueryKind.SELF_IDENTITY : QueryKind.HISTORY;
+        int requested = trace.write(planned, "chat-worker", "chat_worker_memory_request",
+                Map.of("kind", kind.name(), "query", turn.query()));
+        var recalled = router.queryMemory(memory, trace, requested, kind, turn.query());
+        return new Reply("chat_worker_reply",
+                Map.of("text", chat.replyToTurn(turn, recalled.messages()).orElseThrow()), recalled.eventId());
+    }
+
+    private static Reply routeAction(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task, String text,
+                                     ConsoleServer.Trace trace, int parent) throws IOException, InterruptedException {
+        int submitted = trace.write(parent, "chat-worker", "chat_worker_router_request", Map.of());
+        var conversation = chat.routeConversation(text, router);
+        int routed = trace.write(submitted, "router", "router_route", Map.of("route", conversation.route().name()));
+        if (conversation.route() == Route.ACTION_REQUEST && task.isPresent()) {
+            return executeTask(chat, task.orElseThrow(), conversation, trace, routed);
+        }
+        return new Reply("chat_worker_reply", Map.of("text", chat.reply(conversation).orElseThrow()), routed);
     }
 
     private static Reply executeTask(ChatWorker chat, TaskWorker task, ChatWorker.RoutedConversation conversation,

@@ -80,6 +80,19 @@ public class ChatWorkerTest {
         assertTrue(instructions(requests.get(1)).contains("只传达正文明确给出的内容"));
     }
 
+    @Test
+    public void requestsOwnIdentityWithoutSupplyingAnAccountOrSearchString() throws IOException {
+        var requests = new CopyOnWriteArrayList<JsonObject>();
+        var turn = withWorker(200, requests, worker -> worker.planTurn("你还记得我是谁吗？"),
+                completed("{\"kind\":\"SELF_IDENTITY\",\"query\":\"\"}"));
+        assertEquals(ChatWorker.TurnKind.SELF_IDENTITY, turn.kind());
+        assertEquals("", turn.query());
+        assertEquals("你还记得我是谁吗？", content(requests.getFirst()));
+        assertThrows(IOException.class, () -> withWorker(200, requests,
+                worker -> worker.planTurn("你还记得我是谁吗？"),
+                completed("{\"kind\":\"SELF_IDENTITY\",\"query\":\"90001\"}")));
+    }
+
     private static String completed(String text) {
         return """
                 {"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":%s}]}}]}
@@ -97,6 +110,16 @@ public class ChatWorkerTest {
     }
 
     private static Optional<String> invoke(int status, Context context, List<JsonObject> requests, String... responses)
+            throws IOException {
+        return withWorker(status, requests, worker -> worker.reply(context, APPROVED_TEXT), responses);
+    }
+
+    @FunctionalInterface
+    private interface WorkerCall<T> {
+        T apply(ChatWorker worker) throws IOException;
+    }
+
+    private static <T> T withWorker(int status, List<JsonObject> requests, WorkerCall<T> action, String... responses)
             throws IOException {
         requests.clear();
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -117,8 +140,8 @@ public class ChatWorkerTest {
         server.start();
         try (var client = HttpClient.newHttpClient()) {
             URI endpoint = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + path);
-            return new ChatWorker(client, endpoint, Duration.ofSeconds(3), 1024, "LOW", "test-api-key",
-                    "只写许可正文。", "喜欢摄影。").reply(context, APPROVED_TEXT);
+            return action.apply(new ChatWorker(client, endpoint, Duration.ofSeconds(3), 1024, "LOW", "test-api-key",
+                    "只写许可正文。", "喜欢摄影。"));
         } finally {
             server.stop(0);
         }
