@@ -26,7 +26,60 @@ public final class ConversationMemory {
     }
 
     // matchCount 只计算本次检索命中的记录。回读说明和近期对话也可作为材料交给 Worker。
-    record Recall(List<String> messages, int matchCount, int eventId) {}
+    record Recall(
+            List<String> messages, int matchCount, int eventId, List<MemoryJournal.Read> bindings) {
+        Recall(List<String> messages, int count, int event) {
+            this(messages, count, event, List.of());
+        }
+    }
+
+    ResidentV2 v2() {
+        return memory instanceof ResidentV2 v ? v : null;
+    }
+
+    Recall retrieve(Trace trace, int event, QueryKind kind, String query, String role, String input)
+            throws IOException, InterruptedException {
+        ResidentV2 v = v2();
+        if (v == null)
+            return switch (kind) {
+                case HISTORY -> recall(trace, event, query);
+                case SELF_IDENTITY -> identity(trace, event);
+                case SELF_HISTORY -> selfHistory(trace, event, query);
+            };
+        var snap = v.lookup(trace.scope(), role, kind, query, receivedAt(trace));
+        var messages = new ArrayList<String>();
+        var rows = new ArrayList<MemoryJournal.Read>();
+        for (var item : snap.items()) {
+            if (!"ONLINE".equals(ResidentV2.string(item, "status"))) continue;
+            rows.add(ResidentV2.binding(trace.scope(), role, kind.name(), item, snap, input));
+            messages.add(ResidentV2.render(item, kind.name()));
+        }
+        int count = rows.size();
+        if (!v.scopedRecall() && kind == QueryKind.HISTORY) {
+            messages.addFirst("本次只回读了当前会话的近期对话，共 " + count + " 条。");
+            count = 0;
+        }
+        if (snap.assessment().equals("CONFLICT")) messages.addFirst("当前证据存在冲突。");
+        if (snap.assessment().equals("INCOMPLETE")) messages.addFirst("目前依据不足以确认执行结果。");
+        int logged =
+                trace.write(
+                        event,
+                        "memory",
+                        "memory_recall",
+                        Map.of(
+                                "recordIds",
+                                rows.stream().map(MemoryJournal.Read::id).toList(),
+                                "bindings",
+                                rows,
+                                "stream_id",
+                                snap.stream(),
+                                "read_seq",
+                                snap.seq(),
+                                "assessment",
+                                snap.assessment()));
+        return new Recall(List.copyOf(messages), count, logged, List.copyOf(rows));
+    }
+
     public enum QueryKind { HISTORY, SELF_IDENTITY, SELF_HISTORY }
 
     public boolean canSearchSelfHistory(Trace.Scope scope) {

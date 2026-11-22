@@ -27,7 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-public final class ResidentMemory {
+public class ResidentMemory {
     private static final Gson JSON = new GsonBuilder().setStrictness(Strictness.STRICT).create();
     private static final String SOURCE = "neuralcloud-java";
     private static final DateTimeFormatter SPOKEN_AT = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss")
@@ -297,7 +297,19 @@ public final class ResidentMemory {
                 + " 说：“" + content + "”。来源是" + channel + "中已记录的" + (user ? "用户发言。" : "小雾回复。");
     }
 
-    private JsonObject request(String path, Map<String, ?> body) throws IOException, InterruptedException {
+    protected static final class ServiceError extends IOException {
+        final int status;
+        final String code;
+
+        ServiceError(int status, String code) {
+            super("记忆服务返回 HTTP " + status + (code.isEmpty() ? "" : " " + code));
+            this.status = status;
+            this.code = code;
+        }
+    }
+
+    protected JsonObject request(String path, Object body)
+            throws IOException, InterruptedException {
         var request = HttpRequest.newBuilder(endpoint.resolve(path)).timeout(Duration.ofSeconds(5))
                 .header("Authorization", "Bearer " + token);
         if (body != null) {
@@ -306,7 +318,14 @@ public final class ResidentMemory {
         }
         var response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() != 200) {
-            throw new IOException("记忆服务返回 HTTP " + response.statusCode());
+            String code = "";
+            try {
+                var error = JSON.fromJson(response.body(), JsonObject.class);
+                if (error != null && error.has("code")) code = " " + text(error, "code");
+            } catch (JsonParseException ignored) {
+                /* Status remains available for legacy responses. */
+            }
+            throw new ServiceError(response.statusCode(), code.strip());
         }
         try {
             var result = JSON.fromJson(response.body(), JsonObject.class);

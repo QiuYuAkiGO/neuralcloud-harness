@@ -4,6 +4,7 @@ import neuralcloud.controlplane.console.AuditLog;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
 import neuralcloud.controlplane.memory.ResidentMemory;
 import neuralcloud.controlplane.memory.ResidentMemory.Kind;
+import neuralcloud.controlplane.memory.ResidentV2;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -17,6 +18,10 @@ public final class RouterMemoryWriter {
     public RouterMemoryWriter(AuditLog audit, ResidentMemory memory) {
         this.audit = audit;
         this.memory = memory;
+    }
+
+    public boolean supportsAttestation() {
+        return memory instanceof neuralcloud.controlplane.memory.ResidentV2;
     }
 
     public int rememberInbound(Trace trace, int accepted, String text) throws IOException, InterruptedException {
@@ -37,6 +42,53 @@ public final class RouterMemoryWriter {
         }
     }
 
+    /** 仅宿主执行器可提交工具阶段，二者绑定同一个 actionId。模型生成的叙述不会进入这条写路径。 */
+    public int rememberTool(
+            Trace trace, int parent, String actionId, boolean completed, String content)
+            throws IOException, InterruptedException {
+        if (!(memory instanceof ResidentV2 v2)) return parent;
+        String kind = completed ? "TOOL_RESULT" : "TOOL_ATTEMPT";
+        int writing =
+                trace.write(
+                        parent,
+                        "router",
+                        "router_memory_write",
+                        Map.of("kind", kind, "actionId", actionId));
+        var source = audit.event(trace.scope(), writing);
+        try {
+            var receipt =
+                    v2.ingestTool(
+                            trace.scope(),
+                            trace.scope().runId() + ":" + writing,
+                            Instant.parse(source.recordedAt()),
+                            completed,
+                            actionId,
+                            content);
+            return trace.write(
+                    writing,
+                    "memory",
+                    "memory_durable",
+                    Map.of(
+                            "kind",
+                            kind,
+                            "actionId",
+                            actionId,
+                            "recordId",
+                            receipt.recordId(),
+                            "revision",
+                            receipt.revision(),
+                            "sequence",
+                            receipt.sequence()));
+        } catch (IOException | InterruptedException error) {
+            trace.write(
+                    writing,
+                    "memory",
+                    "memory_write_failed",
+                    Map.of("kind", kind, "detail", error.toString()));
+            throw error;
+        }
+    }
+
     private static int request(Trace trace, int parent, int source, Kind kind) throws IOException {
         return trace.write(parent, "router", "router_memory_write", Map.of("kind", kind.name(), "sourceEventId", source));
     }
@@ -49,8 +101,27 @@ public final class RouterMemoryWriter {
                 .orElse("");
         ResidentMemory.Receipt receipt;
         try {
-            receipt = memory.ingest(scope, scope.runId() + ":" + sourceId, Instant.parse(source.recordedAt()), kind,
+            String event = scope.runId() + ":" + sourceId;
+            if (memory instanceof neuralcloud.controlplane.memory.ResidentV2 v2) {
+                var origin = source.data().getAsJsonObject().getAsJsonObject("observation");
+                receipt =
+                        v2.ingestEvent(
+                                scope,
+                                event,
+                                Instant.parse(source.recordedAt()),
+                                kind,
+                                text,
+                                messageId,
+                                origin);
+            } else {
+                receipt =
+                        memory.ingest(
+                                scope,
+                                event,
+                                Instant.parse(source.recordedAt()),
+                                kind,
                     text, messageId);
+            }
         } catch (IOException | InterruptedException error) {
             trace.write(writing, "memory", "memory_write_failed", Map.of("kind", kind.name(), "detail", error.toString()));
             throw error;

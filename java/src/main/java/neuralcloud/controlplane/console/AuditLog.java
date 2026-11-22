@@ -40,12 +40,19 @@ public final class AuditLog implements AutoCloseable {
     public record Chain(String chain, List<String> nodes, String firstAt, String lastAt, int events) {
     }
 
+    private final Path directory;
+
+    public Path directory() {
+        return directory;
+    }
+
     private final String runId;
     private final List<Event> events;
     private final BufferedWriter writer;
     private int eventId;
 
-    private AuditLog(String runId, List<Event> events, BufferedWriter writer) {
+    private AuditLog(Path directory, String runId, List<Event> events, BufferedWriter writer) {
+        this.directory = directory;
         this.runId = runId;
         this.events = events;
         this.writer = writer;
@@ -67,7 +74,10 @@ public final class AuditLog implements AutoCloseable {
         // 文件名以 UTC 启动时间开头，按名称排序即按进程启动先后回放。
         String runId = UUID.randomUUID().toString();
         Path file = directory.resolve(FILE_TIME.format(Instant.now()) + "-" + runId + ".jsonl");
-        return new AuditLog(runId, events,
+        return new AuditLog(
+                directory,
+                runId,
+                events,
                 Files.newBufferedWriter(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE));
     }
 
@@ -137,6 +147,7 @@ public final class AuditLog implements AutoCloseable {
             if (runId.equals(event.runId()) && event.eventId() >= request) {
                 break;
             }
+            if ("memory_context_reset".equals(event.type())) dialogue.clear();
             var causalEvents = byRun.computeIfAbsent(event.runId(), ignored -> new HashMap<>());
             causalEvents.put(event.eventId(), event);
             if (qq ? "qq_message".equals(event.type()) && "openqq".equals(event.node())

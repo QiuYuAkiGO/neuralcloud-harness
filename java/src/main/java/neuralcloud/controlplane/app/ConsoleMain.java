@@ -11,6 +11,8 @@ import neuralcloud.controlplane.memory.ConversationMemory;
 import neuralcloud.controlplane.memory.MemoryCall;
 import neuralcloud.controlplane.memory.MemoryCall.Caller;
 import neuralcloud.controlplane.memory.ResidentMemory;
+import neuralcloud.controlplane.memory.ResidentV2;
+import neuralcloud.controlplane.memory.MemoryJournal;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.router.RouterMemoryWriter;
@@ -174,9 +176,45 @@ public final class ConsoleMain {
         var config = settings.orElseThrow();
         var client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
         opened.push(client);
-        var memory = new ResidentMemory(client, config.endpoint(), config.characterId(), config.token(),
+        ResidentMemory memory;
+        if (config.apiVersion() == 2) {
+            var journal =
+                    new MemoryJournal(
+                            audit.directory()
+                                    .resolve("memory-v2-" + config.characterId() + ".sqlite"));
+            opened.push(journal);
+            memory =
+                    new ResidentV2(
+                            client,
+                            config.endpoint(),
+                            config.characterId(),
+                            config.token(),
+                            config.scopedRecall(),
+                            journal);
+        } else {
+            memory =
+                    new ResidentMemory(
+                            client,
+                            config.endpoint(),
+                            config.characterId(),
+                            config.token(),
                 config.scopedRecall());
+        }
         memory.verify(qqPrivateEnabled);
+        if (memory instanceof ResidentV2 v2) {
+            audit.write(
+                    "memory-startup",
+                    null,
+                    "memory",
+                    "memory_ready",
+                    Map.of(
+                            "characterId",
+                            v2.character(),
+                            "apiVersion",
+                            2,
+                            "streamId",
+                            v2.stream()));
+        }
         // 两端共用已核验的服务。模型节点只接收按本轮绑定的读取能力，渠道回执只交给 Router 的写入口。
         return Optional.of(new MemoryAccess(new ConversationMemory(audit, memory), new RouterMemoryWriter(audit, memory)));
     }
@@ -201,13 +239,22 @@ public final class ConsoleMain {
             int accepted = trace.write(trace.request(), "chat-worker", "chat_worker_received", Map.of());
             var store = memory.orElseThrow();
             int input = store.writes().rememberInbound(trace, accepted, text);
-            var turn = chat.planTurn(text, trace.dialogue(), store.reads().canSearchSelfHistory(trace.scope()));
+            var chatRead = store.reads().bind(trace, Caller.CHAT_WORKER, input);
+            var updates = chatRead.startTurn();
+            var turn =
+                    chat.planTurn(
+                            text,
+                            updates.isEmpty() ? trace.dialogue() : List.of(),
+                            store.reads().canSearchSelfHistory(trace.scope()),
+                            updates);
+            chatRead.refreshed();
             int planned = trace.write(input, "chat-worker", "chat_worker_turn_plan",
                     Map.of("kind", turn.kind().name(), "dialogueMessages", turn.dialogue().size(), "usage", turn.usage()));
             return switch (turn.kind()) {
                 case REPLY, CLARIFY -> new Reply("chat_worker_reply",
                         Map.of("text", chat.replyToTurn(turn, List.of()).orElseThrow()), planned);
-                case ACTION -> routeAction(chat, router, task, text, trace, planned, Optional.of(store.reads()));
+                case ACTION ->
+                        routeAction(chat, router, task, text, trace, planned, Optional.of(store));
                 case HISTORY, SELF_IDENTITY, SELF_HISTORY -> {
                     var read = store.reads().bind(trace, Caller.CHAT_WORKER, planned);
                     String reply = chat.replyWithMemory(turn, read).orElseThrow();
@@ -218,7 +265,9 @@ public final class ConsoleMain {
     }
 
     private static Reply routeAction(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task, String text,
-                                     ConsoleServer.Trace trace, int parent, Optional<ConversationMemory> memory)
+            ConsoleServer.Trace trace,
+            int parent,
+            Optional<MemoryAccess> memory)
             throws IOException, InterruptedException {
         int submitted = trace.write(parent, "chat-worker", "chat_worker_router_request", Map.of());
         var conversation = chat.routeConversation(text, router);
@@ -230,12 +279,29 @@ public final class ConsoleMain {
     }
 
     private static Reply executeTask(ChatWorker chat, TaskWorker task, ChatWorker.RoutedConversation conversation,
-                                     ConsoleServer.Trace trace, int routed, Optional<ConversationMemory> memory)
+            ConsoleServer.Trace trace,
+            int routed,
+            Optional<MemoryAccess> memory)
             throws IOException, InterruptedException {
         int dispatched = trace.write(routed, "task-worker", "task_worker_dispatch",
                 Map.of("provider", "DeepSeek", "model", task.model()));
-        var read = memory.map(store -> store.bind(trace, Caller.TASK_WORKER, dispatched));
-        var status = task.execute(conversation.context().message(), read);
+        var read = memory.map(store -> store.reads().bind(trace, Caller.TASK_WORKER, dispatched));
+        String actionId = trace.scope().runId() + ":" + dispatched;
+        var status =
+                task.execute(
+                        conversation.context().message(),
+                        read,
+                        () -> {
+                            if (memory.isPresent())
+                                memory.get()
+                                        .writes()
+                                        .rememberTool(
+                                                trace,
+                                                read.orElseThrow().eventId(),
+                                                actionId,
+                                                false,
+                                                "已请求读取服务器状态。");
+                        });
         int parent = read.map(MemoryCall::eventId).orElse(dispatched);
         if (status.isEmpty()) {
             int receipt = trace.write(parent, "task-worker", "task_worker_unavailable", Map.of());
@@ -245,6 +311,11 @@ public final class ConsoleMain {
         // 持久回执后再回复。角色模型润色已完成读取的说明，采样值按回执呈现。
         int receipt = trace.write(parent, "task-worker", "task_worker_result",
                 Map.of("capability", "read_server_status", "status", result));
+        if (memory.isPresent())
+            receipt =
+                    memory.get()
+                            .writes()
+                            .rememberTool(trace, receipt, actionId, true, result.measurements());
         String reply = chat.replyToServerStatus(conversation.context(), result).orElseThrow();
         return new Reply("chat_worker_reply", Map.of("text", reply), receipt);
     }

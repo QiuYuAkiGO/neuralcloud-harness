@@ -38,6 +38,52 @@ public final class MemoryCall {
     private final Trace trace;
     private final Caller caller;
     private int eventId;
+    private final String inputId = java.util.UUID.randomUUID().toString();
+    private List<MemoryJournal.Read> bindings = List.of();
+    private ResidentV2.Refresh refresh;
+
+    public List<String> startTurn() throws IOException, InterruptedException {
+        var v = memory.v2();
+        if (v == null) return List.of();
+        refresh = v.refresh(trace.scope(), caller.name());
+        if (!refresh.messages().isEmpty()) {
+            v.prepare(
+                    inputId + "-refresh",
+                    caller.name(),
+                    trace.scope(),
+                    refresh.messages(),
+                    refresh.evidence());
+            eventId =
+                    trace.write(
+                            eventId,
+                            "memory",
+                            "memory_context_reset",
+                            Map.of(
+                                    "materials",
+                                    refresh.messages(),
+                                    "input_id",
+                                    inputId + "-refresh"));
+        }
+        return refresh.messages();
+    }
+
+    public void refreshed() throws IOException {
+        if (refresh != null && !refresh.updates().isEmpty())
+            memory.v2().finishRefresh(inputId + "-refresh", refresh);
+    }
+
+    public void delivered() throws IOException {
+        if (memory.v2() != null && !bindings.isEmpty()) memory.v2().delivered(inputId);
+    }
+
+    public void verifyEvidence() throws IOException, InterruptedException {
+        if (memory.v2() == null) return;
+        var current = new java.util.ArrayList<>(bindings);
+        if (refresh != null)
+            for (var r : refresh.evidence())
+                if ("ONLINE".equals(ResidentV2.string(r.item(), "status"))) current.add(r);
+        memory.v2().verifyEvidence(trace.scope(), caller.name(), current);
+    }
 
     MemoryCall(ConversationMemory memory, Trace trace, Caller caller, int parent) {
         this.memory = memory;
@@ -75,11 +121,7 @@ public final class MemoryCall {
         int requested = trace.write(eventId, caller.node, NAME, Map.of("kind", kind.name(), "query", query));
         ConversationMemory.Recall recalled;
         try {
-            recalled = switch (kind) {
-                case HISTORY -> memory.recall(trace, requested, query);
-                case SELF_IDENTITY -> memory.identity(trace, requested);
-                case SELF_HISTORY -> memory.selfHistory(trace, requested, query);
-            };
+            recalled = memory.retrieve(trace, requested, kind, query, caller.name(), inputId);
         } catch (IOException | InterruptedException error) {
             trace.write(requested, "memory", "memory_call_failed", Map.of("detail", error.toString()));
             throw error;
@@ -93,6 +135,9 @@ public final class MemoryCall {
             });
         }
         // 模型和审计共用同一份结果。范围说明及近期上下文不计入实际命中数。
+        bindings = recalled.bindings();
+        if (memory.v2() != null)
+            memory.v2().prepare(inputId, caller.name(), trace.scope(), sentences, bindings);
         var result = new Result(kind, recalled.matchCount(), sentences);
         eventId = trace.write(recalled.eventId(), "memory", "memory_call_result", result);
         return result;

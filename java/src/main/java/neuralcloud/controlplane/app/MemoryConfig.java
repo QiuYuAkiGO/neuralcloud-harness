@@ -5,13 +5,18 @@ import java.net.URI;
 import java.util.HashSet;
 import java.util.Set;
 
-record MemoryConfig(URI endpoint, String characterId, String token, boolean scopedRecall) {
+record MemoryConfig(
+        URI endpoint, String characterId, String token, boolean scopedRecall, int apiVersion) {
     private static final Set<String> FIELDS = Set.of("endpoint", "characterId", "accessTokenEnv");
 
     static MemoryConfig load(ConfigSource source) throws IOException {
         var properties = source.readProperties();
         var fields = new HashSet<>(properties.stringPropertyNames());
         fields.remove("recallMode");
+        fields.remove("apiVersion");
+        String version = properties.getProperty("apiVersion", "1");
+        if (!Set.of("1", "2").contains(version))
+            throw new IllegalArgumentException("记忆 apiVersion 须为 1 或 2");
         if (!fields.equals(FIELDS)
                 || properties.values().stream().anyMatch(value -> value.toString().isBlank())) {
             throw new IllegalArgumentException("记忆配置须包含以下非空字段 " + FIELDS);
@@ -35,6 +40,7 @@ record MemoryConfig(URI endpoint, String characterId, String token, boolean scop
         if (!Set.of("recent", "scoped").contains(mode)) {
             throw new IllegalArgumentException("记忆 recallMode 须为 recent 或 scoped");
         }
-        return new MemoryConfig(endpoint, character, token, "scoped".equals(mode));
+        return new MemoryConfig(
+                endpoint, character, token, "scoped".equals(mode), Integer.parseInt(version));
     }
 }

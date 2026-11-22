@@ -139,8 +139,7 @@ public final class ConsoleServer implements AutoCloseable {
         }
     }
 
-    private record Message(String chain, String text) {
-    }
+    private record Message(String chain, String text, JsonObject observation) {}
 
     private static final class RequestException extends Exception {
         private final int status;
@@ -259,7 +258,18 @@ public final class ConsoleServer implements AutoCloseable {
 
     // 先记录操作者正文，再调用节点。调用失败同样写入审计链，并以 502 返回实际失败原因。
     private Response send(Node node, Message message) throws IOException {
-        int request = audit.write(message.chain(), null, node.id(), "operator_message", Map.of("text", message.text()));
+        var observationData = new LinkedHashMap<String, Object>();
+        observationData.put("text", message.text());
+        if (message.observation() != null) {
+            if (!node.id().equals("chat-worker")
+                    || writes.isEmpty()
+                    || !writes.orElseThrow().supportsAttestation()) {
+                return json(400, Map.of("error", "来源凭据只用于启用 Memory v2 的会话入站"));
+            }
+            observationData.put("observation", message.observation());
+        }
+        int request =
+                audit.write(message.chain(), null, node.id(), "operator_message", observationData);
         var trace = Trace.forChain(audit, "console", message.chain(), request);
         long started = System.nanoTime();
         Reply reply;
@@ -336,11 +346,17 @@ public final class ConsoleServer implements AutoCloseable {
                 body = null;
             }
         }
-        if (body != null && body.keySet().equals(Set.of("chain", "text"))
+        if (body != null
+                && (body.keySet().equals(Set.of("chain", "text"))
+                        || body.keySet().equals(Set.of("chain", "text", "observation"))
+                                && body.get("observation") instanceof JsonObject source
+                                && Set.of("speaker", "source_venue", "occurred_at", "assertion")
+                                        .containsAll(source.keySet()))
                 && body.get("chain") instanceof JsonPrimitive chain && chain.isString()
                 && CHAIN.matcher(chain.getAsString()).matches() && !chain.getAsString().startsWith(PROBE_CHAIN_PREFIX)
                 && body.get("text") instanceof JsonPrimitive text && text.isString() && !text.getAsString().isBlank()) {
-            return new Message(chain.getAsString(), text.getAsString());
+            return new Message(
+                    chain.getAsString(), text.getAsString(), body.getAsJsonObject("observation"));
         }
         throw new RequestException(400, INVALID_MESSAGE);
     }
