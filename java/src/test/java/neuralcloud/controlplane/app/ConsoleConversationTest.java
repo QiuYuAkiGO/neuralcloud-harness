@@ -10,6 +10,8 @@ import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.worker.ChatWorker;
+import neuralcloud.controlplane.worker.ServerStatus;
+import neuralcloud.controlplane.worker.TaskWorker;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -20,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -35,6 +38,9 @@ public class ConsoleConversationTest {
         var drafts = new AtomicInteger();
         var generation = new AtomicReference<JsonObject>();
         var draftedText = new AtomicReference<>("喜欢摄影。");
+        var capability = new AtomicReference<>("read_server_status");
+        var arguments = new AtomicReference<>("{}");
+        var reads = new AtomicInteger();
         var events = new ArrayList<String>();
         var tracedRoute = new AtomicReference<String>();
         var trace = new Trace() {
@@ -68,6 +74,17 @@ public class ConsoleConversationTest {
                     {"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":%s}]}}]}
                     """.formatted(new JsonPrimitive(draftedText.get())));
         });
+        backend.createContext("/deepseek", exchange -> {
+            if (!"Bearer task-key".equals(exchange.getRequestHeaders().getFirst("Authorization"))) {
+                exchange.sendResponseHeaders(401, -1);
+                exchange.close();
+                return;
+            }
+            send(exchange, """
+                    {"model":"deepseek-flash","choices":[{"finish_reason":"tool_calls","message":{
+                    "tool_calls":[{"type":"function","function":{"name":%s,"arguments":%s}}]}}]}
+                    """.formatted(new JsonPrimitive(capability.get()), new JsonPrimitive(arguments.get())));
+        });
         backend.start();
         try (var client = HttpClient.newHttpClient()) {
             var base = URI.create("http://127.0.0.1:" + backend.getAddress().getPort());
@@ -76,7 +93,7 @@ public class ConsoleConversationTest {
             var router = new Router<>(new Master(client, settings), "选择流程。", Route.class);
             var chat = new ChatWorker(client, base.resolve("/generate"), Duration.ofSeconds(3), 1024,
                     "LOW", "test-key", "你是小雾。", "喜欢摄影。");
-            var entry = ConsoleMain.conversation(chat, router);
+            var entry = ConsoleMain.conversation(chat, router, Optional.empty());
 
             var reply = entry.send("你喜欢什么？", trace);
             assertEquals("你喜欢什么？", report.get());
@@ -109,6 +126,37 @@ public class ConsoleConversationTest {
             assertThrows(IOException.class, () -> entry.send("你好。", trace));
             assertEquals(List.of("chat-worker:chat_worker_router_request"), events);
             assertEquals(3, drafts.get());
+
+            var task = new TaskWorker(client, base.resolve("/deepseek"), "deepseek-flash", "task-key",
+                    Duration.ofSeconds(3), () -> {
+                        reads.incrementAndGet();
+                        return new ServerStatus("2026-11-22T00:00:00Z", 7200, 0.5, 2L << 30, 4L << 30,
+                                8L << 30, 16L << 30);
+                    });
+            var withTask = ConsoleMain.conversation(chat, router, Optional.of(task));
+            route.set("ACTION_REQUEST");
+            events.clear();
+            draftedText.set("刚查过了，已经跑了 2 个小时。");
+            var status = withTask.send("检查服务器当前状态。", trace);
+            assertEquals(List.of("chat-worker:chat_worker_router_request", "router:router_route",
+                    "task-worker:task_worker_dispatch", "task-worker:task_worker_result"), events);
+            assertEquals(Integer.valueOf(5), status.causedBy());
+            assertTrue(generationInput(generation.get()).contains("已运行 2.0 小时"));
+            assertTrue(systemInstruction(generation.get()).startsWith("你是小雾。"));
+
+            capability.set("no_supported_action");
+            events.clear();
+            withTask.send("重启服务器。", trace);
+            assertEquals("task-worker:task_worker_unavailable", events.getLast());
+            assertEquals(1, reads.get());
+
+            capability.set("read_server_status");
+            arguments.set("{\"host\":\"another-host\"}");
+            events.clear();
+            assertThrows(IOException.class, () -> withTask.send("查另一台服务器。", trace));
+            assertEquals("task-worker:task_worker_dispatch", events.getLast());
+            assertEquals(1, reads.get());
+            assertEquals(5, drafts.get());
         } finally {
             backend.stop(0);
         }

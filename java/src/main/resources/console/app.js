@@ -32,7 +32,7 @@ function el(tag, props = {}, ...children) {
 }
 
 const time = (iso) => (iso ? new Date(iso).toLocaleString('zh-CN', { hour12: false }) : '');
-const NODE_NAMES = { orchestrator: '编排器', 'task-worker': '任务 Worker（模拟）', memory: '记忆（样例证据）' };
+const NODE_NAMES = { orchestrator: '编排器', 'task-worker': '任务 Worker', memory: '记忆（样例证据）' };
 const nodeName = (id) => state.nodes.find((node) => node.id === id)?.name ?? NODE_NAMES[id] ?? id;
 
 // 各事件类型在对话和审计链里的一行摘要。
@@ -42,6 +42,9 @@ function summary(event) {
     case 'operator_message': return data.text;
     case 'chat_worker_reply': return data.text;
     case 'chat_worker_router_request': return '已将本轮消息交给 Router 分流';
+    case 'task_worker_dispatch': return '已派发给任务 Worker';
+    case 'task_worker_result': return '已读取当前 Linux 服务器的状态';
+    case 'task_worker_unavailable': return '本轮请求没有可用的执行能力';
     case 'router_route': return `流程：${data.route}`;
     case 'master_completion': return data.text || '（空正文）';
     case 'node_failed': return `失败：${data.detail}`;

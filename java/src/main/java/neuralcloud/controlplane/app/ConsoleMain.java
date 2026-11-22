@@ -9,6 +9,7 @@ import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.worker.ChatWorker;
+import neuralcloud.controlplane.worker.TaskWorker;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
@@ -17,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 网页控制台入口。启动顺序：校验全部配置，打开审计链，组装 Chat Worker、Router 与 Master，
@@ -56,6 +58,7 @@ public final class ConsoleMain {
         String chatKey;
         String chatPrompt;
         String routerPrompt;
+        Optional<TaskWorkerConfig> taskSettings;
         try {
             settings = ConsoleConfig.load(config);
             chatSettings = ChatWorkerConfig.load(settings.chatWorkerConfig());
@@ -64,6 +67,8 @@ public final class ConsoleMain {
             routerSettings = MasterConfig.load(settings.routerConfig());
             routerPrompt = settings.routerRolePrompt().readText();
             masterSettings = MasterConfig.load(settings.masterConfig());
+            taskSettings = settings.taskWorkerConfig().isPresent()
+                    ? Optional.of(TaskWorkerConfig.load(settings.taskWorkerConfig().orElseThrow())) : Optional.empty();
             if (!routerSettings.usesChat()) {
                 throw new IllegalArgumentException("Router 需要支持 tool_calls 的 /v1/chat/completions 端点");
             }
@@ -87,12 +92,17 @@ public final class ConsoleMain {
             opened.push(metricsClient);
 
             var chat = chatSettings.create(chatClient, chatKey, chatPrompt);
+            var task = taskSettings.map(configured -> {
+                var taskClient = HttpClient.newBuilder().connectTimeout(configured.connectTimeout()).build();
+                opened.push(taskClient);
+                return configured.create(taskClient);
+            });
             var routerInference = new Master(routerClient, routerSettings);
             var router = new Router<>(routerInference, routerPrompt, Route.class);
             var master = new Master(masterClient, masterSettings);
             var nodes = new ArrayList<>(List.of(
                     new Node("chat-worker", "Chat Worker", chatSettings.endpoint().toString(), null,
-                            conversation(chat, router), null),
+                            conversation(chat, router, task), null),
                     new Node("router", "Router", routerSettings.endpoint().toString(), routerSettings.model(),
                             (text, trace) -> new Reply("router_route", Map.of("route", router.route(text).name())),
                             routerInference::probeStartup),
@@ -126,13 +136,33 @@ public final class ConsoleMain {
         return 0;
     }
 
-    static ConsoleServer.Exchange conversation(ChatWorker chat, Router<Route> router) {
+    static ConsoleServer.Exchange conversation(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task) {
         return (text, trace) -> {
             int submitted = trace.write(trace.request(), "chat-worker", "chat_worker_router_request", Map.of());
             var conversation = chat.routeConversation(text, router);
             int routed = trace.write(submitted, "router", "router_route", Map.of("route", conversation.route().name()));
+            if (conversation.route() == Route.ACTION_REQUEST && task.isPresent()) {
+                return executeTask(chat, task.orElseThrow(), conversation, trace, routed);
+            }
             return new Reply("chat_worker_reply", Map.of("text", chat.reply(conversation).orElseThrow()), routed);
         };
+    }
+
+    private static Reply executeTask(ChatWorker chat, TaskWorker task, ChatWorker.RoutedConversation conversation,
+                                     ConsoleServer.Trace trace, int routed) throws IOException, InterruptedException {
+        int dispatched = trace.write(routed, "task-worker", "task_worker_dispatch",
+                Map.of("provider", "DeepSeek", "model", task.model()));
+        var status = task.execute(conversation.context().message());
+        if (status.isEmpty()) {
+            int receipt = trace.write(dispatched, "task-worker", "task_worker_unavailable", Map.of());
+            return new Reply("chat_worker_reply", Map.of("text", chat.reply(conversation).orElseThrow()), receipt);
+        }
+        var result = status.orElseThrow();
+        // 写入实际读取回执后，Chat Worker 才能把采样值作为获准正文告知用户。
+        int receipt = trace.write(dispatched, "task-worker", "task_worker_result",
+                Map.of("capability", "read_server_status", "status", result));
+        String reply = chat.reply(conversation.context(), result.approvedReply()).orElseThrow();
+        return new Reply("chat_worker_reply", Map.of("text", reply), receipt);
     }
 
     // 后打开的先关闭：先停止接收请求，再停止状态读取、关闭模型客户端，最后关闭审计文件。

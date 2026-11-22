@@ -9,6 +9,8 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 
@@ -25,13 +27,16 @@ final class ConsoleConfig {
                     ConfigSource chatWorkerConfig, ConfigSource chatWorkerRolePrompt,
                     ConfigSource routerConfig, ConfigSource routerRolePrompt, NodeMonitor.Metrics routerMetrics,
                     ConfigSource masterConfig, NodeMonitor.Metrics masterMetrics, int masterMaxTokens, double masterTemperature,
-                    NodeMonitor.GpuSource gpuMetrics, Duration metricsInterval, Duration metricsTimeout) {
+                    NodeMonitor.GpuSource gpuMetrics, Duration metricsInterval, Duration metricsTimeout,
+                    Optional<ConfigSource> taskWorkerConfig) {
     }
 
     // 控制台没有身份校验，只允许监听本机回环地址。各节点的模型配置沿用各自的配置文件和校验。
     static Settings load(ConfigSource source) throws IOException {
         var properties = source.readProperties();
-        if (!properties.stringPropertyNames().equals(FIELDS)
+        var required = new HashSet<>(properties.stringPropertyNames());
+        required.remove("taskWorkerConfig");
+        if (!required.equals(FIELDS)
                 || properties.values().stream().anyMatch(value -> value.toString().isBlank())) {
             throw new IllegalArgumentException("控制台配置须包含以下非空字段 " + FIELDS);
         }
@@ -60,7 +65,8 @@ final class ConsoleConfig {
                 metrics(properties, "masterMetrics"), positive(properties, "masterMaxTokens"), temperature,
                 enumValue(NodeMonitor.GpuSource.class, properties, "gpuMetrics"),
                 Duration.ofSeconds(positive(properties, "metricsIntervalSeconds")),
-                Duration.ofSeconds(positive(properties, "metricsTimeoutSeconds")));
+                Duration.ofSeconds(positive(properties, "metricsTimeoutSeconds")),
+                Optional.ofNullable(properties.getProperty("taskWorkerConfig")).map(ConfigSource::new));
     }
 
     private static NodeMonitor.Metrics metrics(Properties properties, String field) {

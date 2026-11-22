@@ -76,7 +76,9 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 | `gpuMetrics` | `NVIDIA_SMI` 通过本机 `nvidia-smi` 读取显存、利用率和功耗，`NONE` 不读取 |
 | `metricsIntervalSeconds`、`metricsTimeoutSeconds` | 状态读取间隔和单次读取超时，以秒为单位的正整数 |
 
-**对话。** 网页把正文发到 `POST /api/nodes/{chat-worker|router|master}/messages`，请求体只含 `chain` 与 `text`。`chain` 是网页生成的会话标识，`text` 非空。Chat Worker 将本轮正文交给 Router，在同一条审计链记录分流后再回复。`CONVERSATION` 生成对话，`ACTION_REQUEST` 说明本轮尚无执行步骤，`UNSUPPORTED` 说明请求超出允许范围。Router 和 Master 也可由控制台单独调用。Router 请求指定 `select_route`，只接受一次原生工具调用。可选类别为 `CONVERSATION`（对话或基于已有材料作答）、`ACTION_REQUEST`（需要本轮实时查询或外部动作）和 `UNSUPPORTED`（明确越过系统边界）。这三个单轮节点不经过编排器，也不读写记忆。Router 的类别不代表工具可用、已获授权或已执行。
+**对话。** 网页把正文发到 `POST /api/nodes/{chat-worker|router|master}/messages`，请求体只含 `chain` 与 `text`。`chain` 是网页生成的会话标识，`text` 非空。Chat Worker 将本轮正文交给 Router，在同一条审计链记录分流后再回复。`CONVERSATION` 生成对话，`ACTION_REQUEST` 派给已配置的任务 Worker，`UNSUPPORTED` 说明请求超出允许范围。Router 和 Master 也可由控制台单独调用。Router 请求指定 `select_route`，只接受一次原生工具调用。可选类别为 `CONVERSATION`（对话或基于已有材料作答）、`ACTION_REQUEST`（需要本轮实时查询或外部动作）和 `UNSUPPORTED`（明确越过系统边界）。这三个单轮节点不经过编排器，也不读写记忆。Router 的类别不代表工具可用、已获授权或已执行。
+
+**任务执行。** 配置 `taskWorkerConfig=classpath:/config/task-worker-deepseek.properties` 并通过环境提供 `DEEPSEEK_API_KEY` 后，`ACTION_REQUEST` 会派给 DeepSeek 任务 Worker。首个能力读取运行控制台的 Linux 主机的运行时间、一分钟负载、内存与根分区容量。DeepSeek 只能选择已声明的无参工具，实际读取由 Java 完成。任务回执写入同一条审计链后，Chat Worker 才按回执生成回复。
 
 **参与判断。** 渠道通过 `ReplySelector.Context` 提供发言是否直接指向 Misty、本条正文及同一会话的近期原文。控制台发给 Chat Worker 的消息属于 `DIRECT`，选择 `REPLY`。群聊普通消息使用 `AMBIENT`，由 Chat Worker 用只读摘要判断。Gemini 配置的 `replyPreferences` 指向摘要资源，默认的首版根据 Misty 人设与远端历史记忆提炼。`ChatWorker.reply` 每次先判断参与，`REPLY` 才生成获准正文，`SKIP` 返回空结果，判断失败则抛出异常。
 
