@@ -214,6 +214,12 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         return Optional.of(generateReply(DRAFT_INSTRUCTION, approvedText));
     }
 
+    /** 派单决定如何表达，Master 批准的意图决定可传达的事实。角色只收到本步所需的两段文字。 */
+    public String replyToPlan(String instruction, String replyIntent) throws IOException {
+        return generateReply(DRAFT_INSTRUCTION + "获准正文见 replyIntent。step 只指导表达，不得扩大正文的事实和承诺。",
+                JSON.toJson(Map.of("step", instruction, "replyIntent", replyIntent)));
+    }
+
     /** 将直接对话的当前原文交给 Router 判定业务路由，返回绑定上下文与路由结果的 {@link RoutedConversation}。 */
     public RoutedConversation routeConversation(String message, Router<Route> router)
             throws IOException, InterruptedException {

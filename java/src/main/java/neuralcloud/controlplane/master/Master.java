@@ -249,7 +249,8 @@ public final class Master {
     public MasterIntent submitIntent(String prompt, int maxTokens, double temperature, MemoryCall memory)
             throws IOException, InterruptedException {
         var messages = memoryMessages(prompt, memory,
-                "\n本轮先调用 memory_call 查证事项，再用 submit_intent 提交。只引用本轮工具标明的证据序号。没有依据时给空 evidence 和空 impression。");
+                "\n先选择与当前事项最相关的一种查询，只调用一次 memory_call，然后等待回执。"
+                        + "收到回执后只调用一次 submit_intent。只引用本轮工具标明的证据序号。没有依据时给空 evidence 和空 impression。");
         var lookup = chat(messages, List.of(memory.tool()), maxTokens, temperature, MemoryCall.NAME);
         memory.refreshed();
         var query = requiredCall(lookup, MemoryCall.NAME);

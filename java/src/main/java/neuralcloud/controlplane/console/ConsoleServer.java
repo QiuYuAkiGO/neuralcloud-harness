@@ -346,7 +346,7 @@ public final class ConsoleServer implements AutoCloseable {
         var observationData = new LinkedHashMap<String, Object>();
         observationData.put("text", message.text());
         if (message.observation() != null) {
-            if (!node.id().equals("chat-worker")
+            if (!(node.id().equals("chat-worker") || node.id().equals("conversation"))
                     || writes.isEmpty()
                     || !writes.orElseThrow().supportsAttestation()) {
                 return json(400, Map.of("error", "来源凭据只用于启用 Memory v2 的会话入站"));
@@ -368,7 +368,9 @@ public final class ConsoleServer implements AutoCloseable {
         var data = new LinkedHashMap<>(reply.data());
         data.put("latencyMs", latency);
         int parent = reply.causedBy() == null ? request : reply.causedBy();
-        int event = audit.write(message.chain(), parent, node.id(), reply.type(), data);
+        // 对话编排是入口，最终回复的作者是完成派单的 Chat Worker。
+        String author = node.id().equals("conversation") && "chat_worker_reply".equals(reply.type()) ? "chat-worker" : node.id();
+        int event = audit.write(message.chain(), parent, author, reply.type(), data);
         monitor.recordCall(node.id(), new NodeMonitor.Outcome(Instant.now().toString(), true, latency, ""));
         var response = json(200, Map.of("eventId", event, "type", reply.type(), "data", data));
         if ("chat_worker_reply".equals(reply.type()) && writes.isPresent()) {

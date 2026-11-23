@@ -37,7 +37,7 @@ java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --config java
 
 ## 一键启动本机联调
 
-从仓库根目录运行。需要 PowerShell 7、JDK 21、Maven、已安装的 WSL/vLLM 和 llama.cpp、本机两份模型权重，以及当前进程的 `GEMINI_API_KEY`。
+从仓库根目录运行。需要 PowerShell 7、JDK 21、Maven，以及当前进程的 `DEEPSEEK_API_KEY` 和 `GEMINI_API_KEY`。正式控制台的 Router 使用 DeepSeek 官方 API 的 `deepseek-flash`，Master 使用 `deepseek-v4-pro`，Chat Worker 通过 Gemini API 生成角色回复。
 
 ```powershell
 pwsh -File java/start-local.ps1
@@ -51,13 +51,13 @@ bash java/start-local.sh
 bash java/start-local.sh -Mode Meeting -ReminderOutcome CANCELLED
 ```
 
-启动器构建 Java，依次确认 27B Master 和 0.8B Router 就绪，再开放 <http://127.0.0.1:18900/>。普通模式开放三个单轮节点，`Meeting` 额外挂载会议改期挡板。Gemini 是远端服务，通过配置的代理在收到请求时调用。运行时路径、显存预算和启动时限集中在 [local-launch.psd1](src/main/resources/config/local-launch.psd1)，控制台和模型服务地址取自 [local-console.properties](src/main/resources/config/local-console.properties) 及其引用的节点配置。可用 `-LaunchConfig` 或 `-ConsoleConfig` 指定本机配置。
+启动器构建 Java 并开放 <http://127.0.0.1:18900/>。默认配置只启动控制台进程，推理请求发给云端 API。`Meeting` 额外挂载会议改期挡板。通过 `-ConsoleConfig` 可指定含 Memory v2 的控制台配置。需要复现历史本机模型评测时，显式指定引用回环模型端点的配置及相应的 `-LaunchConfig`。[默认控制台配置](src/main/resources/config/local-console.properties)
 
-同端口已提供预期模型时复用。退出、失败或按 Ctrl+C 时只回收本次创建的进程。启动日志保存在 `java/target/local-launch-*/` 下。`-SmokeTest` 在两个模型列表和控制台节点列表就绪后退出，适合验证启动和清理，服务生成能力可在控制台单独探测。 [Router 池化设计草案](../docs/proposals/router-pool-design-20261122.md)
+退出、失败或按 Ctrl+C 时，启动器回收本次创建的进程。日志保存在 `java/target/local-launch-*/` 下。`-SmokeTest` 在控制台节点列表就绪后退出。可在节点状态页分别探测云端推理服务。
 
 ## 网页控制台
 
-控制台是一个常驻进程，网页可以直接与 Chat Worker、Router、Master 交互，回看审计链，并查看各节点的运行状态。先用上文的 `verify` 构建 JAR，在启动 Java 的环境中配置 `GEMINI_API_KEY`，再运行以下命令。默认读取 JAR 内的 [console.properties](src/main/resources/config/console.properties)，也可用 `--config` 指定外部文件。看到“控制台已就绪”后，打开 <http://127.0.0.1:18900/>。 网页会恢复上次使用的控制台会话。从审计链点击“继续此会话”，或打开带 `?chain=<会话标识>` 的链接，可读取该会话的对话并在其中追问。
+控制台是一个常驻进程，网页可以直接与 Chat Worker、Router、Master 交互，回看审计链，并查看各节点的运行状态。先用上文的 `verify` 构建 JAR，在启动 Java 的环境中配置 `GEMINI_API_KEY` 和 `DEEPSEEK_API_KEY`，再运行以下命令。默认读取 JAR 内的 [console.properties](src/main/resources/config/console.properties)，也可用 `--config` 指定外部文件。看到“控制台已就绪”后，打开 <http://127.0.0.1:18900/>。网页会恢复上次使用的控制台会话。从审计链点击“继续此会话”，或打开带 `?chain=<会话标识>` 的链接，可读取该会话的对话并在其中追问。
 
 ```powershell
 java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.controlplane.app.ConsoleMain
@@ -163,6 +163,12 @@ Gemini 每次只收到该步骤获准传达的正文和 Chat Worker 职责提示
 
 
 ## Memory v2 分域目录与印象修订
+
+配置 `memoryConfig` 并完成 Memory v2 握手后，正式控制台会出现“对话编排”节点，对应 `POST /api/nodes/conversation/messages`。使用独立的验收实例，在同一新会话依次发送“我周六下午要去看展”和“我周六要干嘛来着？”，等第一轮回复出现后再发第二轮。打开审计链，从 `chat_worker_reply` 的 `causedBy` 回查 `worker_dispatch`、`router_plan`、`intent`。将 `intent.evidence` 中的 `record_id` 和 `revision` 与第一轮 `OBSERVATION` 的 `memory_durable` 回执匹配，即可定位当时的原文。以下命令复核两轮的派单、送达以及原文版本。
+
+```sh
+python java/src/test/python/verify_conversation_plan.py http://127.0.0.1:18900 "网页会话标识"
+```
 
 启用 `apiVersion=2`、`recallMode=scoped` 后，可在记忆客户端配置加入 `hotIndexTokens=96`，让正式控制台 Master 获得本轮受众可引用的未决事项和目录。取值范围为 0–2048，缺省为 0。启用时握手核对 `audience_cards`，Master 从同一推理端点的 `/v1/models` 核对单模型身份，再借助 `/tokenize` 计算完整目录文本。检查 `memory_hot_index` 审计事件可看到实际文本、token 数和预算。Chat Worker 通过已有 `memory_call` 使用所配置 Memory 服务的扩展检索。
 

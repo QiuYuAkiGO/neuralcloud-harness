@@ -171,7 +171,8 @@ public final class AuditLog implements AutoCloseable {
             var causalEvents = byRun.computeIfAbsent(event.runId(), ignored -> new HashMap<>());
             causalEvents.put(event.eventId(), event);
             if (qq ? "qq_message".equals(event.type()) && "openqq".equals(event.node())
-                    : "operator_message".equals(event.type()) && "chat-worker".equals(event.node())) {
+                    : "operator_message".equals(event.type())
+                            && ("chat-worker".equals(event.node()) || "conversation".equals(event.node()))) {
                 dialogue.add(new DialogueMessage(Speaker.USER, event.data().getAsJsonObject().get("text").getAsString()));
                 continue;
             }

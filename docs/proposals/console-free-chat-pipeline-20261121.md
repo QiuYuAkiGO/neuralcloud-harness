@@ -1,8 +1,8 @@
 # 网页自由对话走完整链路的方案
 
-2026-11-21 · 完整链路方案，2026-11-23 更新了第 4 节的 Master 意图入口。目标是让操作者在网页控制台以用户身份与 Misty 自由对话，每条消息都经过 Chat Worker、Router、记忆读写适配器、Master 与编排器，回复和中间事件写入同一条审计链。首期流程与角色边界沿用 [Java 实施方案](master-worker-router-java-implementation-20261118.md) 和 [设计修订草稿](master-worker-design-revisions-20261121.md)，开发遵循 [项目守则](../../AGENTS.md)。
+2026-11-21 提案，2026-11-23 更新。第 4、5 节记录正式控制台已接入的 Master 意图和 Router 派单契约。目标是让操作者在网页控制台以用户身份与 Misty 自由对话，回复和中间事件写入同一条审计链。首期流程与角色边界沿用 [Java 实施方案](master-worker-router-java-implementation-20261118.md) 和 [设计修订草稿](master-worker-design-revisions-20261121.md)，开发遵循 [项目守则](../../AGENTS.md)。
 
-## 1. 现状与缺口
+## 1. 提案时的现状与缺口
 
 会议改期联调已在控制台跑通：网页正文交给真实 Router，Master 读样例证据并提交结果，编排器按决策调度 Chat Worker 与模拟的任务 Worker。自由对话还缺以下能力。
 
@@ -89,7 +89,9 @@ Chat Worker 的印象只随本轮材料交给 Master，不入库；Master 评价
 
 - **流程枚举。** `CONVERSATION` 进入日常对话链路。`ACTION_REQUEST` 识别本轮实时查询或外部行动需求，能力及授权由执行层判定。首期未接入的动作返回对应的能力状态。`UNSUPPORTED` 用于明确越过系统边界的请求。会议改期的 `MEETING_RESCHEDULE` 仍用于独立联调场景。
 - **意图拆解。** Router 用 `submit_plan` 工具提交步骤列表，每步含 `id`、`worker`、`text`、`dependsOn`。`worker` 首期只允许 `CHAT_WORKER`，`text` 是给 Chat Worker 的纯文本指令。计划交给正式 `Orchestrator`，它已在任何 Worker 动作前校验标识唯一、依赖存在且无环。
-- **拆解由 Router 的 0.8B 生成。** 首期计划只有一步对话指令，仍由模型生成，以便提前暴露小模型拆解的稳定性问题。若实测不稳定，改由 Java 从 `replyIntent` 生成，并记录原因和实测样例。
+- **拆解由 Router 模型生成。** 正式配置使用 DeepSeek 官方 API 的 `deepseek-flash`。Master 接受意图后，Router 仅将 `replyIntent` 交给模型。当 `needsReply=false` 时结束本轮。
+
+正式控制台“对话编排”节点使用同步消息接口处理 `CONVERSATION`。其他路由返回分类结果。模型须通过一次完整的原生 `submit_plan` 调用提交恰含一个元素的 `steps` 数组。步骤字段必须齐全且唯一，`id` 与 `text` 为非空字符串，`worker=CHAT_WORKER`，`dependsOn=[]`。无效提交终止本轮。宿主绑定会话与工作流，在派单和交付前复核证据版本。审计记录工具调用 ID、步骤正文及工作流 ID。Chat Worker 按步骤表达 Master 批准的内容，控制台写出 HTTP 回复后登记送达并入库。
 
 ## 6. 网页与审计
 
@@ -107,7 +109,7 @@ Chat Worker 的印象只随本轮材料交给 Master，不入库；Master 评价
 | --- | --- | --- |
 | 1. 适配器 | `memory` 包接入常驻记忆服务，写入发言和印象，按会话查询并分类渲染样板句 | 用测试实例写入两条发言和一条带来源的印象，查询分别返回事实与印象样板句；某类未命中返回固定空结果 |
 | 2. 通用意图 | Master 增加 `submit_intent`，补最小挡板用例 | 合格提交通过；引用不存在的证据序号、无引用的非空印象都被拒绝并指出字段 |
-| 3. Router 拆解 | `CONVERSATION` 流程与 `submit_plan` | 0.8B 对日常问候生成一步合法计划；非法计划在派发前被拒 |
+| 3. Router 拆解 | `CONVERSATION` 流程与 `submit_plan` | 云端 Router 生成一步对话计划；非法计划在派发前被拒；两轮看展对话可追到首轮原文版本 |
 | 4. Chat Worker 上报 | 新增上报调用，返回转述和印象 | 上报正文不含 JSON 等结构化内容，印象标明提出者 |
 | 5. 网页 | 异步提交、进度轮询、会话串行 | 一轮对话在网页逐步显示进度并得到 Misty 回复；第二轮能引用第一轮已入库的发言 |
 
