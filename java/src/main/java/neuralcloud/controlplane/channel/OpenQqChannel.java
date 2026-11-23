@@ -55,6 +55,8 @@ public final class OpenQqChannel implements AutoCloseable {
             long senderId,
             boolean addressed,
             QqGroups.Policy policy) {
+        boolean observeOnly() { return policy != null && policy.policy() == QqGroups.Mode.OBSERVE; }
+
         Incoming(long messageId, String text, long groupId, long senderId) {
             this(messageId, text, groupId, senderId, true, null);
         }
@@ -110,6 +112,35 @@ public final class OpenQqChannel implements AutoCloseable {
         this.runner = Thread.ofVirtual().name("openqq-channel").unstarted(this::run);
     }
 
+    /** 两条入站队列共用原子去重与受理边界，旧策略及新策略下的重复投递也只登记一次。 */
+    private int accept(String chain, Incoming incoming, boolean decision) throws IOException {
+        synchronized (audit) {
+            var messageId = new JsonPrimitive(incoming.messageId());
+            // 授权命令按渠道消息幂等。若中断在提交后、发送前，重投可取回同一回执。
+            if (audit.events(chain).stream()
+                    .anyMatch(
+                            event ->
+                                    ("qq_message".equals(event.type())
+                                                    && messageId.equals(
+                                                            event.data()
+                                                                    .getAsJsonObject()
+                                                                    .get("messageId")))
+                                            || ("qq_send_requested".equals(event.type())
+                                                    && messageId.equals(
+                                                            event.data()
+                                                                    .getAsJsonObject()
+                                                                    .get("authorMessageId"))))) {
+                return 0;
+            }
+            return audit.write(
+                    chain,
+                    null,
+                    "openqq",
+                    decision ? "qq_author_command" : "qq_message",
+                    Map.of("text", incoming.text(), "messageId", incoming.messageId()));
+        }
+    }
+
     /** 启动后台虚拟线程连接 OneBot WebSocket 服务端。 */
     public void start() {
         runner.start();
@@ -154,30 +185,8 @@ public final class OpenQqChannel implements AutoCloseable {
                         : "qq-private-" + accountId + "-" + incoming.senderId();
         boolean decision = authorCommand(incoming.text());
         if (group && decision) return;
-        var messageId = new JsonPrimitive(incoming.messageId());
-        // 授权命令按渠道消息幂等。若中断在提交后、发送前，重投可取回同一回执。
-        if (audit.events(chain).stream()
-                .anyMatch(
-                        event ->
-                                ("qq_message".equals(event.type())
-                                                && messageId.equals(
-                                                        event.data()
-                                                                .getAsJsonObject()
-                                                                .get("messageId")))
-                                        || ("qq_send_requested".equals(event.type())
-                                                && messageId.equals(
-                                                        event.data()
-                                                                .getAsJsonObject()
-                                                                .get("authorMessageId"))))) {
-            return;
-        }
-        int request =
-                audit.write(
-                        chain,
-                        null,
-                        "openqq",
-                        decision ? "qq_author_command" : "qq_message",
-                        Map.of("text", incoming.text(), "messageId", incoming.messageId()));
+        int request = accept(chain,incoming,decision);
+        if (request == 0) return;
         var trace =
                 group
                         ? Trace.forQqGroup(
@@ -188,7 +197,8 @@ public final class OpenQqChannel implements AutoCloseable {
                                         accountId,
                                         incoming.groupId(),
                                         incoming.senderId(),
-                                        groups.isPresent()))
+                                        groups.isPresent(),
+                                        incoming.observeOnly() ? incoming.policy().revision() : 0))
                         : Trace.forQqPrivate(
                                 audit,
                                 chain,
@@ -201,6 +211,10 @@ public final class OpenQqChannel implements AutoCloseable {
                                                 : List.of()));
         Reply reply;
         try {
+            if (incoming.observeOnly()) {
+                writes.orElseThrow().rememberInbound(trace, request, incoming.text());
+                return;
+            }
             if (decision) {
                 var receipt =
                         writes.orElseThrow(() -> new IOException("此渠道未启用原作者授权"))
@@ -233,7 +247,7 @@ public final class OpenQqChannel implements AutoCloseable {
             int failed =
                     trace.write(
                             request,
-                            decision ? "memory" : "chat-worker",
+                            decision || incoming.observeOnly() ? "memory" : "chat-worker",
                             "node_failed",
                             Map.of("detail", error.toString()));
             if (decision)
@@ -436,14 +450,17 @@ public final class OpenQqChannel implements AutoCloseable {
      */
     private final class Session implements WebSocket.Listener {
         private final ArrayBlockingQueue<Incoming> inbox = new ArrayBlockingQueue<>(32);
+        private final ArrayBlockingQueue<Incoming> observations = new ArrayBlockingQueue<>(32);
         private final StringBuilder fragments = new StringBuilder();
         private boolean oversized;
         private volatile boolean ended;
+        private boolean ownsRoster; // 只在群策略锁下访问，旧连接的迟到关闭通知不能清空新名单。
         private volatile Pending pending;
 
         private void run() throws IOException, ExecutionException, TimeoutException, InterruptedException {
             var connection = client.newWebSocketBuilder().connectTimeout(IO_TIMEOUT)
                     .header("Authorization", "Bearer " + token).buildAsync(endpoint, this);
+            Thread observer = null;
             try {
                 var socket = connection.get(IO_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
                 var login = call(socket, "get_login_info", Map.of());
@@ -452,6 +469,8 @@ public final class OpenQqChannel implements AutoCloseable {
                     throw new IOException("OpenQQ 登录账号未就绪或与配置不符");
                 }
                 System.out.println("OpenQQ 私聊接入已就绪");
+                // 观察群原文有独立的有序接收线程，前台 QQ 推理和发送回执不会挡住其入库。
+                if (groups.isPresent()) observer = Thread.ofVirtual().name("openqq-observe-ingress").start(() -> observe(socket));
                 long nextRoster = 0;
                 while (!closed && !ended) {
                     if (groups.isPresent()
@@ -459,7 +478,11 @@ public final class OpenQqChannel implements AutoCloseable {
                         var roster = call(socket, "get_group_list", Map.of());
                         if (!successful(roster) || !(roster.get("data") instanceof JsonArray rooms))
                             throw new IOException("OpenQQ 未返回已登录账号的群列表");
-                        groups.get().roster(rooms);
+                        synchronized (groups.get()) {
+                            if (ended) return;
+                            groups.get().roster(rooms);
+                            ownsRoster = true;
+                        }
                         nextRoster = System.nanoTime() + Duration.ofMinutes(1).toNanos();
                     }
                     var message = inbox.poll(1, TimeUnit.SECONDS);
@@ -468,8 +491,24 @@ public final class OpenQqChannel implements AutoCloseable {
                     }
                 }
             } finally {
-                groups.ifPresent(QqGroups::disconnected);
+                disconnect();
                 connection.thenAccept(WebSocket::abort);
+                if (observer != null) { observer.interrupt(); observer.join(); }
+            }
+        }
+
+        private void observe(WebSocket socket) {
+            try {
+                while (!ended) {
+                    var incoming = observations.take();
+                    try {
+                        handle(this, socket, incoming);
+                    } catch (IOException failure) {
+                        failure.printStackTrace(System.err);
+                    }
+                }
+            } catch (InterruptedException stopped) {
+                Thread.currentThread().interrupt();
             }
         }
 
@@ -588,7 +627,7 @@ public final class OpenQqChannel implements AutoCloseable {
                             allowedGroupId,
                             writes.map(RouterMemoryWriter::authorGrantsEnabled).orElse(false),
                             groups.orElse(null));
-            if (message != null && !inbox.offer(message)) {
+            if (message != null && !(message.observeOnly() ? observations : inbox).offer(message)) {
                 System.err.println("OpenQQ 入站队列已满");
             }
         }
@@ -606,6 +645,13 @@ public final class OpenQqChannel implements AutoCloseable {
 
         private void disconnect() {
             ended = true;
+            groups.ifPresent(
+                    roster -> {
+                        synchronized (roster) {
+                            if (ownsRoster) roster.disconnected();
+                            ownsRoster = false;
+                        }
+                    });
             var action = pending;
             if (action != null) {
                 action.response().completeExceptionally(new IOException("OpenQQ 连接已关闭"));

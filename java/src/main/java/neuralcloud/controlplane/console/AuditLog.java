@@ -124,6 +124,24 @@ public final class AuditLog implements AutoCloseable {
         return event.eventId();
     }
 
+    /** 批次审计跨进程按 SQLite 序号幂等投递；同次运行中的步骤继续用 causedBy 连接。 */
+    public synchronized void observation(neuralcloud.controlplane.memory.ObserveQueue.Audit row)
+            throws IOException {
+        Integer parent = null;
+        for (var event : events(row.chain()).reversed()) {
+            if (!event.type().startsWith("observe_")) continue;
+            var data = event.data().getAsJsonObject();
+            if (!row.batch().equals(data.get("batchId").getAsString())) continue;
+            if (data.get("journalId").getAsLong() == row.key()) return;
+            if (parent == null && runId.equals(event.runId())) parent = event.eventId();
+        }
+        if (parent == null
+                && row.data().has("sourceRunId")
+                && runId.equals(row.data().get("sourceRunId").getAsString()))
+            parent = row.data().get("sourceEventId").getAsInt();
+        write(row.chain(), parent, row.node(), row.type(), row.data());
+    }
+
     /** 按最近活跃时间倒序汇总全部审计链摘要（最近有新事件的链排在最前）。 */
     public synchronized List<Chain> chains() {
         var grouped = new LinkedHashMap<String, List<Event>>();

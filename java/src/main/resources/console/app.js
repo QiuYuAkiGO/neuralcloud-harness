@@ -46,6 +46,14 @@ function summary(event) {
   switch (event.type) {
     case 'operator_message': return data.text;
     case 'qq_message': return data.text;
+    case 'observe_queued': return 'P3 已排队 · ' + (data.reason === 'COUNT' ? '累计 20 条' : '首条已等 30 分钟');
+    case 'observe_claimed': return '本批领取 ' + data.sources.length + ' 条群原文';
+    case 'observe_evidence': return data.originals.length ? '已取证 · ' + data.originals.length + ' 条可引用原文' : '全批原文已失效或失去引用权';
+    case 'observe_submission': return data.submission.impression || '本批没有新印象';
+    case 'observe_candidate': return 'Router 提交印象 · ' + data.source_refs.length + ' 条来源';
+    case 'observe_completed': return data.result === 'IMPRESSION' ? '印象已持久入库' : '已完成 · 无新印象';
+    case 'observe_refused': case 'observe_cancelled': return data.reason;
+    case 'observe_retry': return data.detail;
     case 'qq_send_requested': return '已请求 OpenQQ 发送私聊回复';
     case 'qq_delivery': return 'OpenQQ 已确认发送，消息 ID ' + data.messageId;
     case 'qq_delivery_failed': return 'OpenQQ 拒绝发送，错误码 ' + data.retcode;
@@ -287,6 +295,10 @@ function buildTree(events, expanded) {
         el('span', { class: 'event-type' }, event.type),
         el('span', { class: 'muted' }, `${nodeName(event.node)} · ${time(event.recordedAt)}${latency(event)}`)),
       el('div', { class: 'event-summary' }, summary(event)),
+      event.type === 'observe_evidence' && event.data.originals.length ? el('details',
+        { 'data-event-key': eventKey + '-sources', ...(expanded.has(eventKey + '-sources') ? { open: '' } : {}) },
+        el('summary', {}, '查看本次取证原文'), el('ol', {}, event.data.originals.map(s => el('li', {},
+          el('div', { class: 'muted' }, s.ref.record_id + ' @ ' + s.ref.revision), el('div', { class: 'event-summary' }, s.text))))) : null,
       el('details', details, el('summary', { class: 'muted' }, '原始事件'), el('pre', {}, JSON.stringify(event, null, 2))),
       kids.length > 1 ? el('ul', {}, kids.flatMap(render)) : null);
     return kids.length === 1 ? [item, ...render(kids[0])] : [item];
@@ -295,23 +307,40 @@ function buildTree(events, expanded) {
 }
 
 // 拉取并渲染指定审计链的全部事件；通过递增请求号丢弃过期的并发响应，并用快照签名避免无新事件时重绘打断阅读。
-async function loadAudit(chain) {
+function observationEvents(events, batch) {
+  const steps = events.filter(e => e.data.batchId === batch);
+  const sources = steps.flatMap(e => e.data.sources || []);
+  const selected = new Set(sources.map(s => auditEventKey(s.runId, s.eventId)));
+  // 同运行的原文写请求及回执沿因果链查找；跨重启的群原文由批次保存的 runId/eventId 定位。
+  return events.filter(e => {
+    const source = selected.has(auditEventKey(e.runId, e.eventId));
+    if (['router_memory_write', 'memory_durable'].includes(e.type) && selected.has(auditEventKey(e.runId, e.causedBy))) {
+      selected.add(auditEventKey(e.runId, e.eventId));
+      return true;
+    }
+    return source || e.data.batchId === batch;
+  });
+}
+
+async function loadAudit(chain, batch = null) {
   const request = ++state.auditRequest;
   state.auditChain = chain;
+  state.auditBatch = batch;
   document.querySelectorAll('#audit-chains li').forEach((item) => {
     item.classList.toggle('active', item.querySelector('.id')?.textContent === chain);
   });
-  const { events } = await api('GET', `/api/audit/chains/${chain}`);
+  const response = await api('GET', `/api/audit/chains/${chain}`);
   if (request !== state.auditRequest) return;
+  const events = batch ? observationEvents(response.events, batch) : response.events;
   const latest = events.at(-1);
-  const snapshot = JSON.stringify([chain, events.length, latest?.runId, latest?.eventId]);
+  const snapshot = JSON.stringify([chain, batch, events.length, latest?.runId, latest?.eventId]);
   if (snapshot === state.auditSnapshot) return;
   state.auditSnapshot = snapshot;
   const panel = document.getElementById('audit-events');
   const expanded = new Set(Array.from(panel.querySelectorAll('details[open]'), (detail) => detail.dataset.eventKey));
   const runs = new Set(events.map((event) => event.runId));
   panel.replaceChildren(
-    el('div', { class: 'toolbar' }, el('strong', {}, chain),
+    el('div', { class: 'toolbar' }, el('strong', {}, batch ? '整理批次 ' + batch : chain),
       el('span', { class: 'muted' }, `${events.length} 条事件 · ${runs.size} 个进程`),
       isConsoleChat(events) ? el('a', { href: chatUrl(chain).href }, '继续此会话') : null),
     buildTree(events, expanded));
@@ -322,7 +351,7 @@ async function refreshOpenAudit() {
   if (!state.auditChain || state.auditPolling) return;
   state.auditPolling = true;
   try {
-    await loadAudit(state.auditChain);
+    await loadAudit(state.auditChain, state.auditBatch);
   } catch (error) {
     console.warn('刷新当前审计链失败', error);
   } finally {
@@ -332,7 +361,7 @@ async function refreshOpenAudit() {
 
 document.getElementById('audit-refresh').addEventListener('click', async () => {
   await loadChains();
-  if (state.auditChain) await loadAudit(state.auditChain);
+  if (state.auditChain) await loadAudit(state.auditChain, state.auditBatch);
 });
 
 /* ---------- 节点状态 ---------- */
@@ -427,6 +456,17 @@ document.getElementById('nodes-refresh').addEventListener('click', loadNodes);
 
 // 名单、保存与版本冲突均以服务器回执为准。每张卡可直接打开该群历史审计。
 const qqModes = { OFF: '不接收', OBSERVE: '仅观察', OBSERVE_REPLY: '观察与回复' };
+const observationStates = { IDLE: '空闲', WAITING: '等待触发', QUEUED: '已排队', RUNNING: '整理中',
+  SENDING: '等待入库回执', RETRY: '等待重试', DISCONNECTED: '等待重连' };
+function observationPanel(room) {
+  const s = room.observation;
+  if (s.state === 'DISABLED') return el('p', { class: 'muted' }, '印象整理未启用');
+  const open = (id, label) => id ? el('button', { onclick: () => { showTab('audit'); loadAudit(room.chain, id); } }, label) : null;
+  const last = s.lastBatchId ? '上次完成 ' + time(s.lastCompletedAt) + ' · ' + (s.lastResult === 'IMPRESSION' ? '已保存新印象' : '无新印象') : '尚未整理';
+  return el('div', {}, el('p', {}, '待整理 ' + s.pending + ' 条 · ' + observationStates[s.state]),
+    el('p', { class: 'muted' }, last), el('div', { class: 'toolbar' },
+      open(s.currentBatchId, '当前批次审计'), open(s.lastBatchId, '上次批次审计')));
+}
 let qqRequest = 0;
 async function loadQq() {
   const request = ++qqRequest;
@@ -461,7 +501,7 @@ async function loadQq() {
         el('p', {}, '接收 ' + room.received + ' 条 · 确认回复 ' + room.delivered + ' 条'),
         room.lastReceived ? el('p', { class: 'muted' }, '最近接收 ' + time(room.lastReceived)) : null,
         room.lastDelivered ? el('p', { class: 'muted' }, '最近回复 ' + time(room.lastDelivered)) : null,
-        el('div', { class: 'toolbar' }, el('label', {}, '接收策略 ', select), audit));
+        el('div', { class: 'toolbar' }, el('label', {}, '接收策略 ', select), audit), observationPanel(room));
     });
     document.getElementById('qq-rooms').replaceChildren(...cards);
   } catch (failure) { if (request === qqRequest) error.textContent = failure.message; }

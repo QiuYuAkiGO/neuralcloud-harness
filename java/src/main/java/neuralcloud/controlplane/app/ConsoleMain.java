@@ -14,7 +14,10 @@ import neuralcloud.controlplane.memory.MemoryCall.Caller;
 import neuralcloud.controlplane.memory.ResidentMemory;
 import neuralcloud.controlplane.memory.ResidentV2;
 import neuralcloud.controlplane.memory.MemoryJournal;
+import neuralcloud.controlplane.memory.ObserveEvidence;
+import neuralcloud.controlplane.memory.ObserveQueue;
 import neuralcloud.controlplane.orchestration.Orchestrator;
+import neuralcloud.controlplane.orchestration.ObserveScheduler;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.router.RouterMemoryWriter;
@@ -61,7 +64,13 @@ public final class ConsoleMain {
     }
 
     /** 记忆读写权限分离包装：模型节点只持有按轮次绑定的读取入口 {@code reads}，持久写入统一归口给 {@code writes}。 */
-    record MemoryAccess(ConversationMemory reads, RouterMemoryWriter writes) {}
+    record MemoryAccess(
+            ConversationMemory reads,
+            RouterMemoryWriter writes,
+            Optional<ObservationAccess> observations) {}
+
+    /** 仅注册到动态群控制面，模型拿到的材料中不含调度和写入句柄。 */
+    record ObservationAccess(ObserveQueue queue, ObserveEvidence evidence) {}
 
     public static void main(String[] args) {
         exitOnFailure(run(Main.configSource(args, DEFAULT_CONFIG), components -> List.of()));
@@ -160,21 +169,53 @@ public final class ConsoleMain {
             var routerInference = new Master(routerClient, routerSettings);
             var router = new Router<>(routerInference, routerPrompt, Route.class);
             var master = new Master(masterClient, masterSettings);
-            var chatExchange = conversation(chat, router, task, memory);
-            var nodes = new ArrayList<>(List.of(
-                    new Node("chat-worker", "Chat Worker", chatSettings.endpoint().toString(), chatSettings.model(),
-                            chatExchange, null),
-                    new Node("router", "Router", routerSettings.endpoint().toString(), routerSettings.model(),
-                            (text, trace) -> new Reply("router_route", Map.of("route", router.route(text).name())),
-                            routerInference::probeStartup),
-                    new Node("master", "Master", masterSettings.endpoint().toString(), masterSettings.model(),
-                            masterConversation(master, settings.masterMaxTokens(), settings.masterTemperature(),
-                                    memory.map(MemoryAccess::reads)),
-                            master::probeStartup)));
+            var foreground = new ObserveScheduler.Foreground();
+            var chatExchange = foreground.wrap(conversation(chat, router, task, memory));
+            var nodes =
+                    new ArrayList<>(
+                            List.of(
+                                    new Node(
+                                            "chat-worker",
+                                            "Chat Worker",
+                                            chatSettings.endpoint().toString(),
+                                            chatSettings.model(),
+                                            chatExchange,
+                                            null),
+                                    new Node(
+                                            "router",
+                                            "Router",
+                                            routerSettings.endpoint().toString(),
+                                            routerSettings.model(),
+                                            foreground.wrap(
+                                                    (text, trace) ->
+                                                            new Reply(
+                                                                    "router_route",
+                                                                    Map.of(
+                                                                            "route",
+                                                                            router.route(text)
+                                                                                    .name()))),
+                                            routerInference::probeStartup),
+                                    new Node(
+                                            "master",
+                                            "Master",
+                                            masterSettings.endpoint().toString(),
+                                            masterSettings.model(),
+                                            foreground.wrap(
+                                                    masterConversation(
+                                                            master,
+                                                            settings.masterMaxTokens(),
+                                                            settings.masterTemperature(),
+                                                            memory.map(MemoryAccess::reads))),
+                                            () ->
+                                                    foreground.run(
+                                                            () -> {
+                                                                master.probeStartup();
+                                                                return null;
+                                                            }))));
             // 只有已握手的 Memory v2 能把意图证据解析为具体版本，才开放正式的对话派单入口。
             memory.filter(store -> store.writes().supportsAttestation()).ifPresent(store ->
                     nodes.add(new Node("conversation", "对话编排", routerSettings.endpoint().toString(), routerSettings.model(),
-                            plannedConversation(master, router, chat, store, settings.masterMaxTokens(), settings.masterTemperature()), null)));
+                            foreground.wrap(plannedConversation(master, router, chat, store, settings.masterMaxTokens(), settings.masterTemperature())), null)));
             nodes.addAll(extension.nodes(new Components(chat, routerInference, master, routerSettings, masterSettings)));
 
             // 仅对已配置 Prometheus /metrics 端点的节点注册指标抓取，随后启动后台周期监控。
@@ -189,12 +230,28 @@ public final class ConsoleMain {
             Optional<QqGroups> groups;
             if (openQqSettings.flatMap(OpenQqConfig.Settings::groupPoliciesFile).isPresent()) {
                 var qq = openQqSettings.orElseThrow();
-                groups =
-                        Optional.of(
-                                new QqGroups(
-                                        qq.groupPoliciesFile().orElseThrow(),
-                                        qq.accountId(),
-                                        audit));
+                var store = memory.orElseThrow();
+                var observation = store.observations().orElseThrow();
+                var queue = observation.queue();
+                var roster =
+                        new QqGroups(
+                                qq.groupPoliciesFile().orElseThrow(), qq.accountId(), audit, queue);
+                groups = Optional.of(roster);
+                // 恢复启用水位和未决命令后先启动调度；必须等 OneBot 名单核验后才能取证或首发。
+                var scheduler =
+                        new ObserveScheduler(
+                                qq.accountId(),
+                                queue,
+                                roster,
+                                observation.evidence(),
+                                store.writes(),
+                                audit,
+                                master,
+                                foreground,
+                                settings.masterMaxTokens(),
+                                settings.masterTemperature());
+                opened.push(scheduler);
+                scheduler.start();
             } else groups = Optional.empty();
             var server =
                     ConsoleServer.start(settings.listen(), audit, monitor, nodes, writes, groups);
@@ -218,10 +275,9 @@ public final class ConsoleMain {
                                         writes,
                                         groups,
                                         (text, trace, mode, addressed) ->
-                                                managedQq(
+                                                foreground.run(() -> managedQq(
                                                         text,
                                                         trace,
-                                                        mode,
                                                         addressed,
                                                         memory.orElseThrow(),
                                                         master,
@@ -229,7 +285,7 @@ public final class ConsoleMain {
                                                         chat,
                                                         task,
                                                         settings.masterMaxTokens(),
-                                                        settings.masterTemperature()));
+                                                        settings.masterTemperature())));
                         opened.push(channel);
                         channel.start();
                     });
@@ -321,7 +377,17 @@ public final class ConsoleMain {
                             config.historyProfile()));
         }
         // 两端共用已核验的服务。模型节点只接收按本轮绑定的读取能力，渠道回执只交给 Router 的写入口。
-        return Optional.of(new MemoryAccess(new ConversationMemory(audit, memory), new RouterMemoryWriter(audit, memory)));
+        var observation =
+                memory instanceof ResidentV2 v2 && managedGroups
+                        ? Optional.of(
+                                new ObservationAccess(
+                                        v2.observationQueue(), new ObserveEvidence(v2)))
+                        : Optional.<ObservationAccess>empty();
+        return Optional.of(
+                new MemoryAccess(
+                        new ConversationMemory(audit, memory),
+                        new RouterMemoryWriter(audit, memory),
+                        observation));
     }
 
     /**
@@ -374,11 +440,10 @@ public final class ConsoleMain {
         };
     }
 
-    /** 群的观察模式只写原文。参与判断成功后才调用 Router；私聊与点名由现有 DIRECT 契约直接通过。 */
+    /** 接收策略允许参与时，以前台优先级入库、判断和派单。观察群由渠道的原文接收线程处理。 */
     private static Optional<Reply> managedQq(
             String text,
             ConsoleServer.Trace trace,
-            QqGroups.Mode mode,
             boolean addressed,
             MemoryAccess store,
             Master master,
@@ -389,7 +454,6 @@ public final class ConsoleMain {
             double temperature)
             throws IOException, InterruptedException {
         int input = store.writes().rememberInbound(trace, trace.request(), text);
-        if (mode == QqGroups.Mode.OBSERVE) return Optional.empty();
         var context =
                 addressed
                         ? ReplySelector.Context.direct(text)

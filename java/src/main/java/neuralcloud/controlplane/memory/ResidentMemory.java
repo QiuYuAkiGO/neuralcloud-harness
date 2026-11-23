@@ -374,6 +374,20 @@ public class ResidentMemory {
      */
     protected JsonObject request(String path, Object body, String credential)
             throws IOException, InterruptedException {
+        return decode(
+                client.send(
+                        memoryRequest(path, body, credential),
+                        HttpResponse.BodyHandlers.ofString()));
+    }
+
+    /** 在群策略锁内只发起 HTTP；耗时的回执等待在锁外完成。 */
+    protected java.util.concurrent.CompletableFuture<HttpResponse<String>> postAsync(
+            String path, Object body) {
+        return client.sendAsync(
+                memoryRequest(path, body, token), HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpRequest memoryRequest(String path, Object body, String credential) {
         var request =
                 HttpRequest.newBuilder(endpoint.resolve(path))
                         .timeout(Duration.ofSeconds(5))
@@ -382,7 +396,10 @@ public class ResidentMemory {
             request.header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(JSON.toJson(body)));
         }
-        var response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+        return request.build();
+    }
+
+    protected JsonObject decode(HttpResponse<String> response) throws IOException {
         if (response.statusCode() != 200) {
             String code = "";
             try {

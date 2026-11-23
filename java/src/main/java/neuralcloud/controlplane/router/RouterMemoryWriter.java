@@ -5,6 +5,7 @@ import neuralcloud.controlplane.console.ConsoleServer.Trace;
 import neuralcloud.controlplane.memory.ResidentMemory;
 import neuralcloud.controlplane.memory.ResidentMemory.Kind;
 import neuralcloud.controlplane.memory.ResidentV2;
+import neuralcloud.controlplane.memory.ObserveQueue;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -28,6 +29,26 @@ public final class RouterMemoryWriter {
     /** 底层记忆服务是否支持 Memory v2 的来源见证（attestation）与受众复核。 */
     public boolean supportsAttestation() {
         return memory instanceof neuralcloud.controlplane.memory.ResidentV2;
+    }
+
+    /** P3 使用同一 Router 写边界。命令在群策略锁内发起，失联按原键对账。 */
+    public com.google.gson.JsonObject observationCandidate(
+            Trace.Scope scope,
+            String key,
+            Instant at,
+            neuralcloud.controlplane.master.MasterIntent.Impression submission) {
+        return ((ResidentV2) memory)
+                .observationCandidate(
+                        scope, key, at, submission.impression(), submission.evidence());
+    }
+
+    public ResidentV2.PendingReceipt sendObservation(com.google.gson.JsonObject command) {
+        return ((ResidentV2) memory).sendObservation(command);
+    }
+
+    public java.util.Optional<com.google.gson.JsonObject> observationReceipt(String key)
+            throws IOException, InterruptedException {
+        return ((ResidentV2) memory).observationReceipt(key);
     }
 
     /** 是否已启用渠道原作者授权机制（要求 Memory v2 且配置了独立的授权令牌）。 */
@@ -159,6 +180,17 @@ public final class RouterMemoryWriter {
                     origin = new com.google.gson.JsonObject();
                     origin.add("source_refs", source.data().getAsJsonObject().get("source_refs"));
                 }
+                var group = scope.group().orElse(null);
+                var observed =
+                        kind == Kind.OBSERVATION && group != null && group.observeRevision() > 0
+                                ? new ObserveQueue.Origin(
+                                        group.accountId(),
+                                        group.groupId(),
+                                        group.observeRevision(),
+                                        messageId,
+                                        scope.runId(),
+                                        sourceId)
+                                : null;
                 receipt =
                         v2.ingestEvent(
                                 scope,
@@ -167,7 +199,7 @@ public final class RouterMemoryWriter {
                                 kind,
                                 text,
                                 messageId,
-                                origin);
+                                origin, observed);
             } else {
                 receipt =
                         memory.ingest(

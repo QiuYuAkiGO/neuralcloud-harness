@@ -37,6 +37,24 @@ public final class ResidentV2 extends ResidentMemory {
     /** 是否在 {@code scoped} 模式下协商通过了 {@code audience_reads} 能力（决定是否携带 {@code use=CITE}）。 */
     private boolean audienceReads;
 
+    /** 同一策略版本固定流和启用水位；配置发布前读到的 head 不包含随后受理的群原文。 */
+    public ObserveQueue observationQueue() {
+        return new ObserveQueue(
+                journal,
+                stream,
+                () -> {
+                    try {
+                        var health = request("v2/health", null);
+                        if (!stream.equals(string(health, "stream_id")))
+                            throw new IOException("观察群 Memory 流已变更");
+                        return integer(health, "head_seq", 0);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException("读取观察群启用水位被中断", e);
+                    }
+                });
+    }
+
     /** 兼容构造器：默认关闭热目录（预算为 0）并使用 {@code QUICK} 检索档位。 */
     public ResidentV2(
             HttpClient client,
@@ -175,7 +193,7 @@ public final class ResidentV2 extends ResidentMemory {
                                 "candidates",
                                 "assertions"));
         if (scopedRecall()) required.add("scoped_recall");
-        if (managedGroups) required.add("qq_member_notices");
+        if (managedGroups) required.addAll(List.of("qq_member_notices", "audience_reads"));
         if (grantToken != null) {
             if (!qqEnabled) throw new IOException("原作者授权需要已配置的 OpenQQ 渠道");
             required.addAll(List.of("audience_reads", "author_grants"));
@@ -293,6 +311,12 @@ public final class ResidentV2 extends ResidentMemory {
                 throw e;
             }
         }
+        var rc = durable(raw);
+        journal.ack(event, raw);
+        return rc;
+    }
+
+    private static Receipt durable(JsonObject raw) throws IOException {
         if (!"DURABLE".equals(string(raw, "status"))) throw new IOException("记忆写入缺少持久回执");
         var rc =
                 new Receipt(
@@ -301,7 +325,6 @@ public final class ResidentV2 extends ResidentMemory {
                         integer(raw, "seq", 1));
         if (!rc.recordId().matches("[0-9a-f]{64}"))
             throw new IOException("Memory v2 record_id 不合法");
-        journal.ack(event, raw);
         return rc;
     }
 
@@ -318,6 +341,20 @@ public final class ResidentV2 extends ResidentMemory {
             String content,
             String messageId,
             JsonObject origin)
+            throws IOException, InterruptedException {
+        return ingestEvent(scope, event, at, kind, content, messageId, origin, null);
+    }
+
+    /** 受理版本仅进入本地写前日志，Memory 命令仍严格遵守 v2 的字段契约。 */
+    public synchronized Receipt ingestEvent(
+            Trace.Scope scope,
+            String event,
+            Instant at,
+            Kind kind,
+            String content,
+            String messageId,
+            JsonObject origin,
+            ObserveQueue.Origin observation)
             throws IOException, InterruptedException {
         boolean inbound = kind == Kind.OBSERVATION;
         var body =
@@ -381,18 +418,18 @@ public final class ResidentV2 extends ResidentMemory {
                                                 "conversation_id",
                                                 scope.conversationId())));
         if (inbound && scope.group().map(Trace.QqGroup::managed).orElse(false))
-            return submitGroupText(scope, body, content, messageId);
+            return submitGroupText(scope, body, content, messageId, observation);
         return submit(body);
     }
 
     /** 显式群通知沿用首条平台消息定位。变更须带原作者和预期版本，写前日志与普通入账共用。 */
     private Receipt submitGroupText(
-            Trace.Scope scope, JsonObject body, String text, String messageId)
+            Trace.Scope scope, JsonObject body, String text, String messageId, ObserveQueue.Origin observation)
             throws IOException, InterruptedException {
         if (!(text.equals("/通知")
                 || text.startsWith("/通知 ")
                 || text.equals("/变更通知")
-                || text.startsWith("/变更通知 "))) return submit(body);
+                || text.startsWith("/变更通知 "))) return submit(body, observation);
         var command =
                 java.util.regex.Pattern.compile("^/(通知|变更通知)(?: ([\\s\\S]+))?$").matcher(text);
         if (!command.matches() || command.group(2) == null || command.group(2).isBlank())
@@ -404,7 +441,7 @@ public final class ResidentV2 extends ResidentMemory {
         if (command.group(1).equals("通知")) {
             body.addProperty("content", command.group(2));
             body.addProperty("event_id", prefix + messageId);
-            return submit(body);
+            return submit(body, observation);
         }
         var edit =
                 java.util.regex.Pattern.compile("([1-9][0-9]{0,14})@([1-9][0-9]{0,17}) ([\\s\\S]+)")
@@ -438,7 +475,7 @@ public final class ResidentV2 extends ResidentMemory {
                         "content",
                         edit.group(3),
                         "channel",
-                        channel));
+                        channel), observation);
     }
 
     /** 写入宿主执行器登记的工具尝试（{@code tool_attempt}）或工具回执（{@code tool_result}），以 {@code action} 串联配对。 */
@@ -477,8 +514,13 @@ public final class ResidentV2 extends ResidentMemory {
      * 随后先把此前尚未确认的旧命令按顺序对账冲刷完毕，最后发送当前命令，严格维持单流因果顺序。
      */
     private Receipt submit(JsonObject body) throws IOException, InterruptedException {
+        return submit(body, null);
+    }
+
+    private Receipt submit(JsonObject body, ObserveQueue.Origin observation)
+            throws IOException, InterruptedException {
         String event = string(body, "event_id");
-        journal.enqueue(event, body, stream);
+        journal.enqueue(event, body, stream, observation);
         for (var pending : journal.pending(stream))
             if (!event.equals(string(pending, "event_id"))) transmit(pending, true);
         return transmit(body, false);
@@ -587,8 +629,13 @@ public final class ResidentV2 extends ResidentMemory {
     /** 通过 {@code v2/read} 按记录 ID 批量拉取最新在线状态与正文（单条截断长度 2048），用于回读、刷新与证据复核。 */
     Snapshot readItems(Trace.Scope scope, String role, String kind, List<String> ids)
             throws IOException, InterruptedException {
-        return audienceRequest(
-                "v2/read",
+        return readWindow(scope, role, kind, ids, 0, 2048);
+    }
+
+    Snapshot readWindow(
+            Trace.Scope scope, String role, String kind, List<String> ids, int start, int length)
+            throws IOException, InterruptedException {
+        var body =
                 object(
                         "context",
                         context(scope, role),
@@ -597,9 +644,9 @@ public final class ResidentV2 extends ResidentMemory {
                         "targets",
                         ids.stream().map(id -> Map.of("record_id", id)).toList(),
                         "length",
-                        2048),
-                scope,
-                false);
+                        length);
+        if (start > 0) body.addProperty("start", start);
+        return audienceRequest("v2/read", body, scope, false);
     }
 
     /** 拉取当前会话的 L0 事项/人物热目录卡片指针列表（最多 12 张），并核对流标识与卡片引用合法性。 */
@@ -617,6 +664,70 @@ public final class ResidentV2 extends ResidentMemory {
             string(card, "title");
         }
         return items;
+    }
+
+    /** Router 生成的不可变命令由观察队列托管，通用原文恢复器无权替它首发。 */
+    public JsonObject observationCandidate(
+            Trace.Scope scope,
+            String event,
+            Instant at,
+            String content,
+            List<MemoryCall.EvidenceRef> refs) {
+        return object(
+                "context",
+                context(scope, "ROUTER"),
+                "source_instance",
+                SOURCE,
+                "event_id",
+                event,
+                "kind",
+                "impression",
+                "author",
+                "MASTER",
+                "occurred_at",
+                at.toString(),
+                "content",
+                content,
+                "source_refs",
+                refs);
+    }
+
+    public Optional<JsonObject> observationReceipt(String event)
+            throws IOException, InterruptedException {
+        var raw =
+                request(
+                        "v2/receipts?source_instance=" + SOURCE + "&event_id=" + encode(event),
+                        null);
+        if ("NOT_FOUND".equals(string(raw, "status"))) return Optional.empty();
+        durable(raw);
+        return Optional.of(raw);
+    }
+
+    public interface PendingReceipt {
+        JsonObject await() throws IOException, InterruptedException;
+    }
+
+    public static final class SourceChanged extends IOException {
+        SourceChanged(IOException reason) {
+            super("印象来源版本或引用权已变化", reason);
+        }
+    }
+
+    /** sendAsync 的调用点与群策略变更互斥。只有 Memory 明确拒绝来源才允许丢弃旧载荷。 */
+    public PendingReceipt sendObservation(JsonObject command) {
+        var request = postAsync("v2/candidates", command);
+        return () -> {
+            try {
+                var receipt = decode(request.get());
+                durable(receipt);
+                return receipt;
+            } catch (ServiceError e) {
+                if (e.status == 409 && e.code.equals("SOURCE_CHANGED")) throw new SourceChanged(e);
+                throw e;
+            } catch (java.util.concurrent.ExecutionException e) {
+                throw new IOException("印象写入回执未确认", e.getCause());
+            }
+        };
     }
 
     /** 提交由 Master 修订产生的新印象候选记录（发往 {@code v2/candidates}），显式声明替换的旧印象与支撑的原始证据引用。 */

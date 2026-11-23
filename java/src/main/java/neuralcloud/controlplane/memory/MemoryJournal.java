@@ -5,6 +5,7 @@ import com.google.gson.*;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.sql.*;
+import java.time.Clock;
 import java.util.*;
 
 /**
@@ -19,9 +20,16 @@ import java.util.*;
  */
 public final class MemoryJournal implements AutoCloseable {
     private final Connection db;
+    private final Clock clock;
+    private long generation;
 
     /** 打开或初始化指定路径的 SQLite 日志库，开启 WAL 与 FULL 同步以防掉电丢回执。 */
     public MemoryJournal(Path path) throws IOException {
+        this(path, Clock.systemUTC());
+    }
+
+    MemoryJournal(Path path, Clock clock) throws IOException {
+        this.clock = clock;
         try {
             db = DriverManager.getConnection("jdbc:sqlite:" + path.toAbsolutePath());
             try (var sql = db.createStatement()) {
@@ -31,6 +39,7 @@ public final class MemoryJournal implements AutoCloseable {
                 sql.execute(
                         "CREATE TABLE IF NOT EXISTS commands(event TEXT PRIMARY KEY,body TEXT NOT"
                             + " NULL,receipt TEXT,stream TEXT NOT NULL)");
+                ObserveQueue.createTables(sql);
                 // inputs：记录单次交付给模型的输入材料包及其状态（PREPARED -> DELIVERED）。
                 sql.execute(
                         "CREATE TABLE IF NOT EXISTS inputs(input_id TEXT PRIMARY KEY,worker"
@@ -63,39 +72,100 @@ public final class MemoryJournal implements AutoCloseable {
             String input) {}
 
     /** 创建并按位置绑定参数的预编译 SQL 语句。 */
-    private PreparedStatement statement(String sql, Object... args) throws SQLException {
+    PreparedStatement statement(String sql, Object... args) throws SQLException {
         var p = db.prepareStatement(sql);
         for (int i = 0; i < args.length; i++) p.setObject(i + 1, args[i]);
         return p;
     }
 
     /** 执行单条非查询 SQL 更新语句并自动关闭语句句柄。 */
-    private void exec(String sql, Object... args) throws SQLException {
+    void exec(String sql, Object... args) throws SQLException {
         try (var p = statement(sql, args)) {
             p.executeUpdate();
         }
+    }
+
+    @FunctionalInterface
+    interface Work<T> {
+        T run() throws SQLException, IOException;
+    }
+
+    /** 队列和原文 outbox 共用连接锁及事务，失败时撤销整次状态跃迁。 */
+    synchronized <T> T transaction(Work<T> operation) throws IOException {
+        try {
+            db.setAutoCommit(false);
+            try {
+                T result = operation.run();
+                db.commit();
+                return result;
+            } catch (SQLException | IOException | RuntimeException failure) {
+                db.rollback();
+                throw failure;
+            } finally {
+                db.setAutoCommit(true);
+            }
+        } catch (SQLException failure) {
+            throw new IOException("Harness 记忆日志事务失败", failure);
+        }
+    }
+
+    long now() {
+        return clock.millis();
+    }
+
+    /** 按代数唤醒调度器，避免在检查条件和进入等待之间漏掉新回执。 */
+    synchronized void wake() {
+        generation++;
+        notifyAll();
+    }
+
+    synchronized long generation() {
+        return generation;
+    }
+
+    synchronized void await(long seen, long until) throws InterruptedException {
+        if (generation != seen) return;
+        if (until == Long.MAX_VALUE) wait();
+        else if (until > now()) wait(Math.max(1, until - now()));
     }
 
     /**
      * 将写命令幂等入队到 {@code commands} 表。
      * 若相同 {@code event} 已存在，严格比对请求体和所属 {@code stream} 是否完全一致，防止误用同一事件 ID 提交不同载荷。
      */
-    synchronized void enqueue(String event, JsonObject body, String stream) throws IOException {
-        try {
-            exec(
-                    "INSERT OR IGNORE INTO commands(event,body,stream) VALUES(?,?,?)",
-                    event,
-                    body.toString(),
-                    stream);
-            try (var p = statement("SELECT body,stream FROM commands WHERE event=?", event);
-                    var r = p.executeQuery()) {
-                if (!r.next()
-                        || !JsonParser.parseString(r.getString(1)).equals(body)
-                        || !stream.equals(r.getString(2))) throw new IOException("待写事件与已登记命令不一致");
-            }
-        } catch (SQLException e) {
-            throw new IOException(e);
-        }
+    synchronized void enqueue(String event, JsonObject body, String stream, ObserveQueue.Origin origin) throws IOException {
+        transaction(
+                () -> {
+                    exec(
+                            "INSERT OR IGNORE INTO commands(event,body,stream) VALUES(?,?,?)",
+                            event,
+                            body.toString(),
+                            stream);
+                    try (var p =
+                                    statement(
+                                            "SELECT body,stream FROM commands WHERE event=?",
+                                            event);
+                            var r = p.executeQuery()) {
+                        if (!r.next()
+                                || !JsonParser.parseString(r.getString(1)).equals(body)
+                                || !stream.equals(r.getString(2)))
+                            throw new IOException("待写事件与已登记命令不一致");
+                    }
+                    if (origin != null)
+                        exec(
+                                """
+                    INSERT INTO observe_sources(event,account,room,policy,message,run_id,event_id,stream)
+                    VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(event) DO NOTHING""",
+                                event,
+                                origin.account(),
+                                origin.room(),
+                                origin.policy(),
+                                origin.message(),
+                                origin.runId(),
+                                origin.eventId(),
+                                stream);
+                    return null;
+                });
     }
 
     /**
@@ -121,11 +191,25 @@ public final class MemoryJournal implements AutoCloseable {
 
     /** 将远端确认的持久回执（或明确拒绝结果）写回 {@code commands} 表，标记该命令已终结。 */
     synchronized void ack(String event, JsonObject receipt) throws IOException {
-        try {
-            exec("UPDATE commands SET receipt=? WHERE event=?", receipt.toString(), event);
-        } catch (SQLException e) {
-            throw new IOException(e);
-        }
+        transaction(
+                () -> {
+                    exec("UPDATE commands SET receipt=? WHERE event=?", receipt.toString(), event);
+                    if ("DURABLE".equals(receipt.get("status").getAsString())) {
+                        try (var p =
+                                statement(
+                                        """
+                        UPDATE observe_sources SET confirmed=?, record_id=?, revision=?, seq=?
+                        WHERE event=? AND confirmed IS NULL""",
+                                        now(),
+                                        receipt.get("record_id").getAsString(),
+                                        receipt.get("revision").getAsLong(),
+                                        receipt.get("seq").getAsLong(),
+                                        event)) {
+                            if (p.executeUpdate() != 0) wake();
+                        }
+                    }
+                    return null;
+                });
     }
 
     /**
