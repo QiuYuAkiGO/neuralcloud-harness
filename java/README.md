@@ -23,8 +23,11 @@ java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --config java
 
 | 字段 | 取值 |
 | --- | --- |
-| `endpoint` | 以 `/v1/completions` 或 `/v1/chat/completions` 结尾的完整 HTTP(S) 地址 |
+| `endpoint` | 以 `/v1/completions`、`/v1/chat/completions` 或 `/chat/completions` 结尾的完整 HTTP(S) 地址 |
 | `enableThinking` | 聊天接口必填，`true` 或 `false`。续写接口省略此字段 |
+| `thinkingFormat` | 聊天接口可选，`CHAT_TEMPLATE_KWARGS`（默认，适用于本机 vLLM / llama.cpp）、`DEEPSEEK`（适用于 DeepSeek 云端接口）或 `NONE`（不发送思考开关字段） |
+| `apiKeyEnv` | 可选，云端或需鉴权推理服务的 Bearer 密钥环境变量名；免鉴权本机服务省略 |
+| `proxy` | 可选，经 HTTP 代理访问远端端点时的 `主机:端口` |
 | `model` | 推理服务返回的模型标识 |
 | `httpVersion` | `HTTP_1_1` 或 `HTTP_2`。本机 vLLM 使用 `HTTP_1_1` |
 | `connectTimeoutSeconds`、`requestTimeoutSeconds` | 连接超时和请求超时，以秒为单位的正整数 |
@@ -54,7 +57,7 @@ bash java/start-local.sh -Mode Meeting -ReminderOutcome CANCELLED
 
 ## 网页控制台
 
-控制台是一个常驻进程，网页可以直接与 Chat Worker、Router、Master 交互，回看审计链，并查看各节点的运行状态。先用上文的 `verify` 构建 JAR，在启动 Java 的环境中配置 `GEMINI_API_KEY`，再运行以下命令。默认读取 JAR 内的 [console.properties](src/main/resources/config/console.properties)，也可用 `--config` 指定外部文件。看到“控制台已就绪”后，打开 <http://127.0.0.1:18900/>。
+控制台是一个常驻进程，网页可以直接与 Chat Worker、Router、Master 交互，回看审计链，并查看各节点的运行状态。先用上文的 `verify` 构建 JAR，在启动 Java 的环境中配置 `GEMINI_API_KEY`，再运行以下命令。默认读取 JAR 内的 [console.properties](src/main/resources/config/console.properties)，也可用 `--config` 指定外部文件。看到“控制台已就绪”后，打开 <http://127.0.0.1:18900/>。 网页会恢复上次使用的控制台会话。从审计链点击“继续此会话”，或打开带 `?chain=<会话标识>` 的链接，可读取该会话的对话并在其中追问。
 
 ```powershell
 java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.controlplane.app.ConsoleMain
@@ -68,11 +71,11 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 | --- | --- |
 | `listenHost`、`listenPort` | 本机回环地址和端口 |
 | `auditDirectory` | 审计 JSONL 目录，默认放在已忽略的 `java/console-audit` |
-| `chatWorkerConfig`、`chatWorkerRolePrompt` | Chat Worker 的 Gemini 配置和职责提示 |
+| `chatWorkerConfig`、`chatWorkerRolePrompt` | Chat Worker 的模型配置与职责提示。默认 `apiFormat=GEMINI`（`proxy` 可选）；设 `apiFormat=OPENAI_CHAT` 时支持本机或云端 OpenAI 兼容聊天端点（`model`、`enableThinking`，可选 `apiKeyEnv`、`thinkingFormat`、`proxy`） |
 | `routerConfig`、`routerRolePrompt` | Router 的模型配置（须为聊天端点）和职责提示，格式同 Master 配置 |
 | `masterConfig`、`masterMaxTokens`、`masterTemperature` | Master 的模型配置，以及网页发给 Master 时的最大生成 token 数和采样温度 |
-| `routerMetrics`、`masterMetrics` | 推理服务的 Prometheus `/metrics` 地址 |
-| `routerMetricsFormat`、`masterMetricsFormat` | `VLLM` 或 `LLAMA_CPP`，决定读取哪些指标。llama.cpp 须以 `--metrics` 启动 |
+| `routerMetrics`、`masterMetrics` | 可选，推理服务的 Prometheus `/metrics` 地址；云端服务无指标端点时可与对应 `Format` 一同省略 |
+| `routerMetricsFormat`、`masterMetricsFormat` | 可选，`VLLM` 或 `LLAMA_CPP`，与对应 `Metrics` 成对配置。llama.cpp 须以 `--metrics` 启动 |
 | `gpuMetrics` | `NVIDIA_SMI` 通过本机 `nvidia-smi` 读取显存、利用率和功耗，`NONE` 不读取 |
 | `metricsIntervalSeconds`、`metricsTimeoutSeconds` | 状态读取间隔和单次读取超时，以秒为单位的正整数 |
 
@@ -85,6 +88,12 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 **会话记忆。** `memoryConfig` 可接独立的常驻记忆服务，指向含 `endpoint`、`characterId` 和 `accessTokenEnv` 的配置文件。启用记忆时，Master 配置使用支持原生工具调用的 `/v1/chat/completions`。Chat Worker、任务 Worker 和 Master 均可直接发起只读的 `memory_call`，模型只提交 `kind` 和 `query`。Router 负责写入。Chat Worker 收到消息后，Router 先取得用户发言的持久回执。QQ 确认送达或控制台写出 HTTP 正文后，Router 才提交角色回复入库。两次写入均沿用原始渠道事件作为幂等键。网页和 OpenQQ 分别使用 `console:` 和 `openqq:` 会话命名空间。
 
 **生产记忆。** 使用生产 Misty 服务时，在记忆配置中设 `recallMode=scoped`（省略时为 `recent`）。OpenQQ 私聊沿用生产的 `c2c:onebot:<账号>:<用户>` 会话标识，写入携带实际消息 ID 和发言者的 v2 事件。历史查询检索同一会话在本轮之前的记录，再按原始写入方、发言者和可见性筛选。查询本人身份时，记忆接口使用 OpenQQ 入站事件绑定的发件人账号，只返回记忆服务提供的已确认称呼。控制台沿用自身会话范围。既有测试库的回执保留在原审计链，生产读取只使用生产回执。
+
+**Java Memory v2。** 在 `memoryConfig` 指定的文件中设置 `apiVersion=2`、`recallMode=scoped` 和回环 `endpoint=http://127.0.0.1:端口/`。`characterId` 和 `accessTokenEnv` 与 Memory 服务配置对应，省略 `apiVersion` 时继续选择 v1。控制台在角色、协议和所需能力核验成功后开放，审计目录中的 `memory-v2-<角色>.sqlite` 持久保存写入待办、模型输入的证据版本和消费位置。
+
+**原作者授权。** Memory v2.1 的 `audience_reads` 能力让 Worker 按目标会话获取可引用的材料。启用 OpenQQ 原作者命令需在记忆配置增加 `grantAccessTokenEnv`，它与 Memory 的同名配置及 `grantAccountId` 对应。原作者在已认证的私聊中发送 `/memory grant <记录ID>@<版本> <目标会话> READ|CITE <理由>`，再凭回执中的授权 ID 发送 `/memory revoke <授权ID> <理由>`。单独设置 `allowedGroupId` 后，OpenQQ 也接受对应项目群中 @ 机器人的纯文本消息。渠道命令在进入模型前处理，普通私聊仍使用 `allowedUserId`。
+
+在 `POST /api/nodes/chat-worker/messages` 中，`chain`、`text` 沿用原入口。操作员转录有据可查的发言时，可另附 `observation`，含 `speaker`、`source_venue`、`occurred_at` 和明确的 `assertion`。会话范围仍由 Harness 绑定。OpenQQ 私聊从渠道事件取得发件人及消息 ID。可在同级 `neuralcloud-memory` 仓库运行 `python -u tests/acceptance.py` 复跑两服务的会议与故障恢复用例。
 
 审计中的 `memory_call` 归属发起查询的节点，`memory_recall` 列出读取的记录 ID，`memory_call_result.data` 包含 `kind`、实际命中数 `count` 和原样交给调用方的 `sentences`。Router 的写入请求为 `router_memory_write`，持久化成功后才有 `memory_durable` 回执。生产历史检索零命中时，材料说明当前会话的查询结果。`recent` 模式只按回执重读近期对话，在材料中注明回读条数，话题命中数为零。
 
@@ -151,3 +160,10 @@ java -cp $evalClasspath neuralcloud.controlplane.app.EvaluationMain --router-eva
 在上述 Router 挡板命令末尾加 `--gemini` 启用 Chat Worker。若同时指定 Master 的 `--config`，把 `--gemini` 放在它前面。Gemini 用 [Chat Worker 配置](src/main/resources/config/chat-worker-gemini.properties) 中的原生 `generateContent` 接口，默认沿用历史联调中的 `gemini-4-hydrogen`。请求经必填字段 `proxy`（`主机:端口`）指定的 HTTP 代理发出，默认是本机的 `127.0.0.1:7890`。在启动 Java 的环境中配置 `GEMINI_API_KEY`。密钥通过请求头读取。 [Gemini 接口参考](https://ai.google.dev/api/generate-content)
 
 Gemini 每次只收到该步骤获准传达的正文和 Chat Worker 职责提示。会议时间可独立生成草稿，提醒状态仍须等待对应的核对回执。生成的可见回复写为 `chat_worker_draft`，Task Worker 的核对结果仍由挡板提供。真实渠道发送和送达由后续通道接入处理。
+
+
+## Memory v2 分域目录与印象修订
+
+启用 `apiVersion=2`、`recallMode=scoped` 后，可在记忆客户端配置加入 `hotIndexTokens=96`，让正式控制台 Master 获得本轮受众可引用的未决事项和目录。取值范围为 0–2048，缺省为 0。启用时握手核对 `audience_cards`，Master 从同一推理端点的 `/v1/models` 核对单模型身份，再借助 `/tokenize` 计算完整目录文本。检查 `memory_hot_index` 审计事件可看到实际文本、token 数和预算。Chat Worker 通过已有 `memory_call` 使用所配置 Memory 服务的扩展检索。
+
+经 `POST /api/nodes/master/messages` 提交 `/memory revise 旧印象ID@版本 来源ID@版本 [更多来源]`。宿主复核 1–16 条可引用原文，将引文交给 Master，收到完整新正文后按旧版本与新证据持久提交。审计链的 `memory_impression_revised` 保存前一版本、实际来源与新回执。过期或撤权会触发重新查证。[跨仓库数据契约和验收报告](https://github.com/QiuYuAkiGO/neuralcloud-memory/blob/codex/memory-v2-stages-3-4/docs/acceptance/memory-v2-stage-3-4.md)

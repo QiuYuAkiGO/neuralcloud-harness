@@ -1,9 +1,12 @@
 'use strict';
 
-// 对话记录和审计链都从服务端审计接口读取，页面不另存一份对话历史。
+// 网页控制台前端主脚本：对话记录、审计链因果树和节点监控均直接从服务端 API 拉取，页面不另存本地历史副本。
+// state 字段说明：nodes 缓存节点元数据；chain 为当前对话会话链；auditChain 为审计页当前选中的链；
+// nodesTimer / auditTimer 管理页签级轮询；auditRequest / auditSnapshot / auditPolling 用于防竞态与增量跳绘。
 const state = { nodes: [], chain: null, auditChain: null, nodesTimer: null, auditTimer: null,
   auditRequest: 0, auditSnapshot: null, auditPolling: false };
 
+// 封装 JSON HTTP 调用，非 2xx 响应时将服务端 error 字段与 HTTP 状态码一并抛出。
 async function api(method, path, body) {
   const response = await fetch(path, {
     method,
@@ -19,6 +22,7 @@ async function api(method, path, body) {
   return data;
 }
 
+// 轻量级 DOM 节点构造辅助函数：支持 class、on* 事件绑定及嵌套子节点，默认将文本以纯文本节点插入防止 XSS。
 function el(tag, props = {}, ...children) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(props)) {
@@ -122,6 +126,7 @@ renderThemeToggle();
 
 /* ---------- 标签页 ---------- */
 
+// 切换顶部功能页签，并按需启停对应页签的后台定时轮询（审计页 3 秒刷新打开的链，节点页 5 秒刷新状态）。
 function showTab(name) {
   document.querySelectorAll('.tab').forEach((tab) => tab.classList.toggle('active', tab.dataset.tab === name));
   document.querySelectorAll('.panel').forEach((panel) => panel.classList.toggle('active', panel.id === `tab-${name}`));
@@ -142,20 +147,36 @@ document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click',
 
 /* ---------- 对话 ---------- */
 
-function setChain(chain) {
+// 构造带或不带 ?chain=<id> 查询参数的控制台地址，用于分享、续聊与新建会话跳转。
+function chatUrl(chain) {
+  const url = new URL(location.href);
+  if (chain === null) url.searchParams.delete('chain');
+  else url.searchParams.set('chain', chain);
+  return url;
+}
+
+// 仅含 operator_message 的链属于网页控制台会话；QQ 渠道或系统探测链只能在审计页只读查看。
+const isConsoleChat = (events) => events.some((event) => event.type === 'operator_message');
+
+// 加载并渲染指定 chain 的控制台对话历史：校验链名格式、过滤非控制台会话并同步 URL 与 localStorage。
+async function loadChat(chain, linked = false) {
+  const log = document.getElementById('chat-log');
+  if (!/^[A-Za-z0-9-]{1,64}$/.test(chain) || chain.startsWith('probe-')) {
+    throw new Error('会话标识无效，请核对链接或新建会话。');
+  }
+  let events = [];
+  try {
+    events = (await api('GET', `/api/audit/chains/${chain}`)).events;
+  } catch (error) {
+    if (error.status !== 404) throw error;
+    if (linked) throw new Error('找不到链接中的会话，请核对链接或新建会话。');
+  }
+  if (events.length && !isConsoleChat(events)) throw new Error('这条记录只能在审计链中查看。');
+  // 确认渠道和会话后才绑定发送目标。刷新或分享已有对话时仍指向同一条链。
+  if (events.length) history.replaceState(null, '', chatUrl(chain));
   state.chain = chain;
   localStorage.setItem('neuralcloud.chain', chain);
   document.getElementById('chat-chain').textContent = chain;
-}
-
-async function loadChat() {
-  const log = document.getElementById('chat-log');
-  let events = [];
-  try {
-    events = (await api('GET', `/api/audit/chains/${state.chain}`)).events;
-  } catch (error) {
-    if (error.status !== 404) throw error;
-  }
   log.replaceChildren(...events.filter((event) => CHAT_TYPES.has(event.type)).map((event) => {
     const operator = event.type === 'operator_message';
     const meta = operator ? `操作者 → ${nodeName(event.node)}` : `${nodeName(event.node)}${latency(event)}`;
@@ -168,13 +189,14 @@ async function loadChat() {
   log.scrollTop = log.scrollHeight;
 }
 
+// 将操作者输入提交到当前选中节点；无论成功或 502 失败，最终都重新拉取服务端审计链以呈现真实落地状态。
 async function sendChat(event) {
   event.preventDefault();
   const text = document.getElementById('chat-text');
   const button = document.getElementById('chat-send');
   const errorLine = document.getElementById('chat-error');
   const node = document.getElementById('chat-node').value;
-  if (!text.value.trim()) return;
+  if (button.disabled || !text.value.trim()) return;
   button.disabled = true;
   errorLine.textContent = `等待 ${nodeName(node)} 返回…`;
   try {
@@ -186,7 +208,7 @@ async function sendChat(event) {
     errorLine.textContent = error.status === 502 ? '' : error.message;
   } finally {
     button.disabled = false;
-    await loadChat();
+    await loadChat(state.chain);
   }
 }
 
@@ -195,12 +217,13 @@ document.getElementById('chat-text').addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && event.ctrlKey) document.getElementById('chat-form').requestSubmit();
 });
 document.getElementById('chat-new').addEventListener('click', () => {
-  setChain(crypto.randomUUID());
-  loadChat();
+  localStorage.removeItem('neuralcloud.chain');
+  location.assign(chatUrl(null));
 });
 
 /* ---------- 审计链 ---------- */
 
+// 加载左侧全部审计链摘要列表（按服务端返回的最近活跃顺序排列）。
 async function loadChains() {
   const list = document.getElementById('audit-chains');
   const { chains } = await api('GET', '/api/audit/chains');
@@ -217,6 +240,7 @@ async function loadChains() {
 // causedBy 只在同一 runId 内有效，所以用 runId:eventId 作为事件键建树。
 const auditEventKey = (runId, id) => `${runId}:${id}`;
 
+// 根据 causedBy 因果关系把扁平事件列表重建为嵌套 DOM 树，并保留用户已手动展开的 <details> 原始 JSON 面板。
 function buildTree(events, expanded) {
   const key = auditEventKey;
   const children = new Map();
@@ -250,6 +274,7 @@ function buildTree(events, expanded) {
   return el('ul', { class: 'tree' }, roots.flatMap(render));
 }
 
+// 拉取并渲染指定审计链的全部事件；通过递增请求号丢弃过期的并发响应，并用快照签名避免无新事件时重绘打断阅读。
 async function loadAudit(chain) {
   const request = ++state.auditRequest;
   state.auditChain = chain;
@@ -267,10 +292,12 @@ async function loadAudit(chain) {
   const runs = new Set(events.map((event) => event.runId));
   panel.replaceChildren(
     el('div', { class: 'toolbar' }, el('strong', {}, chain),
-      el('span', { class: 'muted' }, `${events.length} 条事件 · ${runs.size} 个进程`)),
+      el('span', { class: 'muted' }, `${events.length} 条事件 · ${runs.size} 个进程`),
+      isConsoleChat(events) ? el('a', { href: chatUrl(chain).href }, '继续此会话') : null),
     buildTree(events, expanded));
 }
 
+// 定时增量刷新当前打开的审计链（例如跟踪 QQ 异步后续回复或长链路步骤），串行防重入。
 async function refreshOpenAudit() {
   if (!state.auditChain || state.auditPolling) return;
   state.auditPolling = true;
@@ -309,6 +336,7 @@ function health(status) {
   return status.lastCall.ok ? ['ok', '最近调用成功'] : ['bad', '最近调用失败'];
 }
 
+// 向指定节点触发一次服务端推理探测（POST /api/nodes/{id}/probe），完成后立即刷新节点状态卡片。
 async function probe(node, button) {
   button.disabled = true;
   try {
@@ -321,6 +349,7 @@ async function probe(node, button) {
   }
 }
 
+// 渲染单个节点的 Prometheus 监控指标表（无指标端点、读取失败或无关注指标时展示明确状态说明）。
 function metricsTable(status) {
   if (!status.metrics) return el('p', { class: 'muted' }, '该节点的服务不提供指标端点。');
   const reading = status.metricsReading;
@@ -335,6 +364,7 @@ function metricsTable(status) {
       el('td', {}, sample.name), el('td', {}, el('code', {}, sample.labels)), el('td', {}, sample.value)))));
 }
 
+// 渲染本机 nvidia-smi GPU 状态表格（显存、算力利用率与功耗）。
 function renderGpu(gpu) {
   const box = document.getElementById('gpu');
   if (!gpu) {
@@ -351,6 +381,7 @@ function renderGpu(gpu) {
       .map((field) => el('td', {}, device[field]))))));
 }
 
+// 从 /api/nodes 刷新所有节点卡片与 GPU 状态，同时更新全局节点列表缓存供节点名称翻译使用。
 async function loadNodes() {
   const data = await api('GET', '/api/nodes');
   state.nodes = data.nodes;
@@ -376,12 +407,14 @@ document.getElementById('nodes-refresh').addEventListener('click', loadNodes);
 
 /* ---------- 启动 ---------- */
 
+// 页面初始化：先加载可用节点填充下拉框，再按“URL ?chain 参数 > 上次 localStorage 会话 > 随机 UUID”恢复当前对话。
 async function init() {
   await loadNodes();
   document.getElementById('chat-node').replaceChildren(
     ...state.nodes.map((node) => el('option', { value: node.id }, node.name)));
-  setChain(localStorage.getItem('neuralcloud.chain') ?? crypto.randomUUID());
-  await loadChat();
+  const linked = new URL(location.href).searchParams.get('chain');
+  await loadChat(linked ?? localStorage.getItem('neuralcloud.chain') ?? crypto.randomUUID(), linked !== null);
+  document.getElementById('chat-send').disabled = false;
 }
 
 init().catch((error) => {

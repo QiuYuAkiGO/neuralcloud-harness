@@ -77,12 +77,12 @@ public final class EvaluationMain {
             return 2;
         }
 
-        try (HttpClient client = HttpClient.newBuilder().connectTimeout(settings.connectTimeout()).build()) {
+        try (HttpClient client = settings.newClient()) {
             var master = new Master(client, settings);
             var evaluation = new MasterEvaluation(master, fixturesPath, Files.readString(MASTER_ROLE_PROMPT));
             if (routerSettings != null) {
                 // 同一联调进程组装两个端点。Router 分流通过后才向 Master 发起本轮取证。
-                try (HttpClient routerClient = HttpClient.newBuilder().connectTimeout(routerSettings.connectTimeout()).build()) {
+                try (HttpClient routerClient = routerSettings.newClient()) {
                     var router = new Router<>(new Master(routerClient, routerSettings), Files.readString(ROUTER_ROLE_PROMPT),
                             MeetingRoute.class);
                     if (chatSettings != null) {

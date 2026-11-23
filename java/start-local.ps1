@@ -1,4 +1,13 @@
 #Requires -Version 7.0
+<#
+.SYNOPSIS
+    NeuralCloud 本机全链路一键启动脚本（PowerShell 7）。
+.DESCRIPTION
+    按固定顺序编排：配置与端口冲突检查 -> Maven 打包 -> 启动或复用本机 Master（Windows llama.cpp）
+    -> 启动或复用 Router（WSL vLLM）-> 启动 Java 网页控制台 -> 持续监控子进程存活。
+    支持 -Mode Console（正式控制台）与 Meeting（会议评估场景），以及 -SmokeTest 冒烟验证后自动回收。
+    所有由本次脚本拉起的子进程均记录在 $owned 列表中，在 finally 阶段逆序精准清理，不误杀复用中的已有服务。
+#>
 [CmdletBinding()]
 param(
     [ValidateSet('Console', 'Meeting')]
@@ -20,10 +29,12 @@ $routerPid = "/tmp/neuralcloud-router-$launchId.pid"
 $previousJavaHome = $env:JAVA_HOME
 $previousOutputEncoding = [Console]::OutputEncoding
 
+# 读取 Java .properties 格式键值对文件。
 function Read-Properties([string]$Path) {
     Get-Content -LiteralPath $Path -Raw | ConvertFrom-StringData
 }
 
+# 解析 Master / Router 模型配置，强制要求为本机回环 /v1/chat/completions 地址并推导对应的 /v1/models 探测地址。
 function Read-ModelProfile([string]$Path) {
     $settings = Read-Properties $Path
     $url = [uri]$settings.endpoint
@@ -34,6 +45,7 @@ function Read-ModelProfile([string]$Path) {
     @{ Url = $url; ModelsUrl = [uri]::new($url, '/v1/models'); Alias = $settings.model }
 }
 
+# 绕过系统代理请求本机 JSON 接口（2 秒超时），仅在 HTTP 200 时返回解析结果，网络失败返回 $null。
 function Read-LocalJson([uri]$Url) {
     try {
         $data = Invoke-RestMethod -Uri $Url -NoProxy -TimeoutSec 2 -SkipHttpErrorCheck -StatusCodeVariable status
@@ -43,6 +55,7 @@ function Read-LocalJson([uri]$Url) {
     }
 }
 
+# 尝试建立本机 TCP 连接以探测目标回环端口是否已被占用。
 function Test-PortInUse([int]$Port) {
     $client = [Net.Sockets.TcpClient]::new()
     try {
@@ -55,6 +68,8 @@ function Test-PortInUse([int]$Port) {
     }
 }
 
+# 启动由本次脚本托管的子进程，将 stdout/stderr 异步落盘到独立日志目录并登记到 $owned 以便退出时统一清理。
+# 默认剥离 Chat Worker 密钥环境变量，仅在显式指定 -NeedsGeminiKey 时保留给控制台进程（最小权限隔离）。
 function Start-Owned([string]$Name, [string]$Executable, [string[]]$Arguments, [switch]$NeedsGeminiKey) {
     # 参数逐项传递以支持路径空格，日志独立于启动器保留。
     $info = [System.Diagnostics.ProcessStartInfo]::new($Executable)
@@ -84,6 +99,7 @@ function Start-Owned([string]$Name, [string]$Executable, [string[]]$Arguments, [
     $service
 }
 
+# 轮询健康/目录端点直到 $Accept 谓词满足或超时；若被托管进程提前退出则立即失败并指向日志目录。
 function Wait-Ready([string]$Name, [uri]$Url, [scriptblock]$Accept, $Service) {
     $timer = [Diagnostics.Stopwatch]::StartNew()
     while ($timer.Elapsed.TotalSeconds -lt $launchSettings.StartupTimeoutSeconds) {
@@ -97,6 +113,7 @@ function Wait-Ready([string]$Name, [uri]$Url, [scriptblock]$Accept, $Service) {
     throw "$Name 未在限时内就绪。日志目录 $logs"
 }
 
+# 检测目标模型端口是否已由外部运行中的同别名服务占用：匹配则直接复用，端口被其他服务占用则拒绝启动。
 function Test-ReusableModel([string]$Name, $Model) {
     if (-not (Test-PortInUse $Model.Url.Port)) { return $false }
     $existing = Read-LocalJson $Model.ModelsUrl
@@ -111,6 +128,7 @@ Push-Location -LiteralPath $repo
 try {
     # Windows 子进程的启动消息也要能在使用 UTF-8 的 Bash 终端中显示。
     [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+    # 第一阶段：校验密钥环境变量、三个回环端口互不冲突，以及 Master / Router 是否可复用或具备可执行文件与权重。
     $console = Read-Properties $consolePath
     $master = Read-ModelProfile $console.masterConfig
     $router = Read-ModelProfile $console.routerConfig
@@ -144,6 +162,7 @@ try {
         & $wsl @wslArgs bash -c $checkPaths router $launchSettings.RouterExecutable $launchSettings.RouterWeights
         if ($LASTEXITCODE -ne 0) { throw "找不到 WSL Router 程序或权重，请核对 $LaunchConfig" }
     }
+    # 第二阶段：构建 Java 控制面可执行 JAR，并依次就绪 Master（27B）与 Router（WSL vLLM 0.8B），最后拉起网页控制台。
     $logs = (New-Item -ItemType Directory -Path "java/target/local-launch-$launchId").FullName
     Write-Host "启动日志目录 $logs"
     & mvn -q -f java/pom.xml '-DskipTests' package
@@ -188,6 +207,7 @@ try {
             ($Mode -ne 'Meeting' -or $nodes -contains 'meeting-scenario')
     } $web
     Write-Host "控制台已就绪 $webUrl"
+    # 非冒烟模式下持续巡检本次拉起的所有托管进程，任一核心组件异常退出即报错并触发 finally 整体回收。
     if (-not $SmokeTest) {
         Write-Host '按 Ctrl+C 结束本次启动。'
         while ($true) {

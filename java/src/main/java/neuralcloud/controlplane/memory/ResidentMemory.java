@@ -27,14 +27,26 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-public final class ResidentMemory {
+/**
+ * 常驻记忆服务 HTTP 客户端基类，实现 Memory v1 协议并为 {@link ResidentV2} 提供基础传输与鉴权能力。
+ * 核心职责：
+ * 1. 启动健康与能力核验（{@code v1/health}），确认角色一致、状态为 {@code TEXT_READY}，以及按需检查分域/本人发言能力；
+ * 2. 事件持久入库（{@code v1/ingest}）并强校验 {@code DURABLE} 回执与 64 位十六进制记录 ID；
+ * 3. 按 ID 回读（{@code v1/records/{id}}）、分域历史召回（{@code v1/recall}）、本人跨会话发言（{@code v1/recall/qq-self-history}）
+ *    以及经操作者确认的身份称呼查询；所有召回结果均在客户端二次核验渠道、来源、隐私级别与时间边界后才格式化交付给模型。
+ */
+public class ResidentMemory {
     private static final Gson JSON = new GsonBuilder().setStrictness(Strictness.STRICT).create();
+    /** 本控制面写入记忆服务时声明的固定来源实例标识。 */
     private static final String SOURCE = "neuralcloud-java";
+    /** 渲染给模型的发言时间统一采用北京时间，与中文对话习惯保持一致。 */
     private static final DateTimeFormatter SPOKEN_AT = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss")
             .withZone(ZoneId.of("Asia/Shanghai"));
+    /** 回读单条记录时视作“不可用/已下线”的非致命状态集合，命中时返回 {@link Optional#empty()}。 */
     private static final Set<String> UNAVAILABLE = Set.of(
             "NOT_FOUND", "ARCHIVED_OFFLINE", "RETRACTED", "SOURCE_CHANGED", "INACTIVE");
 
+    /** 记忆写入的基本事件类型：用户入站观察与角色已送达发言。 */
     public enum Kind {
         OBSERVATION("observation"), SELF_EXPRESSION("self_expression");
 
@@ -45,7 +57,9 @@ public final class ResidentMemory {
         }
     }
 
+    /** 记忆服务确认落盘（{@code DURABLE}）后返回的持久回执：记录哈希 ID、修订版本号与全局流序号。 */
     public record Receipt(String recordId, long revision, long sequence) {}
+    /** 召回或回读并通过边界核验后的单条记忆条目（含发生时间戳及可直接注入模型的自然语言描述）。 */
     public record Match(String recordId, double occurredAt, String message) {}
 
     private final HttpClient client;
@@ -62,14 +76,21 @@ public final class ResidentMemory {
         this.scopedRecall = scopedRecall;
     }
 
+    /** 判断本地审计链中的 {@code memory_durable} 回执是否归属当前角色（兼容早期未写 characterId 的 recent 日志）。 */
     boolean acceptsReceipt(JsonObject event) {
         return (!scopedRecall && !event.has("characterId")) || character.equals(text(event, "characterId"));
     }
 
+    /** 启动核验（未启用 QQ 私聊渠道时的简化入口）。 */
     public void verify() throws IOException, InterruptedException {
         verify(false);
     }
 
+    /**
+     * 启动阶段核验记忆服务可用性与能力契约：
+     * 校验 {@code character_id} 匹配、状态为 {@code TEXT_READY}；
+     * 若启用 {@code scopedRecall} 则进一步要求支持工作流与来源事件 v2，启用 QQ 私聊时还须支持 {@code qq_self_history}。
+     */
     public void verify(boolean qqPrivateEnabled) throws IOException, InterruptedException {
         var result = request("v1/health", null);
         if (!character.equals(text(result, "character_id")) || !"TEXT_READY".equals(text(result, "status"))) {
@@ -85,6 +106,10 @@ public final class ResidentMemory {
         }
     }
 
+    /**
+     * 向 Memory v1 提交一条入站观察或角色回复事件，等待服务端确认 {@code DURABLE} 后返回持久回执。
+     * 在 {@code scopedRecall} 下的 QQ 私聊会升级为 {@code schema_version=2} 并附带精确的平台、发件人与渠道消息 ID 元数据。
+     */
     public Receipt ingest(Scope scope, String event, Instant at, Kind kind, String content, String channelMessageId)
             throws IOException, InterruptedException {
         if (content.codePointCount(0, content.length()) > 32768) {
@@ -111,14 +136,20 @@ public final class ResidentMemory {
         return new Receipt(id, revision, seq);
     }
 
+    /** 返回当前绑定的角色标识。 */
     public String character() {
         return character;
     }
 
+    /** 返回当前是否启用了分域检索（{@code scoped}）模式。 */
     boolean scopedRecall() {
         return scopedRecall;
     }
 
+    /**
+     * 按记录 ID 回读单条历史正文（用于 v1 {@code recent} 模式）。
+     * 已撤回/归档/下线状态返回空；在线记录须通过角色、来源实例、会话 ID、隐私标记与事件类别的完整一致性检查。
+     */
     public Optional<String> read(Scope scope, String recordId) throws IOException, InterruptedException {
         var reply = request("v1/records/" + recordId + "?length=2048", null);
         String status = text(reply, "status");
@@ -144,6 +175,11 @@ public final class ResidentMemory {
         return Optional.of(render(scope, kind, content, time));
     }
 
+    /**
+     * 在当前会话范围内按话题检索历史发言（仅 {@code scopedRecall} 模式可用）。
+     * 使用 {@code Math.nextDown(epochSeconds(receivedAt))} 作为严格小于本轮到达时间的上界，
+     * 对返回的候选逐条执行 {@link #allowed} 权限与归属过滤，去重后最多保留 4 条并按时间正序返回。
+     */
     public List<Match> search(Scope scope, String query, Instant receivedAt) throws IOException, InterruptedException {
         // recent 模式使用按 ID 回读的接口，检索接口的线索长度上限是 256 个 Unicode 字符。
         if (!scopedRecall || query.codePointCount(0, query.length()) > 256) {
@@ -173,6 +209,10 @@ public final class ResidentMemory {
         return matches.stream().distinct().limit(4).sorted(Comparator.comparingDouble(Match::occurredAt)).toList();
     }
 
+    /**
+     * 按已认证的 QQ 私聊发件人账号跨会话查询其本人以往的原话节选（{@code v1/recall/qq-self-history}）。
+     * 账号完全由渠道绑定传入，禁止外部或模型指定其他用户账号；返回项严格校验来源渠道、版本与时间早于本轮。
+     */
     List<Match> selfHistory(QqPrivate qq, String query, Instant receivedAt) throws IOException, InterruptedException {
         // 账号只取自入站私聊。记忆服务按作者和原始消息元数据筛选，只回传本人发言节选。
         String peer = Long.toString(qq.peerId());
@@ -204,6 +244,11 @@ public final class ResidentMemory {
         return List.copyOf(matches);
     }
 
+    /**
+     * 查询当前 QQ 私聊用户的已确认称呼。
+     * 只接受 {@code confirmation=operator_confirmed} 且无冲突（{@code conflict=false}）的记录；
+     * 若命中多个互不一致的称呼则保守返回空，宁缺毋滥，避免把冲突身份误传给模型。
+     */
     public Optional<Match> selfIdentity(Scope scope) throws IOException, InterruptedException {
         if (!scopedRecall || scope.qq().isEmpty()) {
             return Optional.empty();
@@ -247,6 +292,11 @@ public final class ResidentMemory {
         return items;
     }
 
+    /**
+     * 校验召回候选记录是否允许在当前会话中向模型展示：
+     * 核对角色、会话 ID、隐私标记以及写入来源；QQ 私聊还需核对 {@code channel} 中的平台、机器人账号与发件人，
+     * 同时兼容早期未写入 {@code channel} 字段的历史 v1 生产记录（按旧写入方名称匹配）。
+     */
     private boolean allowed(Scope scope, JsonObject source, String kind) {
         boolean observation = Kind.OBSERVATION.value.equals(kind);
         String writer = text(source, "source_instance");
@@ -271,6 +321,7 @@ public final class ResidentMemory {
         return originalWriter.equals(writer);
     }
 
+    /** scoped 模式按跨重启稳定的 conversationId 隔离，recent 模式按当前链的 sessionId 隔离。 */
     private String conversationId(Scope scope) {
         return scopedRecall ? scope.conversationId() : scope.sessionId();
     }
@@ -279,6 +330,7 @@ public final class ResidentMemory {
         return time.getEpochSecond() + time.getNano() / 1_000_000_000.0;
     }
 
+    /** 解析并验证合法 Unix 秒级时间戳（上限为 9999-12-31T23:59:59Z），无效时返回 -1。 */
     private static double occurredAt(JsonObject item) {
         if (item.get("occurred_at") instanceof JsonPrimitive field && field.isNumber()) {
             double time = field.getAsDouble();
@@ -289,6 +341,7 @@ public final class ResidentMemory {
         return -1;
     }
 
+    /** 将校验通过的历史条目格式化为带说话人、北京时间与来源标注的自然语言引用句。 */
     private static String render(Scope scope, String kind, String content, double time) {
         boolean user = Kind.OBSERVATION.value.equals(kind);
         String speaker = user ? "用户" : "小雾";
@@ -297,16 +350,48 @@ public final class ResidentMemory {
                 + " 说：“" + content + "”。来源是" + channel + "中已记录的" + (user ? "用户发言。" : "小雾回复。");
     }
 
-    private JsonObject request(String path, Map<String, ?> body) throws IOException, InterruptedException {
-        var request = HttpRequest.newBuilder(endpoint.resolve(path)).timeout(Duration.ofSeconds(5))
-                .header("Authorization", "Bearer " + token);
+    /** 记忆服务返回非 200 HTTP 状态时的结构化异常，保留状态码与服务端错误码供 v2 区分可重试与终态拒绝。 */
+    protected static final class ServiceError extends IOException {
+        final int status;
+        final String code;
+
+        ServiceError(int status, String code) {
+            super("记忆服务返回 HTTP " + status + (code.isEmpty() ? "" : " " + code));
+            this.status = status;
+            this.code = code;
+        }
+    }
+
+    /** 使用常规访问令牌向记忆服务发送 GET（{@code body=null}）或 JSON POST 请求。 */
+    protected JsonObject request(String path, Object body)
+            throws IOException, InterruptedException {
+        return request(path, body, token);
+    }
+
+    /**
+     * 使用指定 Bearer 凭证向记忆服务发送 HTTP 请求并解析严格 JSON 对象响应。
+     * 供常规读写（使用 {@code token}）及 v2 原作者授权（使用独立 {@code grantToken}）共用。
+     */
+    protected JsonObject request(String path, Object body, String credential)
+            throws IOException, InterruptedException {
+        var request =
+                HttpRequest.newBuilder(endpoint.resolve(path))
+                        .timeout(Duration.ofSeconds(5))
+                        .header("Authorization", "Bearer " + credential);
         if (body != null) {
             request.header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(JSON.toJson(body)));
         }
         var response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() != 200) {
-            throw new IOException("记忆服务返回 HTTP " + response.statusCode());
+            String code = "";
+            try {
+                var error = JSON.fromJson(response.body(), JsonObject.class);
+                if (error != null && error.has("code")) code = " " + text(error, "code");
+            } catch (JsonParseException ignored) {
+                // 非 JSON 错误正文时忽略解析失败，仍保留 HTTP 状态码供上层判断。
+            }
+            throw new ServiceError(response.statusCode(), code.strip());
         }
         try {
             var result = JSON.fromJson(response.body(), JsonObject.class);
@@ -323,6 +408,7 @@ public final class ResidentMemory {
         return source.get(field) instanceof JsonPrimitive value && value.isString() ? value.getAsString() : "";
     }
 
+    /** 读取严格正整数（1 至 18 位无前导零数字），无效或缺失时返回 0。 */
     private static long positive(JsonObject source, String field) {
         return source.get(field) instanceof JsonPrimitive value && value.isNumber()
                 && value.getAsString().matches("[1-9][0-9]{0,17}") ? value.getAsLong() : 0;

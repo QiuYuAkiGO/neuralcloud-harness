@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# 本机启动包装脚本（适用于 WSL 与 Git Bash）：
+# 负责将 Bash 风格路径及 GEMINI_API_KEY 环境变量透传给 Windows PowerShell 7（start-local.ps1），
+# 由 PowerShell 侧统一编排本机 Windows llama.cpp、WSL vLLM 与 Java 控制台的生命周期。
 set -euo pipefail
 
 if [[ ${1:-} == --help || ${1:-} == -h ]]; then
@@ -11,6 +14,7 @@ EOF
     exit 0
 fi
 
+# 按运行环境选择路径转换工具（WSL 用 wslpath，Git Bash/MSYS 用 cygpath）及默认 PowerShell 7 安装路径。
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 if [[ -n ${WSL_DISTRO_NAME:-} ]]; then
     path_converter=wslpath
@@ -27,6 +31,7 @@ else
     exit 2
 fi
 
+# 解析并定位 PowerShell 7 可执行文件，优先使用用户通过 NEURALCLOUD_PWSH 指定的路径。
 pwsh=${NEURALCLOUD_PWSH:-pwsh.exe}
 if ! command -v "$pwsh" >/dev/null 2>&1; then
     if [[ $pwsh == pwsh.exe && -x $default_pwsh ]]; then
@@ -37,6 +42,7 @@ if ! command -v "$pwsh" >/dev/null 2>&1; then
     fi
 fi
 
+# 遍历参数，将 -LaunchConfig / -ConsoleConfig 携带的 POSIX 路径转换为 Windows 绝对路径，其余参数原样透传。
 args=()
 while (($#)); do
     case "${1,,}" in

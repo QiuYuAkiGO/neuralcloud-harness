@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
 import com.sun.net.httpserver.HttpServer;
+import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.worker.ReplySelector.Addressing;
 import neuralcloud.controlplane.worker.ReplySelector.Context;
 import org.junit.Test;
@@ -15,8 +16,10 @@ import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -50,7 +53,7 @@ public class ChatWorkerTest {
         var partial = assertThrows(IOException.class, () -> invoke(200, DIRECT, requests, """
                 {"candidates":[{"finishReason":"MAX_TOKENS","content":{"parts":[{"text":"会议已"}]}}]}
                 """));
-        assertTrue(partial.getMessage().contains("正常结束"));
+        assertEquals("Gemini 文本候选未正常结束（MAX_TOKENS）", partial.getMessage());
         var invalidKey = assertThrows(IOException.class, () -> invoke(403, DIRECT, requests, "provider internal body"));
         assertEquals("Gemini 返回 HTTP 403", invalidKey.getMessage());
     }
@@ -127,6 +130,104 @@ public class ChatWorkerTest {
                 .getAsJsonObject().get("text").getAsString());
         assertThrows(IOException.class, () -> withWorker(200, requests, worker -> worker.planTurn(followUp),
                 completed("{\"kind\":\"HISTORY\",\"query\":\"上文内容\"}")));
+    }
+
+    @Test
+    public void supportsOpenAiChatForCloudAndLocalEndpoints() throws IOException {
+        var requests = new CopyOnWriteArrayList<JsonObject>();
+        var auth = new AtomicReference<String>();
+        var replies = new CopyOnWriteArrayList<String>();
+        var status = new java.util.concurrent.atomic.AtomicInteger(200);
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            try (exchange) {
+                if (exchange.getRequestHeaders().containsKey("Upgrade")) {
+                    exchange.sendResponseHeaders(400, -1);
+                    return;
+                }
+                auth.set(exchange.getRequestHeaders().getFirst("Authorization"));
+                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                requests.add(JsonParser.parseString(body).getAsJsonObject());
+                String payload = replies.isEmpty() ? "" : replies.removeFirst();
+                byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(status.get(), bytes.length);
+                exchange.getResponseBody().write(bytes);
+            }
+        });
+        server.start();
+        try (var client = HttpClient.newHttpClient()) {
+            URI endpoint = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/chat/completions");
+            var cloud = ChatWorker.openAiChat(client, endpoint, HttpClient.Version.HTTP_1_1, "deepseek-flash",
+                    "ds-key", Duration.ofSeconds(3), 1024, false, Master.ThinkingFormat.DEEPSEEK,
+                    "只写许可正文。", "喜欢摄影。");
+
+            // 1. 规划轮次（工具调用 + token 计数）与带材料回复
+            replies.add("""
+                    {"model":"deepseek-flash","choices":[{"finish_reason":"tool_calls","message":{"content":"",
+                     "tool_calls":[{"id":"c1","type":"function","function":{"name":"plan_turn",
+                     "arguments":"{\\"kind\\":\\"HISTORY\\",\\"query\\":\\"周三评审\\"}"}}]}}],
+                     "usage":{"prompt_tokens":120,"prompt_tokens_details":{"cached_tokens":40}}}
+                    """);
+            replies.add("""
+                    {"model":"deepseek-flash","choices":[{"finish_reason":"stop","message":{"content":"周三下午三点开会。"}}]}
+                    """);
+            var turn = cloud.planTurn("周三评审会几点？", List.of(), true);
+            assertEquals(ChatWorker.TurnKind.HISTORY, turn.kind());
+            assertEquals("周三评审", turn.query());
+            assertEquals(Map.of("promptTokenCount", 120, "cachedContentTokenCount", 40), turn.usage());
+            assertEquals("Bearer ds-key", auth.get());
+            assertEquals("disabled", requests.getFirst().getAsJsonObject("thinking").get("type").getAsString());
+            assertEquals("plan_turn", requests.getFirst().getAsJsonObject("tool_choice")
+                    .getAsJsonObject("function").get("name").getAsString());
+            assertEquals(Optional.of("周三下午三点开会。"), cloud.replyToTurn(turn, List.of("周三下午三点开会")));
+            assertTrue(requests.getLast().getAsJsonArray("messages").get(1).getAsJsonObject()
+                    .get("content").getAsString().contains("记忆服务返回的查询材料"));
+
+            // 2. 群聊参与判断与服务器状态开场选择
+            replies.add("""
+                    {"model":"deepseek-flash","choices":[{"finish_reason":"tool_calls","message":{"content":"",
+                     "tool_calls":[{"id":"c2","type":"function","function":{"name":"select_reply",
+                     "arguments":"{\\"decision\\":\\"SKIP\\"}"}}]}}]}
+                    """);
+            assertEquals(Optional.empty(), cloud.reply(AMBIENT, APPROVED_TEXT));
+
+            replies.add("""
+                    {"model":"deepseek-flash","choices":[{"finish_reason":"tool_calls","message":{"content":"",
+                     "tool_calls":[{"id":"c3","type":"function","function":{"name":"select_status_intro",
+                     "arguments":"{\\"intro\\":\\"刚查过这台服务器，结果在这儿。\\"}"}}]}}]}
+                    """);
+            var serverStatus = new ServerStatus("2026-11-23T00:00:00Z", 3600, 0.25, 1L << 30, 2L << 30, 4L << 30, 8L << 30);
+            assertTrue(cloud.replyToServerStatus(DIRECT, serverStatus).orElseThrow()
+                    .startsWith("刚查过这台服务器，结果在这儿。\n"));
+
+            // 3. 截断与 HTTP 错误不泄露上游错误正文
+            replies.add("""
+                    {"model":"deepseek-flash","choices":[{"finish_reason":"length","message":{"content":"截断"}}]}
+                    """);
+            var truncated = assertThrows(IOException.class, () -> cloud.reply(DIRECT, APPROVED_TEXT));
+            assertEquals("Chat Worker 文本候选未正常结束（length）", truncated.getMessage());
+
+            status.set(403);
+            replies.add("secret upstream error body");
+            var forbidden = assertThrows(IOException.class, () -> cloud.reply(DIRECT, APPROVED_TEXT));
+            assertEquals("Chat Worker 返回 HTTP 403", forbidden.getMessage());
+
+            // 4. 本机免鉴权 OpenAI 兼容端点（chat_template_kwargs，无 Authorization 头）
+            status.set(200);
+            requests.clear();
+            replies.add("""
+                    {"model":"local-qwen","choices":[{"finish_reason":"stop","message":{"content":"本机回复。"}}]}
+                    """);
+            var local = ChatWorker.openAiChat(client, endpoint, HttpClient.Version.HTTP_1_1, "local-qwen",
+                    null, Duration.ofSeconds(3), 512, false, Master.ThinkingFormat.CHAT_TEMPLATE_KWARGS,
+                    "只写许可正文。", "喜欢摄影。");
+            assertEquals(Optional.of("本机回复。"), local.reply(DIRECT, APPROVED_TEXT));
+            assertEquals(null, auth.get());
+            assertFalse(requests.getFirst().getAsJsonObject("chat_template_kwargs").get("enable_thinking").getAsBoolean());
+            assertFalse(requests.getFirst().has("thinking"));
+        } finally {
+            server.stop(0);
+        }
     }
 
     private static String completed(String text) {
