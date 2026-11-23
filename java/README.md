@@ -167,3 +167,5 @@ Gemini 每次只收到该步骤获准传达的正文和 Chat Worker 职责提示
 启用 `apiVersion=2`、`recallMode=scoped` 后，可在记忆客户端配置加入 `hotIndexTokens=96`，让正式控制台 Master 获得本轮受众可引用的未决事项和目录。取值范围为 0–2048，缺省为 0。启用时握手核对 `audience_cards`，Master 从同一推理端点的 `/v1/models` 核对单模型身份，再借助 `/tokenize` 计算完整目录文本。检查 `memory_hot_index` 审计事件可看到实际文本、token 数和预算。Chat Worker 通过已有 `memory_call` 使用所配置 Memory 服务的扩展检索。
 
 经 `POST /api/nodes/master/messages` 提交 `/memory revise 旧印象ID@版本 来源ID@版本 [更多来源]`。宿主复核 1–16 条可引用原文，将引文交给 Master，收到完整新正文后按旧版本与新证据持久提交。审计链的 `memory_impression_revised` 保存前一版本、实际来源与新回执。过期或撤权会触发重新查证。[跨仓库数据契约和验收报告](https://github.com/QiuYuAkiGO/neuralcloud-memory/blob/codex/memory-v2-stages-3-4/docs/acceptance/memory-v2-stage-3-4.md)
+
+在已启用 Memory v2 的控制台 Master 页签发送 `/intent 请核对周六的活动安排`，或向同一接口提交带此命令的 `text`。Master 先用 `memory_call` 取证，再用 `submit_intent` 提交判断与回复意图。审计链中的 `memory_call_result` 保存实际送入模型的编号材料，随后的 `intent` 事件在 `data.evidence` 中保存被选记录的 `record_id` 和 `revision`。操作在意图验收后结束。[意图字段与补交契约](../docs/proposals/console-free-chat-pipeline-20261121.md#4-master-的通用意图契约)

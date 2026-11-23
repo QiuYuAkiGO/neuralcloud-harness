@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
+import com.google.gson.annotations.SerializedName;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
 import neuralcloud.controlplane.memory.ConversationMemory.QueryKind;
 
@@ -53,9 +54,13 @@ public final class MemoryCall {
     /** 单次记忆工具查询的结构化结果，供模型消费并原样写入 {@code memory_call_result} 审计事件。 */
     public record Result(QueryKind kind, int count, List<String> sentences) {}
 
+    /** 可交给下游的精确证据引用，记录身份和修订号由 Memory 读取快照提供。 */
+    public record EvidenceRef(@SerializedName("record_id") String recordId, long revision) {}
+
     private final ConversationMemory memory;
     private final Trace trace;
     private final Caller caller;
+    private final boolean numberEvidence;
     /** 追踪当前审计因果链上最新一个记忆相关事件 ID，供后续步骤挂接 causedBy。 */
     private int eventId;
     /** 本次句柄对应的唯一输入批次 ID，用于关联本地 SQLite 日志中的 inputs / input_evidence / watches。 */
@@ -341,11 +346,19 @@ public final class MemoryCall {
         memory.v2().verifyEvidence(trace.scope(), caller.name(), current);
     }
 
-    MemoryCall(ConversationMemory memory, Trace trace, Caller caller, int parent) {
+    MemoryCall(ConversationMemory memory, Trace trace, Caller caller, int parent, boolean numberEvidence) {
         this.memory = memory;
         this.trace = trace;
         this.caller = caller;
         this.eventId = parent;
+        this.numberEvidence = numberEvidence;
+    }
+
+    /** 顺序与当轮记忆工具正文的证据编号一致。热目录和刷新通知由各自的交付记录管理。 */
+    public List<EvidenceRef> evidenceRefs() throws IOException {
+        if (!numberEvidence) throw new IOException("submit_intent 只能引用意图轮次实际交付的编号");
+        return bindings.stream().map(binding -> new EvidenceRef(binding.id(),
+                binding.item().getAsJsonObject("ref").get("revision").getAsLong())).toList();
     }
 
     /** 返回本句柄最近一次写入的记忆审计事件 ID，供调用方串联下一事件的 causedBy。 */
@@ -394,7 +407,7 @@ public final class MemoryCall {
         int requested = trace.write(eventId, caller.node, NAME, Map.of("kind", kind.name(), "query", query));
         ConversationMemory.Recall recalled;
         try {
-            recalled = memory.retrieve(trace, requested, kind, query, caller.name(), inputId);
+            recalled = memory.retrieve(trace, requested, kind, query, caller.name(), inputId, numberEvidence);
         } catch (IOException | InterruptedException error) {
             trace.write(requested, "memory", "memory_call_failed", Map.of("detail", error.toString()));
             throw error;

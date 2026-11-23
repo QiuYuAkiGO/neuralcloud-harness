@@ -76,6 +76,9 @@ function summary(event) {
     case 'task_worker_unavailable': return '本轮请求没有可用的执行能力';
     case 'router_route': return `流程：${data.route}`;
     case 'master_completion': return data.text || '（空正文）';
+    // 对话页呈现已接受的评价与回复意图，具体记录版本可在同一事件的审计数据中查看。
+    case 'intent': return [data.assessment, data.needsReply ? '回复意图　' + data.replyIntent : '本轮无需回复',
+      data.impression && '新印象　' + data.impression].filter(Boolean).join('\n');
     case 'node_failed': return `失败：${data.detail}`;
     case 'probe_requested': return '请求探测';
     case 'probe_passed': return `探测通过，${data.latencyMs} ms`;
@@ -102,7 +105,7 @@ function summary(event) {
 }
 
 // 对话页只显示操作者能直接看到的往返，链路中间步骤在审计链里查看。
-const CHAT_TYPES = new Set(['operator_message', 'chat_worker_reply', 'router_route', 'master_completion',
+const CHAT_TYPES = new Set(['operator_message', 'chat_worker_reply', 'router_route', 'master_completion', 'intent',
   'node_failed', 'chat_worker_draft', 'router_rejected', 'pipeline_completed']);
 
 function latency(event) {

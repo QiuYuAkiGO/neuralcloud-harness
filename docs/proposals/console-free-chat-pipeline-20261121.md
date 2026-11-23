@@ -1,6 +1,6 @@
 # 网页自由对话走完整链路的方案
 
-2026-11-21 · 方案稿，尚未实施。目标是让操作者在网页控制台以用户身份与 Misty 自由对话，每条消息都经过 Chat Worker、Router、记忆读写适配器、Master 与编排器，回复和中间事件写入同一条审计链。首期流程与角色边界沿用 [Java 实施方案](master-worker-router-java-implementation-20261118.md) 和 [设计修订草稿](master-worker-design-revisions-20261121.md)，开发遵循 [项目守则](../../AGENTS.md)。
+2026-11-21 · 完整链路方案，2026-11-23 更新了第 4 节的 Master 意图入口。目标是让操作者在网页控制台以用户身份与 Misty 自由对话，每条消息都经过 Chat Worker、Router、记忆读写适配器、Master 与编排器，回复和中间事件写入同一条审计链。首期流程与角色边界沿用 [Java 实施方案](master-worker-router-java-implementation-20261118.md) 和 [设计修订草稿](master-worker-design-revisions-20261121.md)，开发遵循 [项目守则](../../AGENTS.md)。
 
 ## 1. 现状与缺口
 
@@ -73,17 +73,17 @@ Chat Worker 的印象只随本轮材料交给 Master，不入库；Master 评价
 
 ## 4. Master 的通用意图契约
 
-会议改期样例的必交结果是按事项定制的。自由对话需要一套与事项无关的结果，供 Router 拆解。建议沿用原生工具调用，先 `query_memory`，再 `submit_intent`。
+会议改期样例的必交结果按事项定制。通用意图使用原生工具调用，先由 Master 通过 `memory_call` 查询，再通过 `submit_intent` 一次提交以下五个字段。控制台 Master 节点以 `/intent <事项正文>` 启动这项操作。Memory v2 为当轮查询提供可复核的记录版本。
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
 | `assessment` | 非空字符串 | Master 对本轮材料的评价，用“根据……，我目前倾向于……”表达依据和主观性 |
 | `replyIntent` | 非空字符串 | 希望 Misty 向用户传达的意思，不是最终措辞 |
-| `evidence` | 本轮查询结果的序号数组 | `assessment` 中事实性表述所依据的记录；可为空 |
+| `evidence` | 本轮查询结果的整数序号数组 | 正文中标有“证据 1”等编号的记录，从 1 开始。范围说明、热目录、刷新通知和空结果不分配序号。允许空数组 |
 | `impression` | 字符串 | 本轮形成的新印象；空字符串表示不形成新印象。非空时须以“根据……，我目前倾向于……”表达，且 `evidence` 不可为空 |
 | `needsReply` | 布尔值 | 本轮是否需要回复。为 `false` 时 Router 不派对话指令 |
 
-校验在 Master 边界完成。字段缺失、多余或类型不符，`evidence` 引用本轮未返回的序号，非空 `impression` 没有引用记录，都按同一条“`submit_intent` 不符合意图契约”拒绝，并指出违反的字段。按现有 Master 挡板的做法，允许一次补交，仍不合格则本轮失败。
+校验在 Master 边界完成。参数不合法时返回“`submit_intent` 不符合意图契约”及违反的字段或规则，允许模型用同一批证据完整重提一次。宿主在接受前复核证据，将序号按提交顺序解析成实际交付的 `record_id` 和 `revision`。成功的 `intent` 事件以本轮记忆工具回执为直接起因，保留五个字段供审计及后续派单。
 
 ## 5. Router 的扩展
 

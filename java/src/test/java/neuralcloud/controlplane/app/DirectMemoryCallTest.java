@@ -10,7 +10,9 @@ import neuralcloud.controlplane.console.ConsoleServer.Trace;
 import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.memory.ConversationMemory;
 import neuralcloud.controlplane.memory.MemoryCall;
+import neuralcloud.controlplane.memory.MemoryJournal;
 import neuralcloud.controlplane.memory.ResidentMemory;
+import neuralcloud.controlplane.memory.ResidentV2;
 import neuralcloud.controlplane.worker.TaskWorker;
 import org.junit.Rule;
 import org.junit.Test;
@@ -116,6 +118,58 @@ public class DirectMemoryCallTest {
                 assertEquals("巡检别名", search.get("query").getAsString());
                 assertEquals("console:s", search.getAsJsonObject("constraints").get("conversation_id").getAsString());
             }
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    /** 经正式 Master 处理器复核补交路径。范围提示不占序号，接受的版本必须对应模型实收的那条原话。 */
+    @Test
+    public void masterIntentUsesDeliveredNumbersAndCorrectsAnInvalidCitationOnce() throws Exception {
+        var ref = Map.of("record_id", "a".repeat(64), "revision", 3);
+        var item = Map.of("ref", ref, "source_refs", List.of(ref), "status", "ONLINE", "citation_scope", "console:intent",
+                "text", "我周六要去看展。", "kind", "observation", "speaker", "小林", "occurred_at", "2026-11-18T09:00:00Z");
+        var snapshot = Map.of("stream_id", "test-stream", "read_seq", 5, "items", List.of(item),
+                "assessment", Map.of("state", "CONFLICT"));
+        var requests = new CopyOnWriteArrayList<JsonObject>();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v2/recall", exchange -> respond(exchange, JSON.toJson(snapshot)));
+        server.createContext("/v2/read", exchange -> respond(exchange, JSON.toJson(snapshot)));
+        server.createContext("/model", exchange -> {
+            var request = body(exchange);
+            requests.add(request);
+            String name = request.getAsJsonObject("tool_choice").getAsJsonObject("function").get("name").getAsString();
+            String args = "memory_call".equals(name) ? "{\"kind\":\"HISTORY\",\"query\":\"看展\"}"
+                    : JSON.toJson(Map.of("assessment", "根据小林的原话，我目前倾向于周六看展", "replyIntent", "说明看展安排",
+                            "evidence", List.of(requests.size() == 2 ? 2 : 1), "impression", "", "needsReply", true));
+            respond(exchange, JSON.toJson(Map.of("model", "master", "choices", List.of(Map.of(
+                    "message", tool(name, args), "finish_reason", "tool_calls")))));
+        });
+        server.start();
+        var base = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
+        var dir = folder.getRoot().toPath();
+        try (var client = HttpClient.newHttpClient(); var audit = AuditLog.open(dir);
+             var journal = new MemoryJournal(dir.resolve("journal.sqlite"))) {
+            var memory = new ConversationMemory(audit, new ResidentV2(client, base, "misty", "test-token", true, journal, null));
+            var timeout = Duration.ofSeconds(3);
+            var master = new Master(client, new Master.Settings(base.resolve("/model"), "master", HttpClient.Version.HTTP_1_1,
+                    timeout, timeout, "探测", 8, 0, false));
+            var trace = Trace.forChain(audit, "console", "intent", audit.write("intent", null, "master", "operator_message",
+                    Map.of("text", "/intent 请核对周六的安排")));
+            var reply = ConsoleMain.masterConversation(master, 256, 0, Optional.of(memory)).send("/intent 请核对周六的安排", trace);
+            assertEquals("intent", reply.type());
+            assertEquals(List.of(new MemoryCall.EvidenceRef("a".repeat(64), 3)), reply.data().get("evidence"));
+            assertEquals(3, requests.size());
+            var result = audit.event(trace.scope(), reply.causedBy());
+            assertEquals("memory_call_result", result.type());
+            var sentences = result.data().getAsJsonObject().getAsJsonArray("sentences");
+            assertEquals("当前证据存在冲突。", sentences.get(0).getAsString());
+            assertTrue(sentences.get(1).getAsString().startsWith("【证据 1】"));
+            String delivered = requests.get(1).getAsJsonArray("messages").get(3).getAsJsonObject().get("content").getAsString();
+            assertEquals(sentences.get(0).getAsString() + "\n" + sentences.get(1).getAsString(), delivered);
+            var correction = requests.get(2).getAsJsonArray("messages").get(5).getAsJsonObject();
+            assertEquals("lookup-id", correction.get("tool_call_id").getAsString());
+            assertTrue(correction.get("content").getAsString().contains("evidence"));
         } finally {
             server.stop(0);
         }

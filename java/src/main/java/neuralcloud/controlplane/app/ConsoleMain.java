@@ -274,6 +274,15 @@ public final class ConsoleMain {
     static ConsoleServer.Exchange masterConversation(Master master, int maxTokens, double temperature,
                                                      Optional<ConversationMemory> memory) {
         return (text, trace) -> {
+            // 操作者在 Master 节点请求一份结构化意图。事件保存宿主解析后的证据版本，供后续派单引用。
+            if (text.equals("/intent") || text.startsWith("/intent ")) {
+                String prompt = text.substring("/intent".length()).stripLeading();
+                if (prompt.isBlank()) throw new IOException("/intent 需要非空事项正文");
+                var read = memory.flatMap(store -> store.bindMasterIntent(trace, trace.request()))
+                        .orElseThrow(() -> new IOException("submit_intent 需要配置 Memory v2 以核对证据版本"));
+                var intent = master.submitIntent(prompt, maxTokens, temperature, read);
+                return new Reply("intent", intent.data(), read.eventId());
+            }
             var read = memory.map(store -> store.bind(trace, Caller.MASTER, trace.request()));
             var completion = read.isPresent() ? master.completeWithMemory(text, maxTokens, temperature, read.orElseThrow())
                     : master.complete(text, maxTokens, temperature, List.of());
