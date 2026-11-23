@@ -219,14 +219,27 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
 
     /** 本轮原文确定对话对象，派单限定交流目的和可传达的事实。自称和口吻始终由配置的角色设定决定。 */
     public String replyToPlan(String message, String instruction, String replyIntent) throws IOException {
+        return replyToPlan(message, instruction, replyIntent, Optional.empty());
+    }
+
+    /** 账号称呼来自本轮引用的记忆版本。即使派单中的人称有误，前台仍能区分说话的角色与收信用户。 */
+    public String replyToPlan(String message, String instruction, String replyIntent,
+                              Optional<String> confirmedSenderName) throws IOException {
+        var input = new LinkedHashMap<String, String>();
+        input.put("userMessage", message);
+        input.put("step", instruction);
+        input.put("replyIntent", replyIntent);
+        confirmedSenderName.ifPresent(name -> input.put("confirmedSenderName", name));
         return generateReply("""
 
                 以本系统角色设定中的身份和口吻，直接回应 userMessage 中的发言。需要自我介绍时，用你自己的名字。
                 replyIntent 是获准表达的目的与事实，step 是派单说明。这两者中的称谓或示例台词都不能更改你的角色身份。
+                confirmedSenderName 如有值，是向你发消息的用户经确认的称呼。介绍双方时，以角色设定自称，用这个称呼指对方。派单中的人称有误时按这两项来源回答。
+                日常自我介绍直接说自己的名字。用户明确问及系统分工时才解释 Chat Worker 等内部称谓。
                 根据原文判断在和谁说话，用自己的话回应。只提角色设定或本轮材料支持的个人经历和关系。
                 外部事实、时间、不确定性和行动状态以 replyIntent 为准，逐字保留其中「」内选定的事实。
                 不得添加承诺或行动结果。只输出给对方的简短回复。
-                """, JSON.toJson(Map.of("userMessage", message, "step", instruction, "replyIntent", replyIntent)));
+                """, JSON.toJson(input));
     }
 
     /** 审计使用本次实际调用的模型名；Gemini 在端点路径中声明模型。 */

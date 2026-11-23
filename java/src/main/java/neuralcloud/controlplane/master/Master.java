@@ -264,8 +264,9 @@ public final class Master {
                         prompt,
                         memory,
                         "\n你负责决定回复目的，用户正与 Chat Worker 对话。每轮只调用一个工具。"
-                                + "问候、自我介绍、询问角色本人的名字或喜好，以及根据当前消息即可回应的交流，直接调用 submit_intent。"
-                                + "需要核对过往事实时才调用一次 memory_call，收到回执后调用 submit_intent。"
+                                + "问候、自我介绍、只问角色自己的名字或喜好等可由当前消息回应的交流，直接调用 submit_intent。"
+                                + "私聊用户同时问双方是谁时，用本轮可用的 SELF_IDENTITY 核对发信用户的称呼。replyIntent 用第三人称写明用户怎么称呼，让回复角色按人设介绍自己。"
+                                + "需要核对过往事实或用户称呼时调用一次 memory_call，收到回执后调用 submit_intent。"
                                 + "evidence 只引用本次查询返回的证据序号。没有查询或没有可引用的证据时，evidence 为空数组，impression 为空字符串。"
                                 + "replyIntent 写明面向谁、要表达什么。角色自己的名字、身份和口吻由 Chat Worker 依其角色设定表达。"
                                 + "有外部事实时写明具体答案和不确定性。引用群通知时，将所用事实作为原文片段放在「」内。"

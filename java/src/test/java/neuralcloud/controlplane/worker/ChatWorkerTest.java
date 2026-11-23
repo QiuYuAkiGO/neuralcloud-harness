@@ -81,9 +81,24 @@ public class ChatWorkerTest {
         assertEquals(message, input.get("userMessage").getAsString());
         assertEquals(step, input.get("step").getAsString());
         assertEquals(intent, input.get("replyIntent").getAsString());
+        assertFalse(input.has("confirmedSenderName"));
         assertTrue(instructions(request).contains("只写许可正文。"));
         assertTrue(instructions(request).contains("不能更改你的角色身份"));
         assertFalse(instructions(request).contains(step));
+    }
+
+    /** 派单把用户的称呼误写成角色别名时，Worker 仍收到独立的发件人依据与系统层角色设定。 */
+    @Test
+    public void plannedReplyReceivesTheVerifiedSenderSeparatelyFromThePlan() throws IOException {
+        var requests = new CopyOnWriteArrayList<JsonObject>();
+        withWorker(200, requests, worker -> worker.replyToPlan("你和我怎么称呼？", "自称青禾",
+                "告诉对方你也叫青禾", Optional.of("青禾")), completed("我是小雾，你是青禾。"));
+        var request = requests.getFirst();
+        var input = JsonParser.parseString(content(request)).getAsJsonObject();
+        assertEquals("青禾", input.get("confirmedSenderName").getAsString());
+        assertEquals("自称青禾", input.get("step").getAsString());
+        assertTrue(instructions(request).contains("向你发消息的用户"));
+        assertFalse(instructions(request).contains("青禾"));
     }
 
     @Test

@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Pattern;
 
 /**
@@ -55,7 +56,11 @@ public final class MemoryCall {
     public record Result(QueryKind kind, int count, List<String> sentences) {}
 
     /** 可交给下游的精确证据引用，记录身份和修订号由 Memory 读取快照提供。 */
-    public record EvidenceRef(@SerializedName("record_id") String recordId, long revision) {}
+    public record EvidenceRef(@SerializedName("record_id") String recordId, long revision) {
+        private static EvidenceRef from(MemoryJournal.Read read) {
+            return new EvidenceRef(read.id(), read.item().getAsJsonObject("ref").get("revision").getAsLong());
+        }
+    }
 
     private final ConversationMemory memory;
     private final Trace trace;
@@ -360,11 +365,7 @@ public final class MemoryCall {
         for (var binding : bindings) {
             var item = binding.item();
             if (item.has("member_notice") && item.get("member_notice").getAsBoolean())
-                notices.put(
-                        new EvidenceRef(
-                                binding.id(),
-                                item.getAsJsonObject("ref").get("revision").getAsLong()),
-                        item.get("text").getAsString());
+                notices.put(EvidenceRef.from(binding), item.get("text").getAsString());
         }
         return notices;
     }
@@ -372,8 +373,16 @@ public final class MemoryCall {
     /** 顺序与当轮记忆工具正文的证据编号一致。热目录和刷新通知由各自的交付记录管理。 */
     public List<EvidenceRef> evidenceRefs() throws IOException {
         if (!numberEvidence) throw new IOException("submit_intent 只能引用意图轮次实际交付的编号");
-        return bindings.stream().map(binding -> new EvidenceRef(binding.id(),
-                binding.item().getAsJsonObject("ref").get("revision").getAsLong())).toList();
+        return bindings.stream().map(EvidenceRef::from).toList();
+    }
+
+    /** 只向回复节点传递本轮私聊按发件人查得、且被 Master 按确切修订引用的称呼。 */
+    public Optional<String> confirmedSenderName(List<EvidenceRef> cited) {
+        if (trace.scope().qq().isEmpty()) return Optional.empty();
+        return bindings.stream()
+                .filter(read -> QueryKind.SELF_IDENTITY.name().equals(read.kind()) && cited.contains(EvidenceRef.from(read)))
+                .map(read -> read.item().get("text").getAsString())
+                .findFirst();
     }
 
     /** 返回本句柄最近一次写入的记忆审计事件 ID，供调用方串联下一事件的 causedBy。 */
@@ -434,7 +443,7 @@ public final class MemoryCall {
         if (sentences.isEmpty()) {
             sentences = List.of(switch (kind) {
                 case HISTORY -> "当前会话中未查到符合条件的历史记录。";
-                case SELF_IDENTITY -> "未查到符合条件的记录。";
+                case SELF_IDENTITY -> "没有查到当前发信用户经确认的称呼。";
                 case SELF_HISTORY -> "在能核实为当前账号本人发出的 QQ 历史消息中，未查到符合条件的发言。";
             });
         }
