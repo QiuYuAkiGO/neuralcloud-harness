@@ -3,8 +3,8 @@
 .SYNOPSIS
     NeuralCloud 本机全链路一键启动脚本（PowerShell 7）。
 .DESCRIPTION
-    按固定顺序编排：配置与端口冲突检查 -> Maven 打包 -> 启动或复用本机 Master（Windows llama.cpp）
-    -> 启动或复用 Router（WSL vLLM）-> 启动 Java 网页控制台 -> 持续监控子进程存活。
+    构建并启动 Java 网页控制台。默认通过 DeepSeek API 调用 Master 与 Router。
+    仅在显式提供回环模型配置时启动或复用相应的本机推理服务。
     支持 -Mode Console（正式控制台）与 Meeting（会议评估场景），以及 -SmokeTest 冒烟验证后自动回收。
     所有由本次脚本拉起的子进程均记录在 $owned 列表中，在 finally 阶段逆序精准清理，不误杀复用中的已有服务。
 #>
@@ -34,15 +34,18 @@ function Read-Properties([string]$Path) {
     Get-Content -LiteralPath $Path -Raw | ConvertFrom-StringData
 }
 
-# 解析 Master / Router 模型配置，强制要求为本机回环 /v1/chat/completions 地址并推导对应的 /v1/models 探测地址。
+# HTTPS 推理由供应方托管；仅回环聊天端点需要本机监听端口、模型权重与就绪探测。
 function Read-ModelProfile([string]$Path) {
     $settings = Read-Properties $Path
     $url = [uri]$settings.endpoint
+    if ($url.Scheme -eq 'https') {
+        return @{ Local = $false; ApiKeyEnv = $settings.apiKeyEnv }
+    }
     if ($url.Scheme -ne 'http' -or $url.Host -ne '127.0.0.1' -or
         $url.AbsolutePath -ne '/v1/chat/completions' -or -not $settings.model) {
         throw "模型配置须为带模型标识的本机聊天端点：$Path"
     }
-    @{ Url = $url; ModelsUrl = [uri]::new($url, '/v1/models'); Alias = $settings.model }
+    @{ Local = $true; Url = $url; ModelsUrl = [uri]::new($url, '/v1/models'); Alias = $settings.model }
 }
 
 # 绕过系统代理请求本机 JSON 接口（2 秒超时），仅在 HTTP 200 时返回解析结果，网络失败返回 $null。
@@ -69,8 +72,8 @@ function Test-PortInUse([int]$Port) {
 }
 
 # 启动由本次脚本托管的子进程，将 stdout/stderr 异步落盘到独立日志目录并登记到 $owned 以便退出时统一清理。
-# 默认剥离 Chat Worker 密钥环境变量，仅在显式指定 -NeedsGeminiKey 时保留给控制台进程（最小权限隔离）。
-function Start-Owned([string]$Name, [string]$Executable, [string[]]$Arguments, [switch]$NeedsGeminiKey) {
+# 云端模型的密钥只传给负责发起推理的控制台。
+function Start-Owned([string]$Name, [string]$Executable, [string[]]$Arguments, [switch]$NeedsModelKeys) {
     # 参数逐项传递以支持路径空格，日志独立于启动器保留。
     $info = [System.Diagnostics.ProcessStartInfo]::new($Executable)
     $info.WorkingDirectory = $repo
@@ -78,7 +81,9 @@ function Start-Owned([string]$Name, [string]$Executable, [string[]]$Arguments, [
     $info.CreateNoWindow = $true
     $info.RedirectStandardOutput = $true
     $info.RedirectStandardError = $true
-    if (-not $NeedsGeminiKey) { $null = $info.Environment.Remove($keyEnvironment) }
+    if (-not $NeedsModelKeys) {
+        foreach ($variable in $keyEnvironments) { $null = $info.Environment.Remove($variable) }
+    }
     foreach ($argument in $Arguments) { $info.ArgumentList.Add($argument) }
     $stdout = [IO.File]::Open((Join-Path $logs "$Name.stdout.log"), 'CreateNew', 'Write', 'Read')
     $stderr = $null
@@ -128,55 +133,57 @@ Push-Location -LiteralPath $repo
 try {
     # Windows 子进程的启动消息也要能在使用 UTF-8 的 Bash 终端中显示。
     [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
-    # 第一阶段：校验密钥环境变量、三个回环端口互不冲突，以及 Master / Router 是否可复用或具备可执行文件与权重。
+    # 云端连接由 Java 按配置建立；只有显式声明的本机模型参与端口互斥和进程托管。
     $console = Read-Properties $consolePath
     $master = Read-ModelProfile $console.masterConfig
     $router = Read-ModelProfile $console.routerConfig
     $chat = Read-Properties $console.chatWorkerConfig
-    $keyEnvironment = $chat.apiKeyEnv
-    if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($keyEnvironment))) {
-        throw "启动环境缺少 Gemini 密钥变量 $keyEnvironment"
+    $keyEnvironments = @($chat.apiKeyEnv, $master.ApiKeyEnv, $router.ApiKeyEnv) | Where-Object { $_ } | Sort-Object -Unique
+    foreach ($variable in $keyEnvironments) {
+        if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($variable))) {
+            throw "启动环境缺少模型密钥变量 $variable"
+        }
     }
-    $ports = @([int]$console.listenPort, $master.Url.Port, $router.Url.Port)
-    if ($console.listenHost -ne '127.0.0.1' -or @($ports | Sort-Object -Unique).Count -ne 3) {
+    $ports = @([int]$console.listenPort) + @(@($master, $router) | Where-Object { $_.Local } | ForEach-Object { $_.Url.Port })
+    if ($console.listenHost -ne '127.0.0.1' -or @($ports | Sort-Object -Unique).Count -ne $ports.Count) {
         throw '启动配置须使用互不相同的本机回环端口'
     }
     if (Test-PortInUse $ports[0]) { throw "网页控制台端口 $($ports[0]) 已占用" }
-    $masterReady = Test-ReusableModel 'Master' $master
-    $routerReady = Test-ReusableModel 'Router' $router
+    $startMaster = $master.Local -and -not (Test-ReusableModel 'Master' $master)
+    $startRouter = $router.Local -and -not (Test-ReusableModel 'Router' $router)
 
     $javac = (Get-Command javac.exe -ErrorAction Stop).Source
     $env:JAVA_HOME = Split-Path -Parent (Split-Path -Parent $javac)
     $java = Join-Path $env:JAVA_HOME 'bin/java.exe'
-    if (-not $masterReady) {
+    if ($startMaster) {
         $llama = [Environment]::ExpandEnvironmentVariables($launchSettings.MasterExecutable)
         $weights = [Environment]::ExpandEnvironmentVariables($launchSettings.MasterWeights)
         if (-not (Test-Path -LiteralPath $llama -PathType Leaf) -or -not (Test-Path -LiteralPath $weights -PathType Leaf)) {
             throw "找不到 Master 程序或权重，请核对 $LaunchConfig"
         }
     }
-    if (-not $routerReady) {
+    if ($startRouter) {
         $wsl = (Get-Command wsl.exe -ErrorAction Stop).Source
         $wslArgs = @('-d', $launchSettings.RouterDistribution, '--exec')
         $checkPaths = 'p=$2; [[ $p = /* ]] || p="$HOME/$p"; test -x "$1" && test -d "$p"'
         & $wsl @wslArgs bash -c $checkPaths router $launchSettings.RouterExecutable $launchSettings.RouterWeights
         if ($LASTEXITCODE -ne 0) { throw "找不到 WSL Router 程序或权重，请核对 $LaunchConfig" }
     }
-    # 第二阶段：构建 Java 控制面可执行 JAR，并依次就绪 Master（27B）与 Router（WSL vLLM 0.8B），最后拉起网页控制台。
+    # 构建控制面；云端配置可以直接进入启动网页控制台的阶段。
     $logs = (New-Item -ItemType Directory -Path "java/target/local-launch-$launchId").FullName
     Write-Host "启动日志目录 $logs"
     & mvn -q -f java/pom.xml '-DskipTests' package
     if ($LASTEXITCODE -ne 0) { throw 'Java 21 / Maven 构建失败' }
 
     # 先确认 27B 已加载，再用固定 KV 预算启动同卡 0.8B。
-    if (-not $masterReady) {
+    if ($startMaster) {
         $service = Start-Owned 'master' $llama @('--model', $weights, '--alias', $master.Alias,
             '--host', $master.Url.Host, '--port', [string]$master.Url.Port, '--metrics',
             '--ctx-size', [string]$launchSettings.MasterContextTokens, '--gpu-layers', '99', '--parallel', '1',
             '--jinja', '--no-ui', '--reasoning', 'off', '--reasoning-budget', '0')
         Wait-Ready 'Master' $master.ModelsUrl { param($result) $result.data.id -contains $master.Alias } $service
     }
-    if (-not $routerReady) {
+    if ($startRouter) {
         $routerShell = 'pid=$1; model=$2; shift 2; [[ $model = /* ]] || model="$HOME/$model"; printf "%s\n" "$$" > "$pid" || exit 1; exec "$1" serve "$model" "${@:2}"'
         $routerArgs = $wslArgs + @('env', "NEURALCLOUD_LAUNCH_ID=$launchId", 'HF_HUB_OFFLINE=1',
             'TRANSFORMERS_OFFLINE=1', 'VLLM_NO_USAGE_STATS=1', 'bash', '-c', $routerShell, 'router',
@@ -198,7 +205,7 @@ try {
         @('-cp', $jar, 'neuralcloud.controlplane.app.ConsoleMain')
     }
     $web = Start-Owned 'console' $java (@('-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8') +
-        $consoleArgs + @('--config', $consolePath)) -NeedsGeminiKey
+        $consoleArgs + @('--config', $consolePath)) -NeedsModelKeys
     $webUrl = "http://$($console.listenHost):$($console.listenPort)/"
     Wait-Ready '网页控制台' ([uri]::new([uri]$webUrl, '/api/nodes')) {
         param($result)
