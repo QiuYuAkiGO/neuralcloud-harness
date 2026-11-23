@@ -11,6 +11,8 @@ import com.google.gson.Strictness;
 import neuralcloud.controlplane.memory.MemoryCall;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -19,9 +21,35 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public final class Master {
     private static final Gson JSON = new GsonBuilder().setStrictness(Strictness.STRICT).create();
+
+    /** OpenAI 兼容聊天端点的思考开关字段格式，用于区分本机推理服务与不同云端接口。 */
+    public enum ThinkingFormat {
+        CHAT_TEMPLATE_KWARGS,
+        DEEPSEEK,
+        NONE;
+
+        public void apply(JsonObject payload, boolean enableThinking) {
+            switch (this) {
+                case CHAT_TEMPLATE_KWARGS -> payload.add("chat_template_kwargs",
+                        JSON.toJsonTree(Map.of("enable_thinking", enableThinking)));
+                case DEEPSEEK -> payload.add("thinking",
+                        JSON.toJsonTree(Map.of("type", enableThinking ? "enabled" : "disabled")));
+                case NONE -> {}
+            }
+        }
+
+        public void apply(Map<String, Object> payload, boolean enableThinking) {
+            switch (this) {
+                case CHAT_TEMPLATE_KWARGS -> payload.put("chat_template_kwargs", Map.of("enable_thinking", enableThinking));
+                case DEEPSEEK -> payload.put("thinking", Map.of("type", enableThinking ? "enabled" : "disabled"));
+                case NONE -> {}
+            }
+        }
+    }
 
     private final HttpClient client;
     private final Settings settings;
@@ -36,9 +64,47 @@ public final class Master {
             String probePrompt,
             int probeMaxTokens,
             double probeTemperature,
-            Boolean enableThinking) {
+            Boolean enableThinking,
+            String apiKey,
+            ThinkingFormat thinkingFormat,
+            InetSocketAddress proxy) {
+        public Settings(
+                URI endpoint,
+                String model,
+                HttpClient.Version httpVersion,
+                Duration connectTimeout,
+                Duration requestTimeout,
+                String probePrompt,
+                int probeMaxTokens,
+                double probeTemperature,
+                Boolean enableThinking) {
+            this(endpoint, model, httpVersion, connectTimeout, requestTimeout, probePrompt, probeMaxTokens,
+                    probeTemperature, enableThinking, null,
+                    enableThinking == null ? null : ThinkingFormat.CHAT_TEMPLATE_KWARGS, null);
+        }
+
+        public Settings {
+            Objects.requireNonNull(endpoint);
+            Objects.requireNonNull(model);
+            Objects.requireNonNull(httpVersion);
+            Objects.requireNonNull(connectTimeout);
+            Objects.requireNonNull(requestTimeout);
+            Objects.requireNonNull(probePrompt);
+            if (enableThinking != null) {
+                Objects.requireNonNull(thinkingFormat);
+            }
+        }
+
         public boolean usesChat() {
             return enableThinking != null;
+        }
+
+        public HttpClient newClient() {
+            var builder = HttpClient.newBuilder().connectTimeout(connectTimeout);
+            if (proxy != null) {
+                builder.proxy(ProxySelector.of(proxy));
+            }
+            return builder.build();
         }
     }
 
@@ -73,7 +139,7 @@ public final class Master {
         JsonObject payload = new JsonObject();
         if (settings.usesChat()) {
             payload.add("messages", JSON.toJsonTree(List.of(Map.of("role", "user", "content", prompt))));
-            payload.add("chat_template_kwargs", JSON.toJsonTree(Map.of("enable_thinking", settings.enableThinking())));
+            settings.thinkingFormat().apply(payload, settings.enableThinking());
         } else {
             payload.addProperty("prompt", prompt);
         }
@@ -143,11 +209,7 @@ public final class Master {
     // Count the exact block with the tokenizer served by this Master's inference endpoint.
     private int countTokens(String content) throws IOException, InterruptedException {
         if (!tokenizerVerified) {
-            var models =
-                    HttpRequest.newBuilder(settings.endpoint().resolve("/v1/models"))
-                            .timeout(settings.requestTimeout())
-                            .GET()
-                            .build();
+            var models = requestBuilder(settings.endpoint().resolve("/v1/models")).GET().build();
             var names = client.send(models, HttpResponse.BodyHandlers.ofString());
             try {
                 var catalog = JSON.fromJson(names.body(), JsonObject.class);
@@ -164,12 +226,10 @@ public final class Master {
             tokenizerVerified = true;
         }
         String body = JSON.toJson(Map.of("content", content, "add_special", false));
-        var req =
-                HttpRequest.newBuilder(settings.endpoint().resolve("/tokenize"))
-                        .timeout(settings.requestTimeout())
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(body))
-                        .build();
+        var req = requestBuilder(settings.endpoint().resolve("/tokenize"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
         var res = client.send(req, HttpResponse.BodyHandlers.ofString());
         if (res.statusCode() != 200)
             throw new IOException("Master tokenizer HTTP " + res.statusCode());
@@ -196,7 +256,7 @@ public final class Master {
     public ChatTurn chat(List<Map<String, Object>> messages, List<Map<String, Object>> tools,
                          int maxTokens, double temperature, String requiredTool) throws IOException, InterruptedException {
         if (!settings.usesChat()) {
-            throw new IOException("工具调用需要配置 /v1/chat/completions");
+            throw new IOException("工具调用需要配置聊天补全端点");
         }
         JsonObject payload = new JsonObject();
         payload.add("messages", JSON.toJsonTree(messages));
@@ -207,7 +267,7 @@ public final class Master {
         if (requiredTool != null) {
             payload.add("tool_choice", JSON.toJsonTree(Map.of("type", "function", "function", Map.of("name", requiredTool))));
         }
-        payload.add("chat_template_kwargs", JSON.toJsonTree(Map.of("enable_thinking", settings.enableThinking())));
+        settings.thinkingFormat().apply(payload, settings.enableThinking());
         JsonObject choice = request(payload, maxTokens, temperature);
         JsonObject message = chatMessage(choice);
         List<ToolCall> calls = new ArrayList<>();
@@ -235,10 +295,8 @@ public final class Master {
         payload.addProperty("model", settings.model());
         payload.addProperty("max_tokens", maxTokens);
         payload.addProperty("temperature", temperature);
-        HttpRequest request = HttpRequest.newBuilder(settings.endpoint())
-                .version(settings.httpVersion())
+        HttpRequest request = requestBuilder(settings.endpoint())
                 .header("Content-Type", "application/json")
-                .timeout(settings.requestTimeout())
                 .POST(HttpRequest.BodyPublishers.ofString(JSON.toJson(payload)))
                 .build();
 
@@ -267,6 +325,16 @@ public final class Master {
             throw invalidText();
         }
         return choice;
+    }
+
+    private HttpRequest.Builder requestBuilder(URI uri) {
+        var builder = HttpRequest.newBuilder(uri)
+                .version(settings.httpVersion())
+                .timeout(settings.requestTimeout());
+        if (settings.apiKey() != null) {
+            builder.header("Authorization", "Bearer " + settings.apiKey());
+        }
+        return builder;
     }
 
     private JsonObject chatMessage(JsonObject choice) throws IOException {

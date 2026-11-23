@@ -74,6 +74,46 @@ public class MasterStartupTest {
         });
     }
 
+    @Test
+    public void sendsBearerAuthAndCloudThinkingFormats() throws Exception {
+        var authHeader = new AtomicReference<String>();
+        var request = new AtomicReference<JsonObject>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/chat/completions", exchange -> {
+            try (exchange) {
+                authHeader.set(exchange.getRequestHeaders().getFirst("Authorization"));
+                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                request.set(JsonParser.parseString(body).getAsJsonObject());
+                byte[] response = """
+                        {"model":"deepseek-v4-pro","choices":[{"finish_reason":"stop","message":{"content":"OK"}}]}
+                        """.getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, response.length);
+                exchange.getResponseBody().write(response);
+            }
+        });
+        server.start();
+        try (HttpClient client = HttpClient.newHttpClient()) {
+            URI endpoint = URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/chat/completions");
+            var deepseek = new Master.Settings(endpoint, "deepseek-v4-pro", HttpClient.Version.HTTP_1_1,
+                    Duration.ofSeconds(2), Duration.ofSeconds(3), "OK", 16, 0, false,
+                    "cloud-key", Master.ThinkingFormat.DEEPSEEK, null);
+            assertEquals("OK", new Master(client, deepseek).complete("ping", 16, 0, List.of()).text());
+            assertEquals("Bearer cloud-key", authHeader.get());
+            assertEquals("disabled", request.get().getAsJsonObject("thinking").get("type").getAsString());
+            assertFalse(request.get().has("chat_template_kwargs"));
+
+            var plain = new Master.Settings(endpoint, "deepseek-v4-pro", HttpClient.Version.HTTP_1_1,
+                    Duration.ofSeconds(2), Duration.ofSeconds(3), "OK", 16, 0, false,
+                    null, Master.ThinkingFormat.NONE, null);
+            assertEquals("OK", new Master(client, plain).complete("ping", 16, 0, List.of()).text());
+            assertEquals(null, authHeader.get());
+            assertFalse(request.get().has("thinking"));
+            assertFalse(request.get().has("chat_template_kwargs"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
     @FunctionalInterface
     private interface MasterCall {
         void run(Master master) throws IOException, InterruptedException;

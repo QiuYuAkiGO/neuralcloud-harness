@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
+import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.memory.MemoryCall;
 
 import java.io.IOException;
@@ -16,8 +17,10 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 public final class TaskWorker {
@@ -44,19 +47,34 @@ public final class TaskWorker {
 
     private final HttpClient client;
     private final URI endpoint;
+    private final HttpClient.Version httpVersion;
     private final String model;
     private final String apiKey;
+    private final Master.ThinkingFormat thinkingFormat;
     private final Duration timeout;
     private final StatusReader statusReader;
 
     public TaskWorker(HttpClient client, URI endpoint, String model, String apiKey, Duration timeout,
                       StatusReader statusReader) {
-        this.client = client;
-        this.endpoint = endpoint;
-        this.model = model;
+        this(client, endpoint, HttpClient.Version.HTTP_1_1, model, apiKey, Master.ThinkingFormat.DEEPSEEK,
+                timeout, statusReader);
+    }
+
+    /** 构造任务 Worker；apiKey 为 null 时用于免鉴权的本机推理端点。 */
+    public TaskWorker(HttpClient client, URI endpoint, HttpClient.Version httpVersion, String model, String apiKey,
+                      Master.ThinkingFormat thinkingFormat, Duration timeout, StatusReader statusReader) {
+        this.client = Objects.requireNonNull(client);
+        this.endpoint = Objects.requireNonNull(endpoint);
+        this.httpVersion = Objects.requireNonNull(httpVersion);
+        this.model = Objects.requireNonNull(model);
         this.apiKey = apiKey;
-        this.timeout = timeout;
-        this.statusReader = statusReader;
+        this.thinkingFormat = Objects.requireNonNull(thinkingFormat);
+        this.timeout = Objects.requireNonNull(timeout);
+        this.statusReader = Objects.requireNonNull(statusReader);
+    }
+
+    public URI endpoint() {
+        return endpoint;
     }
 
     public String model() {
@@ -120,18 +138,27 @@ public final class TaskWorker {
 
     private Call choose(List<Map<String, Object>> messages, List<Map<String, Object>> tools)
             throws IOException, InterruptedException {
-        var body = Map.of("model", model, "messages", messages,
-                "thinking", Map.of("type", "disabled"), "temperature", 0, "max_tokens", 96,
-                "tools", tools, "tool_choice", "required");
-        var request = HttpRequest.newBuilder(endpoint).timeout(timeout)
-                .header("Authorization", "Bearer " + apiKey)
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(JSON.toJson(body))).build();
+        var body = new LinkedHashMap<String, Object>();
+        body.put("model", model);
+        body.put("messages", messages);
+        thinkingFormat.apply(body, false);
+        body.put("temperature", 0);
+        body.put("max_tokens", 96);
+        body.put("tools", tools);
+        body.put("tool_choice", "required");
+        var builder = HttpRequest.newBuilder(endpoint)
+                .version(httpVersion)
+                .timeout(timeout)
+                .header("Content-Type", "application/json");
+        if (apiKey != null) {
+            builder.header("Authorization", "Bearer " + apiKey);
+        }
+        var request = builder.POST(HttpRequest.BodyPublishers.ofString(JSON.toJson(body))).build();
         var response = client.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() != 200) {
-            throw new IOException("任务 Worker 的 DeepSeek 端点返回 HTTP " + response.statusCode());
+            throw new IOException("任务 Worker 端点返回 HTTP " + response.statusCode());
         }
-        String rule = "DeepSeek 须返回一次包含函数字符串名称及参数的工具调用";
+        String rule = "任务 Worker 须返回一次包含函数字符串名称及参数的工具调用";
         try {
             var payload = JSON.fromJson(response.body(), JsonObject.class);
             if (payload != null && new JsonPrimitive(model).equals(payload.get("model"))

@@ -23,8 +23,11 @@ java -jar java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar --config java
 
 | 字段 | 取值 |
 | --- | --- |
-| `endpoint` | 以 `/v1/completions` 或 `/v1/chat/completions` 结尾的完整 HTTP(S) 地址 |
+| `endpoint` | 以 `/v1/completions`、`/v1/chat/completions` 或 `/chat/completions` 结尾的完整 HTTP(S) 地址 |
 | `enableThinking` | 聊天接口必填，`true` 或 `false`。续写接口省略此字段 |
+| `thinkingFormat` | 聊天接口可选，`CHAT_TEMPLATE_KWARGS`（默认，适用于本机 vLLM / llama.cpp）、`DEEPSEEK`（适用于 DeepSeek 云端接口）或 `NONE`（不发送思考开关字段） |
+| `apiKeyEnv` | 可选，云端或需鉴权推理服务的 Bearer 密钥环境变量名；免鉴权本机服务省略 |
+| `proxy` | 可选，经 HTTP 代理访问远端端点时的 `主机:端口` |
 | `model` | 推理服务返回的模型标识 |
 | `httpVersion` | `HTTP_1_1` 或 `HTTP_2`。本机 vLLM 使用 `HTTP_1_1` |
 | `connectTimeoutSeconds`、`requestTimeoutSeconds` | 连接超时和请求超时，以秒为单位的正整数 |
@@ -68,11 +71,11 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 | --- | --- |
 | `listenHost`、`listenPort` | 本机回环地址和端口 |
 | `auditDirectory` | 审计 JSONL 目录，默认放在已忽略的 `java/console-audit` |
-| `chatWorkerConfig`、`chatWorkerRolePrompt` | Chat Worker 的 Gemini 配置和职责提示 |
+| `chatWorkerConfig`、`chatWorkerRolePrompt` | Chat Worker 的模型配置与职责提示。默认 `apiFormat=GEMINI`（`proxy` 可选）；设 `apiFormat=OPENAI_CHAT` 时支持本机或云端 OpenAI 兼容聊天端点（`model`、`enableThinking`，可选 `apiKeyEnv`、`thinkingFormat`、`proxy`） |
 | `routerConfig`、`routerRolePrompt` | Router 的模型配置（须为聊天端点）和职责提示，格式同 Master 配置 |
 | `masterConfig`、`masterMaxTokens`、`masterTemperature` | Master 的模型配置，以及网页发给 Master 时的最大生成 token 数和采样温度 |
-| `routerMetrics`、`masterMetrics` | 推理服务的 Prometheus `/metrics` 地址 |
-| `routerMetricsFormat`、`masterMetricsFormat` | `VLLM` 或 `LLAMA_CPP`，决定读取哪些指标。llama.cpp 须以 `--metrics` 启动 |
+| `routerMetrics`、`masterMetrics` | 可选，推理服务的 Prometheus `/metrics` 地址；云端服务无指标端点时可与对应 `Format` 一同省略 |
+| `routerMetricsFormat`、`masterMetricsFormat` | 可选，`VLLM` 或 `LLAMA_CPP`，与对应 `Metrics` 成对配置。llama.cpp 须以 `--metrics` 启动 |
 | `gpuMetrics` | `NVIDIA_SMI` 通过本机 `nvidia-smi` 读取显存、利用率和功耗，`NONE` 不读取 |
 | `metricsIntervalSeconds`、`metricsTimeoutSeconds` | 状态读取间隔和单次读取超时，以秒为单位的正整数 |
 

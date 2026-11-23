@@ -26,7 +26,7 @@ public final class Main {
         }
 
         // 启动入口负责组装和释放资源。只有推理端点返回探测正文，才报告 Master 模型接入通过。
-        try (HttpClient client = HttpClient.newBuilder().connectTimeout(settings.connectTimeout()).build()) {
+        try (HttpClient client = settings.newClient()) {
             var master = new Master(client, settings);
             System.out.println("配置已校验，正在启动 Master：" + settings.model());
             master.probeStartup();

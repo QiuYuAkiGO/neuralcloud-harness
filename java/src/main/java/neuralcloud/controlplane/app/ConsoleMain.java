@@ -25,6 +25,7 @@ import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -109,9 +110,9 @@ public final class ConsoleMain {
             var memory = openMemory(memorySettings, opened, audit, openQqSettings.isPresent());
             var chatClient = chatSettings.newClient();
             opened.push(chatClient);
-            var routerClient = HttpClient.newBuilder().connectTimeout(routerSettings.connectTimeout()).build();
+            var routerClient = routerSettings.newClient();
             opened.push(routerClient);
-            var masterClient = HttpClient.newBuilder().connectTimeout(masterSettings.connectTimeout()).build();
+            var masterClient = masterSettings.newClient();
             opened.push(masterClient);
             var metricsClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
                     .connectTimeout(settings.metricsTimeout()).build();
@@ -119,7 +120,7 @@ public final class ConsoleMain {
 
             var chat = chatSettings.create(chatClient, chatKey, chatPrompt);
             var task = taskSettings.map(configured -> {
-                var taskClient = HttpClient.newBuilder().connectTimeout(configured.connectTimeout()).build();
+                var taskClient = configured.newClient();
                 opened.push(taskClient);
                 return configured.create(taskClient);
             });
@@ -128,7 +129,7 @@ public final class ConsoleMain {
             var master = new Master(masterClient, masterSettings);
             var chatExchange = conversation(chat, router, task, memory);
             var nodes = new ArrayList<>(List.of(
-                    new Node("chat-worker", "Chat Worker", chatSettings.endpoint().toString(), null,
+                    new Node("chat-worker", "Chat Worker", chatSettings.endpoint().toString(), chatSettings.model(),
                             chatExchange, null),
                     new Node("router", "Router", routerSettings.endpoint().toString(), routerSettings.model(),
                             (text, trace) -> new Reply("router_route", Map.of("route", router.route(text).name())),
@@ -139,8 +140,10 @@ public final class ConsoleMain {
                             master::probeStartup)));
             nodes.addAll(extension.nodes(new Components(chat, routerInference, master, routerSettings, masterSettings)));
 
-            var monitor = new NodeMonitor(metricsClient, settings.metricsTimeout(), settings.gpuMetrics(),
-                    Map.of("router", settings.routerMetrics(), "master", settings.masterMetrics()));
+            var nodeMetrics = new LinkedHashMap<String, NodeMonitor.Metrics>();
+            settings.routerMetrics().ifPresent(source -> nodeMetrics.put("router", source));
+            settings.masterMetrics().ifPresent(source -> nodeMetrics.put("master", source));
+            var monitor = new NodeMonitor(metricsClient, settings.metricsTimeout(), settings.gpuMetrics(), nodeMetrics);
             opened.push(monitor);
             monitor.start(settings.metricsInterval());
 
@@ -304,7 +307,7 @@ public final class ConsoleMain {
             Optional<MemoryAccess> memory)
             throws IOException, InterruptedException {
         int dispatched = trace.write(routed, "task-worker", "task_worker_dispatch",
-                Map.of("provider", "DeepSeek", "model", task.model()));
+                Map.of("provider", task.endpoint().getHost(), "model", task.model()));
         var read = memory.map(store -> store.reads().bind(trace, Caller.TASK_WORKER, dispatched));
         String actionId = trace.scope().runId() + ":" + dispatched;
         var status =

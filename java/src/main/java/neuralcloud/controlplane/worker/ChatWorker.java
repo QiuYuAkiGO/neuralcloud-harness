@@ -3,10 +3,12 @@ package neuralcloud.controlplane.worker;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
+import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.memory.ConversationMemory.QueryKind;
 import neuralcloud.controlplane.memory.MemoryCall;
 import neuralcloud.controlplane.router.Route;
@@ -21,6 +23,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -88,11 +91,19 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
             只返回 REPLY 或 SKIP，不写要发送的正文。
             """;
 
+    /** Chat Worker 支持原生 Gemini generateContent 与 OpenAI 兼容聊天补全（含本机与云端）。 */
+    public enum ApiFormat { GEMINI, OPENAI_CHAT }
+
+    private final ApiFormat apiFormat;
     private final HttpClient client;
     private final URI endpoint;
+    private final HttpClient.Version httpVersion;
+    private final String model;
     private final Duration requestTimeout;
     private final int maxOutputTokens;
     private final String thinkingLevel;
+    private final boolean enableThinking;
+    private final Master.ThinkingFormat thinkingFormat;
     private final String apiKey;
     private final String rolePrompt;
     private final String selectionPrompt;
@@ -108,12 +119,36 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
 
     public ChatWorker(HttpClient client, URI endpoint, Duration requestTimeout, int maxOutputTokens,
                       String thinkingLevel, String apiKey, String rolePrompt, String preferences) {
+        this(ApiFormat.GEMINI, client, endpoint, null, null, requestTimeout, maxOutputTokens,
+                Objects.requireNonNull(thinkingLevel), false, null, Objects.requireNonNull(apiKey),
+                rolePrompt, preferences);
+    }
+
+    /** 构造使用 OpenAI 兼容聊天端点的 Chat Worker；apiKey 为 null 时用于免鉴权的本机服务。 */
+    public static ChatWorker openAiChat(HttpClient client, URI endpoint, HttpClient.Version httpVersion,
+                                        String model, String apiKey, Duration requestTimeout, int maxOutputTokens,
+                                        boolean enableThinking, Master.ThinkingFormat thinkingFormat,
+                                        String rolePrompt, String preferences) {
+        return new ChatWorker(ApiFormat.OPENAI_CHAT, client, endpoint, Objects.requireNonNull(httpVersion),
+                Objects.requireNonNull(model), requestTimeout, maxOutputTokens, null, enableThinking,
+                Objects.requireNonNull(thinkingFormat), apiKey, rolePrompt, preferences);
+    }
+
+    private ChatWorker(ApiFormat apiFormat, HttpClient client, URI endpoint, HttpClient.Version httpVersion,
+                       String model, Duration requestTimeout, int maxOutputTokens, String thinkingLevel,
+                       boolean enableThinking, Master.ThinkingFormat thinkingFormat, String apiKey,
+                       String rolePrompt, String preferences) {
+        this.apiFormat = Objects.requireNonNull(apiFormat);
         this.client = Objects.requireNonNull(client);
         this.endpoint = Objects.requireNonNull(endpoint);
+        this.httpVersion = httpVersion;
+        this.model = model;
         this.requestTimeout = Objects.requireNonNull(requestTimeout);
         this.maxOutputTokens = maxOutputTokens;
-        this.thinkingLevel = Objects.requireNonNull(thinkingLevel);
-        this.apiKey = Objects.requireNonNull(apiKey);
+        this.thinkingLevel = thinkingLevel;
+        this.enableThinking = enableThinking;
+        this.thinkingFormat = thinkingFormat;
+        this.apiKey = apiKey;
         this.rolePrompt = Objects.requireNonNull(rolePrompt);
         this.selectionPrompt = SELECTION_PROMPT.formatted(Objects.requireNonNull(preferences));
     }
@@ -124,11 +159,17 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         if (context.addressing() == Addressing.DIRECT) {
             return Decision.REPLY;
         }
-        var generationConfig = Map.of("maxOutputTokens", maxOutputTokens,
-                "thinkingConfig", Map.of("thinkingLevel", thinkingLevel, "includeThoughts", false),
-                "responseMimeType", "text/x.enum",
-                "responseSchema", Map.of("type", "STRING", "enum", Decision.values()));
-        String decision = generate(selectionPrompt, JSON.toJson(context), generationConfig);
+        String decision;
+        if (apiFormat == ApiFormat.GEMINI) {
+            var generationConfig = Map.of("maxOutputTokens", maxOutputTokens,
+                    "thinkingConfig", Map.of("thinkingLevel", thinkingLevel, "includeThoughts", false),
+                    "responseMimeType", "text/x.enum",
+                    "responseSchema", Map.of("type", "STRING", "enum", Decision.values()));
+            decision = generate(selectionPrompt, JSON.toJson(context), generationConfig);
+        } else {
+            var allowed = List.of(Decision.REPLY.name(), Decision.SKIP.name());
+            decision = selectOpenAiEnum(selectionPrompt, JSON.toJson(context), "select_reply", "decision", allowed);
+        }
         try {
             return Decision.valueOf(decision);
         } catch (IllegalArgumentException error) {
@@ -185,15 +226,28 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         if (!selfHistoryAvailable) {
             choices.remove(TurnKind.SELF_HISTORY);
         }
-        var schema = Map.of("type", "OBJECT", "required", List.of("kind", "query"),
-                "properties", Map.of("kind", Map.of("type", "STRING", "enum", choices),
-                        "query", Map.of("type", "STRING")));
-        var config = Map.of("maxOutputTokens", maxOutputTokens,
-                "thinkingConfig", Map.of("thinkingLevel", thinkingLevel, "includeThoughts", false),
-                "responseMimeType", "application/json", "responseSchema", schema);
         String prompt = rolePrompt + TURN_INSTRUCTION + (selfHistoryAvailable ? SELF_HISTORY_INSTRUCTION : "");
-        var result =
-                generateWithUsage(prompt, contents(history, context.message(), List.of()), config);
+        Generation result;
+        if (apiFormat == ApiFormat.GEMINI) {
+            var schema = Map.of("type", "OBJECT", "required", List.of("kind", "query"),
+                    "properties", Map.of("kind", Map.of("type", "STRING", "enum", choices),
+                            "query", Map.of("type", "STRING")));
+            var config = Map.of("maxOutputTokens", maxOutputTokens,
+                    "thinkingConfig", Map.of("thinkingLevel", thinkingLevel, "includeThoughts", false),
+                    "responseMimeType", "application/json", "responseSchema", schema);
+            result = generateWithUsage(prompt, contents(history, context.message(), List.of()), config);
+        } else {
+            var choiceNames = choices.stream().map(Enum::name).toList();
+            var parameters = Map.<String, Object>of(
+                    "type", "object",
+                    "additionalProperties", false,
+                    "required", List.of("kind", "query"),
+                    "properties", Map.of(
+                            "kind", Map.of("type", "string", "enum", choiceNames),
+                            "query", Map.of("type", "string")));
+            result = callOpenAiTool(prompt, history, context.message(), "plan_turn",
+                    "提交本轮处理类别与查询线索", parameters);
+        }
         try {
             var plan = JSON.fromJson(result.text(), JsonObject.class);
             if (plan != null && plan.size() == 2 && plan.get("kind") instanceof JsonPrimitive kind && kind.isString()
@@ -229,8 +283,12 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         if (turn.kind() != TurnKind.REPLY && materials.isEmpty()) {
             return Optional.of(generateReply(DRAFT_INSTRUCTION, "我这次没有查到符合条件的记忆。"));
         }
-        return Optional.of(generate(rolePrompt + CONVERSATION_INSTRUCTION + RECALL_INSTRUCTION,
-                contents(turn.dialogue(), turn.context().message(), materials), replyConfig()).strip());
+        String prompt = rolePrompt + CONVERSATION_INSTRUCTION + RECALL_INSTRUCTION;
+        if (apiFormat == ApiFormat.GEMINI) {
+            return Optional.of(generate(prompt,
+                    contents(turn.dialogue(), turn.context().message(), materials), replyConfig()).strip());
+        }
+        return Optional.of(callOpenAiText(prompt, turn.dialogue(), turn.context().message(), materials).strip());
     }
 
     public Optional<String> reply(RoutedConversation conversation) throws IOException {
@@ -263,6 +321,20 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         return contents;
     }
 
+    private static List<Map<String, Object>> openAiMessages(String prompt, List<DialogueMessage> dialogue,
+                                                            String current, List<String> materials) {
+        var messages = new ArrayList<Map<String, Object>>();
+        messages.add(Map.of("role", "system", "content", prompt));
+        for (var message : dialogue) {
+            messages.add(Map.of("role", message.speaker() == DialogueMessage.Speaker.USER ? "user" : "assistant",
+                    "content", message.text()));
+        }
+        String userContent = materials.isEmpty() ? current
+                : current + "\n\n记忆服务返回的查询材料：\n" + String.join("\n", materials);
+        messages.add(Map.of("role", "user", "content", userContent));
+        return messages;
+    }
+
     private static Map<String, Object> content(String role, String text) {
         return Map.of("role", role, "parts", List.of(Map.of("text", text)));
     }
@@ -272,11 +344,16 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
             return Optional.empty();
         }
         // 模型只选择角色开场，读取完成与各项数值由回执确定。
-        String intro = generate(rolePrompt + "\n选择一句简短的开场，告诉用户本轮已完成服务器状态读取。",
-                "本轮已完成服务器状态读取。", Map.of("maxOutputTokens", maxOutputTokens,
-                        "thinkingConfig", Map.of("thinkingLevel", thinkingLevel, "includeThoughts", false),
-                        "responseMimeType", "text/x.enum",
-                        "responseSchema", Map.of("type", "STRING", "enum", STATUS_INTROS)));
+        String intro;
+        String prompt = rolePrompt + "\n选择一句简短的开场，告诉用户本轮已完成服务器状态读取。";
+        if (apiFormat == ApiFormat.GEMINI) {
+            intro = generate(prompt, "本轮已完成服务器状态读取。", Map.of("maxOutputTokens", maxOutputTokens,
+                    "thinkingConfig", Map.of("thinkingLevel", thinkingLevel, "includeThoughts", false),
+                    "responseMimeType", "text/x.enum",
+                    "responseSchema", Map.of("type", "STRING", "enum", STATUS_INTROS)));
+        } else {
+            intro = selectOpenAiEnum(prompt, "本轮已完成服务器状态读取。", "select_status_intro", "intro", STATUS_INTROS);
+        }
         if (!STATUS_INTROS.contains(intro)) {
             throw new IOException("Chat Worker 服务器状态回复须使用已声明的角色开场");
         }
@@ -284,7 +361,10 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
     }
 
     private String generateReply(String instruction, String text) throws IOException {
-        return generate(rolePrompt + instruction, text, replyConfig()).strip();
+        if (apiFormat == ApiFormat.GEMINI) {
+            return generate(rolePrompt + instruction, text, replyConfig()).strip();
+        }
+        return callOpenAiText(rolePrompt + instruction, List.of(), text, List.of()).strip();
     }
 
     private Map<String, ?> replyConfig() {
@@ -329,14 +409,152 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         }
     }
 
+    private String callOpenAiText(String prompt, List<DialogueMessage> dialogue, String current, List<String> materials)
+            throws IOException {
+        var body = new LinkedHashMap<String, Object>();
+        body.put("model", model);
+        body.put("messages", openAiMessages(prompt, dialogue, current, materials));
+        body.put("max_tokens", maxOutputTokens);
+        thinkingFormat.apply(body, enableThinking);
+        var response = sendOpenAi(body);
+        var choice = openAiChoice(response);
+        String finishReason = openAiString(choice, "finish_reason");
+        if (!"stop".equals(finishReason)) {
+            throw new IOException("Chat Worker 文本候选未正常结束（" + (finishReason.isBlank() ? "未知" : finishReason) + "）");
+        }
+        if (!(choice.get("message") instanceof JsonObject message)) {
+            throw new IOException("Chat Worker 响应缺少 message");
+        }
+        JsonElement toolCalls = message.get("tool_calls");
+        if (toolCalls != null && !toolCalls.isJsonNull()
+                && (!(toolCalls instanceof JsonArray array) || !array.isEmpty())) {
+            throw new IOException("Chat Worker 普通回复不应返回 tool_calls");
+        }
+        if (!(message.get("content") instanceof JsonPrimitive content) || !content.isString()
+                || content.getAsString().isBlank()) {
+            throw new IOException("Chat Worker 未返回可见的回复正文");
+        }
+        return content.getAsString();
+    }
+
+    // OpenAI 兼容端点通过唯一指定工具约束结构化判断，避免从自由文本猜测字段或枚举。
+    private String selectOpenAiEnum(String prompt, String input, String toolName, String field, List<String> values)
+            throws IOException {
+        var parameters = Map.<String, Object>of(
+                "type", "object",
+                "additionalProperties", false,
+                "required", List.of(field),
+                "properties", Map.of(field, Map.of("type", "string", "enum", values)));
+        String arguments = callOpenAiTool(prompt, List.of(), input, toolName, "选择一项允许的枚举值", parameters).text();
+        try {
+            var parsed = JSON.fromJson(arguments, JsonObject.class);
+            if (parsed != null && parsed.size() == 1
+                    && parsed.get(field) instanceof JsonPrimitive value && value.isString()) {
+                return value.getAsString();
+            }
+        } catch (JsonParseException error) {
+            throw new IOException("Chat Worker 结构化选择不符合契约", error);
+        }
+        throw new IOException("Chat Worker 结构化选择不符合契约");
+    }
+
+    private Generation callOpenAiTool(String prompt, List<DialogueMessage> dialogue, String current,
+                                      String toolName, String description, Map<String, Object> parameters)
+            throws IOException {
+        var body = new LinkedHashMap<String, Object>();
+        body.put("model", model);
+        body.put("messages", openAiMessages(prompt, dialogue, current, List.of()));
+        body.put("max_tokens", maxOutputTokens);
+        body.put("temperature", 0);
+        body.put("tools", List.of(Map.of(
+                "type", "function",
+                "function", Map.of("name", toolName, "description", description, "parameters", parameters))));
+        body.put("tool_choice", Map.of("type", "function", "function", Map.of("name", toolName)));
+        body.put("parallel_tool_calls", false);
+        thinkingFormat.apply(body, enableThinking);
+        var response = sendOpenAi(body);
+        var choice = openAiChoice(response);
+        String finishReason = openAiString(choice, "finish_reason");
+        if (!("tool_calls".equals(finishReason) || "stop".equals(finishReason))) {
+            throw new IOException("Chat Worker 结构化选择未正常结束（" + (finishReason.isBlank() ? "未知" : finishReason) + "）");
+        }
+        if (choice.get("message") instanceof JsonObject message
+                && message.get("tool_calls") instanceof JsonArray calls && calls.size() == 1
+                && calls.get(0) instanceof JsonObject call
+                && "function".equals(openAiString(call, "type"))
+                && call.get("function") instanceof JsonObject function
+                && toolName.equals(openAiString(function, "name"))
+                && function.get("arguments") instanceof JsonPrimitive arguments && arguments.isString()) {
+            return new Generation(arguments.getAsString(), openAiUsage(response));
+        }
+        throw new IOException("Chat Worker 须通过一次 " + toolName + " 工具调用提交结构化结果");
+    }
+
+    private JsonObject sendOpenAi(Map<String, Object> body) throws IOException {
+        var builder = HttpRequest.newBuilder(endpoint)
+                .version(httpVersion)
+                .timeout(requestTimeout)
+                .header("Content-Type", "application/json");
+        if (apiKey != null) {
+            builder.header("Authorization", "Bearer " + apiKey);
+        }
+        var request = builder.POST(HttpRequest.BodyPublishers.ofString(JSON.toJson(body))).build();
+        HttpResponse<String> response;
+        try {
+            response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Chat Worker 请求被中断", error);
+        }
+        if (response.statusCode() != 200) {
+            throw new IOException("Chat Worker 返回 HTTP " + response.statusCode());
+        }
+        try {
+            var payload = JSON.fromJson(response.body(), JsonObject.class);
+            if (payload == null || !model.equals(openAiString(payload, "model"))) {
+                throw new IOException("Chat Worker 响应中的 model 与配置不符");
+            }
+            return payload;
+        } catch (JsonParseException error) {
+            throw new IOException("Chat Worker 响应不是有效的 JSON 对象", error);
+        }
+    }
+
+    private static JsonObject openAiChoice(JsonObject payload) throws IOException {
+        if (payload.get("choices") instanceof JsonArray choices && choices.size() == 1
+                && choices.get(0) instanceof JsonObject choice) {
+            return choice;
+        }
+        throw new IOException("Chat Worker 响应须有一条文本候选");
+    }
+
+    private static String openAiString(JsonObject object, String name) {
+        return object.get(name) instanceof JsonPrimitive value && value.isString() ? value.getAsString() : "";
+    }
+
+    private static Map<String, Integer> openAiUsage(JsonObject response) {
+        var counts = new HashMap<String, Integer>();
+        if (response.get("usage") instanceof JsonObject usage) {
+            putCount(counts, "promptTokenCount", usage.get("prompt_tokens"));
+            JsonElement cached = usage.get("prompt_tokens_details") instanceof JsonObject details
+                    && details.has("cached_tokens") ? details.get("cached_tokens") : usage.get("prompt_cache_hit_tokens");
+            putCount(counts, "cachedContentTokenCount", cached);
+        }
+        return Map.copyOf(counts);
+    }
+
+    private static void putCount(Map<String, Integer> counts, String key, JsonElement value) {
+        if (value instanceof JsonPrimitive count && count.isNumber()
+                && count.getAsString().matches("[0-9]{1,9}")) {
+            counts.put(key, count.getAsInt());
+        }
+    }
+
     private static Map<String, Integer> usage(JsonObject response) {
         var counts = new HashMap<String, Integer>();
         if (response.get("usageMetadata") instanceof JsonObject metadata) {
             for (String field : List.of("promptTokenCount", "cachedContentTokenCount")) {
-                if (metadata.get(field) instanceof JsonPrimitive count && count.isNumber()
-                        && count.getAsString().matches("[0-9]{1,9}")) {
-                    counts.put(field, count.getAsInt());
-                }
+                putCount(counts, field, metadata.get(field));
             }
         }
         return Map.copyOf(counts);
