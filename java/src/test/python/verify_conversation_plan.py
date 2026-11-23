@@ -27,13 +27,20 @@ def verify(events):
         dispatch = parent(reply, "worker_dispatch")
         plan = parent(dispatch, "router_plan")
         intent = parent(plan, "intent")
-        received = parent(intent, "memory_call_result")
-        recall = parent(received, "memory_recall")
-        query = parent(recall, "memory_call")
-        # 已配置的热目录或更正通知可以在分流与查询之间插入记忆事件。
-        route = by_id[query["runId"], query["causedBy"]]
-        while route["type"] != "router_route":
+        route = by_id[intent["runId"], intent["causedBy"]]
+        lookup = []
+        if route["type"] == "memory_call_result":
+            received = route
+            recall = parent(received, "memory_recall")
+            query = parent(recall, "memory_call")
+            lookup = [query, recall, received]
+            route = by_id[query["runId"], query["causedBy"]]
+        else:
+            assert not intent["data"]["evidence"] and not intent["data"]["impression"]
+        # 直接提交也可消费热目录和更正通知，这些材料没有可引用的证据编号。
+        while route["type"] in ("memory_hot_index", "memory_hot_index_unavailable", "memory_context_reset"):
             route = by_id[route["runId"], route["causedBy"]]
+        assert route["type"] == "router_route", "意图须能追溯到本轮分流"
         source = parent(route, "memory_durable")
         message = parent(parent(source, "router_memory_write"), "operator_message")
 
@@ -49,6 +56,7 @@ def verify(events):
         workflow = plan["data"]["workflowId"]
         assert reply["data"]["workflowId"] == dispatch["data"]["workflowId"] == workflow
         if results:
+            assert lookup, "第二轮须查证首轮的看展安排"
             original = results[0]["source"]
             assert workflow != results[0]["workflowId"], "两轮工作流必须独立"
             assert original in intent["data"]["evidence"], "Master 的意图没有引用首轮原文的版本"
@@ -59,7 +67,7 @@ def verify(events):
         results.append(dict(runId=reply["runId"], reply=reply["data"]["text"], workflowId=workflow,
                             source=dict(record_id=source["data"]["recordId"], revision=source["data"]["revision"]),
                             evidence=intent["data"]["evidence"], toolCallId=plan["data"]["toolCallId"],
-                            events={e["type"]: e["eventId"] for e in (message, source, recall, received,
+                            events={e["type"]: e["eventId"] for e in (message, source, *lookup,
                                                                        intent, plan, dispatch, reply, written)}))
     return results
 

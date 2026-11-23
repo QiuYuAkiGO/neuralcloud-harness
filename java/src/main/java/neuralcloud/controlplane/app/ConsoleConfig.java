@@ -1,6 +1,7 @@
 package neuralcloud.controlplane.app;
 
 import neuralcloud.controlplane.console.NodeMonitor;
+import neuralcloud.controlplane.orchestration.MasterEpochs;
 
 import java.io.IOException;
 import java.net.InetAddress;
@@ -38,7 +39,7 @@ final class ConsoleConfig {
                     ConfigSource routerConfig, ConfigSource routerRolePrompt,
                     Optional<NodeMonitor.Metrics> routerMetrics,
                     ConfigSource masterConfig, Optional<NodeMonitor.Metrics> masterMetrics,
-                    int masterMaxTokens, double masterTemperature,
+                    int masterMaxTokens, double masterTemperature, MasterEpochs.Profile masterEpoch,
                     NodeMonitor.GpuSource gpuMetrics, Duration metricsInterval, Duration metricsTimeout,
                     Optional<ConfigSource> taskWorkerConfig, Optional<ConfigSource> openQqConfig,
                     Optional<ConfigSource> memoryConfig) {
@@ -60,6 +61,8 @@ final class ConsoleConfig {
         required.remove("taskWorkerConfig");
         required.remove("openQqConfig");
         required.remove("memoryConfig");
+        required.remove("masterEpochWorkingBytes");
+        required.remove("masterEpochTriggerBytes");
         if (!required.equals(FIELDS)
                 || properties.values().stream().anyMatch(value -> value.toString().isBlank())) {
             throw new IllegalArgumentException("控制台配置须包含以下非空字段 " + FIELDS);
@@ -90,13 +93,22 @@ final class ConsoleConfig {
                 optionalMetrics(properties, "routerMetrics"),
                 new ConfigSource(properties.getProperty("masterConfig")),
                 optionalMetrics(properties, "masterMetrics"),
-                positive(properties, "masterMaxTokens"), temperature,
+                positive(properties, "masterMaxTokens"), temperature, epochProfile(properties),
                 enumValue(NodeMonitor.GpuSource.class, properties, "gpuMetrics"),
                 Duration.ofSeconds(positive(properties, "metricsIntervalSeconds")),
                 Duration.ofSeconds(positive(properties, "metricsTimeoutSeconds")),
                 Optional.ofNullable(properties.getProperty("taskWorkerConfig")).map(ConfigSource::new),
                 Optional.ofNullable(properties.getProperty("openQqConfig")).map(ConfigSource::new),
                 Optional.ofNullable(properties.getProperty("memoryConfig")).map(ConfigSource::new));
+    }
+
+    /** 旧配置使用首版小窗水位。自定义时须成对声明，按模型档位同时选择工作水位和触发水位。 */
+    private static MasterEpochs.Profile epochProfile(Properties properties) {
+        boolean working = properties.containsKey("masterEpochWorkingBytes");
+        boolean trigger = properties.containsKey("masterEpochTriggerBytes");
+        if (working != trigger) throw new IllegalArgumentException("masterEpochWorkingBytes 与 masterEpochTriggerBytes 须成对配置");
+        return working ? new MasterEpochs.Profile(positive(properties, "masterEpochWorkingBytes"),
+                positive(properties, "masterEpochTriggerBytes")) : MasterEpochs.Profile.DEFAULT;
     }
 
     /**

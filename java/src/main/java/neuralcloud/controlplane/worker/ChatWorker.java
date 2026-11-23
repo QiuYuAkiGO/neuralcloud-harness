@@ -72,17 +72,20 @@ public final class ChatWorker implements ReplySelector {
             """
 
 以最后一条用户消息为本轮输入，结合前面对话确定它指的是哪件事。只提交结构化选择，不写回复。
-SELF_IDENTITY：用户问自己是谁、你是否认得自己、或上次如何称呼自己。
-用户在追问同一个问题时沿用问题类型。比如上一轮问“你还记得我是谁吗”，本轮说“要不再想想”，选 SELF_IDENTITY。
 HISTORY：回查已经发生的事情，包括核对原话、最新修订或已有的工具执行回执。
 用户问一件事的经过或前后变化时选 HISTORY，查当事人的原始记录后再作答。
 用户追问“再查一次”时，以查证对象决定类别。查某个动作已有的结果或回执仍选 HISTORY，即使记录可能刚刚更新。
 query 写简短的检索线索，保留话题、动作对象或人名，
 去掉问句套语。线索须写出具体要找的内容；“上文内容”“之前的对话”本身不能作为线索。
 ACTION：要求现在派发行动、修改数据或向外部系统取得新的现场观测，包括请求越权获取数据。
-REPLY：普通交流，或从前面已给出的对话就能回答。明确要求核对记录或引用来源时，先选相应的查证类别。
+REPLY：普通交流、向你问候、询问你自己的身份或喜好，或从前面已给出的对话就能回答。明确要求核对记录或引用来源时，先选相应的查证类别。
 CLARIFY：本轮明显在追问，但结合对话仍无法确定指代对象，需要向用户问清楚。
 查询历史发言的类别填写具体 query，其余类别的 query 填空字符串。
+""";
+    private static final String SELF_IDENTITY_INSTRUCTION = """
+
+SELF_IDENTITY：当前发言者询问自己已确认的称呼、或问你是否认得发言者本人，query 填空字符串。
+用户在追问同一个问题时沿用问题类型。比如上一轮问“你还记得我是谁吗”，本轮说“要不再想想”，选 SELF_IDENTITY。
 """;
     private static final String SELF_HISTORY_INSTRUCTION =
             """
@@ -214,11 +217,16 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         return Optional.of(generateReply(DRAFT_INSTRUCTION, approvedText));
     }
 
-    /** 派单决定如何表达，Master 批准的意图决定可传达的事实。角色只收到本步所需的两段文字。 */
-    public String replyToPlan(String instruction, String replyIntent) throws IOException {
-        return generateReply(
-                DRAFT_INSTRUCTION + "获准正文见 replyIntent。step 只指导表达。逐字保留「」内选定的事实，只用获准正文中明确给出的事实和承诺。",
-                JSON.toJson(Map.of("step", instruction, "replyIntent", replyIntent)));
+    /** 本轮原文确定对话对象，派单限定交流目的和可传达的事实。自称和口吻始终由配置的角色设定决定。 */
+    public String replyToPlan(String message, String instruction, String replyIntent) throws IOException {
+        return generateReply("""
+
+                以本系统角色设定中的身份和口吻，直接回应 userMessage 中的发言。需要自我介绍时，用你自己的名字。
+                replyIntent 是获准表达的目的与事实，step 是派单说明。这两者中的称谓或示例台词都不能更改你的角色身份。
+                根据原文判断在和谁说话，用自己的话回应。只提角色设定或本轮材料支持的个人经历和关系。
+                外部事实、时间、不确定性和行动状态以 replyIntent 为准，逐字保留其中「」内选定的事实。
+                不得添加承诺或行动结果。只输出给对方的简短回复。
+                """, JSON.toJson(Map.of("userMessage", message, "step", instruction, "replyIntent", replyIntent)));
     }
 
     /** 审计使用本次实际调用的模型名；Gemini 在端点路径中声明模型。 */
@@ -270,16 +278,23 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         return planTurn(text, dialogue, selfHistoryAvailable, List.of());
     }
 
+    /** 已有直接对话入口保留称呼查询，可由调用方另行开放本人跨会话原话。 */
+    public Turn planTurn(String text, List<DialogueMessage> dialogue, boolean selfHistoryAvailable, List<String> updates)
+            throws IOException {
+        var kinds = selfHistoryAvailable ? List.of(QueryKind.values()) : List.of(QueryKind.HISTORY, QueryKind.SELF_IDENTITY);
+        return planTurn(text, dialogue, kinds, updates);
+    }
+
     /**
      * 执行本轮意图与取证规划（仅产出结构化 {@link Turn}，不写回复正文）：
      * 1. 若记忆服务在轮次开始提供了证据更新（{@code updates}），先作为前缀插入对话历史，保证规划与后续生成看到同一上下文；
-     * 2. 根据渠道能力动态裁剪可选枚举（是否包含 {@code SELF_HISTORY}），通过受限 Schema 或 {@code plan_turn} 工具获取 {@code kind} 与 {@code query}；
+     * 2. 仅开放本轮读取句柄支持的查询，通过受限 Schema 或 {@code plan_turn} 工具获取 {@code kind} 与 {@code query}；
      * 3. 复用 {@link MemoryCall#validQuery} 严格校验查询词合法性，拦截“上文内容/聊天记录”等空泛占位词。
      */
     public Turn planTurn(
             String text,
             List<DialogueMessage> dialogue,
-            boolean selfHistoryAvailable,
+            List<QueryKind> queryKinds,
             List<String> updates)
             throws IOException {
         var context = Context.direct(text);
@@ -291,11 +306,11 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
                             DialogueMessage.Speaker.USER,
                             "记忆服务提供的证据更新：\n" + String.join("\n", updates)));
         // 渠道和记忆服务共同决定可用范围。模型只选择类别和线索，不能提交账号。
-        var choices = EnumSet.allOf(TurnKind.class);
-        if (!selfHistoryAvailable) {
-            choices.remove(TurnKind.SELF_HISTORY);
-        }
-        String prompt = rolePrompt + TURN_INSTRUCTION + (selfHistoryAvailable ? SELF_HISTORY_INSTRUCTION : "");
+        var choices = EnumSet.of(TurnKind.REPLY, TurnKind.ACTION, TurnKind.CLARIFY);
+        for (var kind : queryKinds) choices.add(TurnKind.valueOf(kind.name()));
+        String prompt = rolePrompt + TURN_INSTRUCTION
+                + (queryKinds.contains(QueryKind.SELF_IDENTITY) ? SELF_IDENTITY_INSTRUCTION : "")
+                + (queryKinds.contains(QueryKind.SELF_HISTORY) ? SELF_HISTORY_INSTRUCTION : "");
         Generation result;
         if (apiFormat == ApiFormat.GEMINI) {
             var schema = Map.of("type", "OBJECT", "required", List.of("kind", "query"),

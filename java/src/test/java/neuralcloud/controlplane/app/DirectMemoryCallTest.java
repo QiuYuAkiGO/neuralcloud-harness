@@ -8,6 +8,8 @@ import com.sun.net.httpserver.HttpServer;
 import neuralcloud.controlplane.console.AuditLog;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
 import neuralcloud.controlplane.master.Master;
+import neuralcloud.controlplane.master.MasterRuntime;
+import neuralcloud.controlplane.orchestration.MasterEpochs;
 import neuralcloud.controlplane.memory.ConversationMemory;
 import neuralcloud.controlplane.memory.MemoryCall;
 import neuralcloud.controlplane.memory.MemoryJournal;
@@ -23,6 +25,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.sql.DriverManager;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -63,7 +66,8 @@ public class DirectMemoryCallTest {
                     """);
         });
         server.start();
-        try (var client = HttpClient.newHttpClient(); var audit = AuditLog.open(folder.getRoot().toPath())) {
+        try (var client = HttpClient.newHttpClient(); var audit = AuditLog.open(folder.getRoot().toPath());
+             var epochs = new MasterEpochs(audit.directory().resolve("epochs.sqlite"), MasterEpochs.Profile.DEFAULT)) {
             var base = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
             var memory = new ConversationMemory(audit, new ResidentMemory(client, base, "misty", "test-token", true));
             var timeout = Duration.ofSeconds(3);
@@ -77,7 +81,8 @@ public class DirectMemoryCallTest {
                 var trace = Trace.forChain(audit, "console", "s", parent);
                 int resultId;
                 if ("master".equals(node)) {
-                    var reply = ConsoleMain.masterConversation(master, 128, 0, Optional.of(memory)).send("查巡检别名。", trace);
+                    var reply = ConsoleMain.masterConversation(new MasterRuntime(master, epochs, 128, 0),
+                            Optional.of(memory)).send("查巡检别名。", trace);
                     assertEquals("巡检别名指外部主机。", reply.data().get("text"));
                     resultId = reply.causedBy();
                 } else {
@@ -138,7 +143,9 @@ public class DirectMemoryCallTest {
         server.createContext("/model", exchange -> {
             var request = body(exchange);
             requests.add(request);
-            String name = request.getAsJsonObject("tool_choice").getAsJsonObject("function").get("name").getAsString();
+            var choice = request.get("tool_choice");
+            String name = choice.isJsonPrimitive() ? "memory_call"
+                    : choice.getAsJsonObject().getAsJsonObject("function").get("name").getAsString();
             String args = "memory_call".equals(name) ? "{\"kind\":\"HISTORY\",\"query\":\"看展\"}"
                     : JSON.toJson(Map.of("assessment", "根据小林的原话，我目前倾向于周六看展", "replyIntent", "说明看展安排",
                             "evidence", List.of(requests.size() == 2 ? 2 : 1), "impression", "", "needsReply", true));
@@ -149,6 +156,7 @@ public class DirectMemoryCallTest {
         var base = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
         var dir = folder.getRoot().toPath();
         try (var client = HttpClient.newHttpClient(); var audit = AuditLog.open(dir);
+             var epochs = new MasterEpochs(dir.resolve("epochs.sqlite"), MasterEpochs.Profile.DEFAULT);
              var journal = new MemoryJournal(dir.resolve("journal.sqlite"))) {
             var memory = new ConversationMemory(audit, new ResidentV2(client, base, "misty", "test-token", true, journal, null));
             var timeout = Duration.ofSeconds(3);
@@ -156,7 +164,8 @@ public class DirectMemoryCallTest {
                     timeout, timeout, "探测", 8, 0, false));
             var trace = Trace.forChain(audit, "console", "intent", audit.write("intent", null, "master", "operator_message",
                     Map.of("text", "/intent 请核对周六的安排")));
-            var reply = ConsoleMain.masterConversation(master, 256, 0, Optional.of(memory)).send("/intent 请核对周六的安排", trace);
+            var reply = ConsoleMain.masterConversation(new MasterRuntime(master, epochs, 256, 0),
+                    Optional.of(memory)).send("/intent 请核对周六的安排", trace);
             assertEquals("intent", reply.type());
             assertEquals(List.of(new MemoryCall.EvidenceRef("a".repeat(64), 3)), reply.data().get("evidence"));
             assertEquals(3, requests.size());
@@ -172,6 +181,72 @@ public class DirectMemoryCallTest {
             assertTrue(correction.get("content").getAsString().contains("evidence"));
         } finally {
             server.stop(0);
+        }
+    }
+
+    /** 群问候直接提交意图。即使模型伪造身份查询或提交空历史词，读取边界也须在取证前拒绝。 */
+    @Test
+    public void groupGreetingCanSubmitIntentWithoutARecall() throws Exception {
+        String message = " 可以和大家打声招呼吗";
+        var requests = new CopyOnWriteArrayList<JsonObject>();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/model", exchange -> {
+            requests.add(body(exchange));
+            var intent = Map.of("assessment", "根据当前发言，我目前倾向于向群友问好", "replyIntent", "向大家问好",
+                    "needsReply", true, "evidence", List.of(), "impression", "");
+            respond(exchange, JSON.toJson(Map.of("model", "master", "choices", List.of(Map.of("finish_reason",
+                    "tool_calls", "message", tool("submit_intent", JSON.toJson(intent)))))));
+        });
+        server.start();
+        var base = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
+        var dir = folder.getRoot().toPath();
+        try (var client = HttpClient.newHttpClient(); var audit = AuditLog.open(dir);
+             var epochs = new MasterEpochs(dir.resolve("epochs.sqlite"), MasterEpochs.Profile.DEFAULT);
+             var journal = new MemoryJournal(dir.resolve("journal.sqlite"))) {
+            var memory = new ConversationMemory(audit, new ResidentV2(client, base, "misty", "test-token", true, journal, null));
+            var timeout = Duration.ofSeconds(3);
+            var master = new Master(client, new Master.Settings(base.resolve("/model"), "master", HttpClient.Version.HTTP_1_1,
+                    timeout, timeout, "探测", 8, 0, false));
+            int routed = audit.write("group", null, "router", "router_route", Map.of("route", "CONVERSATION"));
+            var trace = Trace.forQqGroup(audit, "group", routed, new Trace.QqGroup(10001, 20001, 10002, true));
+            var read = memory.bindMasterIntent(trace, routed).orElseThrow();
+            var runtime = new MasterRuntime(master, epochs, 256, 0);
+            var admission = runtime.intent(message, trace, read, true, true);
+            var intent = admission.value();
+            runtime.workerReturned(trace, admission.matter(), Map.of("text", "大家好"));
+            assertTrue(intent.needsReply());
+            assertTrue(intent.evidence().isEmpty());
+            assertEquals(routed, read.eventId());
+            assertEquals(1, requests.size());
+            var first = requests.getFirst();
+            assertEquals("required", first.get("tool_choice").getAsString());
+            var tools = first.getAsJsonArray("tools").asList().stream()
+                    .map(t -> t.getAsJsonObject().getAsJsonObject("function")).toList();
+            assertEquals(List.of("submit_intent", "memory_call"), tools.stream().map(t -> t.get("name").getAsString()).toList());
+            var props = tools.getLast().getAsJsonObject("parameters").getAsJsonObject("properties");
+            assertEquals(JSON.toJsonTree(List.of("HISTORY")), props.getAsJsonObject("kind").get("enum"));
+            assertEquals(1, props.getAsJsonObject("query").get("minLength").getAsInt());
+            for (String kind : List.of("SELF_IDENTITY", "HISTORY")) {
+                var args = JSON.toJson(Map.of("kind", kind, "query", ""));
+                var error = assertThrows(IOException.class, () -> read.appendToolResult(new ArrayList<>(), "id", args, ""));
+                assertTrue(error.getMessage().contains("kind 或 query"));
+            }
+            assertEquals(1, audit.events("group").size());
+        } finally {
+            server.stop(0);
+        }
+        // 已验收意图与 Worker 回执先于后续派发落盘，完整内容不混入可重放的受众标签。
+        try (var db = DriverManager.getConnection("jdbc:sqlite:" + dir.resolve("epochs.sqlite"));
+             var sql = db.createStatement();
+             var rows = sql.executeQuery("SELECT kind,body,checkpoint FROM segment WHERE checkpoint IS NOT NULL ORDER BY seq")) {
+            assertTrue(rows.next());
+            assertEquals("DECISION", rows.getString(1));
+            assertFalse(rows.getString(2).contains("向大家问好"));
+            assertEquals("向大家问好", JsonParser.parseString(rows.getString(3)).getAsJsonObject().get("replyIntent").getAsString());
+            assertTrue(rows.next());
+            assertEquals("RECEIPT", rows.getString(1));
+            assertEquals("大家好", JsonParser.parseString(rows.getString(3)).getAsJsonObject().get("text").getAsString());
+            assertFalse(rows.next());
         }
     }
 
