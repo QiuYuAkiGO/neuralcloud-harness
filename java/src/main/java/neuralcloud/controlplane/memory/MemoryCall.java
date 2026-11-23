@@ -391,21 +391,25 @@ public final class MemoryCall {
                 && !GENERIC_HISTORY.matcher(query).matches() : query.isEmpty();
     }
 
-    /**
-     * 构造 OpenAI 兼容的 {@code memory_call} 函数工具定义。
-     * 仅在当前渠道允许本人跨会话检索时才把 {@code SELF_HISTORY} 放进枚举和说明，做到能力按作用域最小暴露。
-     */
-    public Map<String, Object> tool() {
-        boolean selfHistory = memory.canSearchSelfHistory(trace.scope());
-        var kinds = selfHistory ? List.of(QueryKind.HISTORY, QueryKind.SELF_IDENTITY, QueryKind.SELF_HISTORY)
+    /** 群聊上下文没有供本人称呼查询绑定的私聊账号，只按群受众检索历史。规划、工具声明和执行共用此范围。 */
+    public List<QueryKind> queryKinds() {
+        if (trace.scope().group().isPresent()) return List.of(QueryKind.HISTORY);
+        return memory.canSearchSelfHistory(trace.scope()) ? List.of(QueryKind.values())
                 : List.of(QueryKind.HISTORY, QueryKind.SELF_IDENTITY);
+    }
+
+    /** 按渠道声明检索对象与检索词。只有查询发言者已确认的称呼才使用空字符串。 */
+    public Map<String, Object> tool() {
+        var kinds = queryKinds();
+        boolean identity = kinds.contains(QueryKind.SELF_IDENTITY);
         String description =
-                "只读查询。HISTORY 查可在当前会话引用的历史材料，SELF_IDENTITY 查当前用户已确认的称呼。"
-                        + (selfHistory ? "SELF_HISTORY 跨会话查当前 QQ 发件人以往的原话。" : "");
+                "HISTORY 查可在当前会话引用的历史材料，query 填具体话题关键词。"
+                        + (identity ? "SELF_IDENTITY 仅查当前发言者本人已确认的称呼，query 填空字符串。角色自身资料由角色设定提供。" : "")
+                        + (kinds.contains(QueryKind.SELF_HISTORY) ? "SELF_HISTORY 按话题关键词跨会话查当前 QQ 发件人以往的原话。" : "");
         return Map.of("type", "function", "function", Map.of("name", NAME, "description", description,
                 "parameters", Map.of("type", "object", "additionalProperties", false, "required", List.of("kind", "query"),
                         "properties", Map.of("kind", Map.of("type", "string", "enum", kinds), "query", Map.of(
-                                "type", "string", "description", "历史查询填写具体话题关键词，最多 256 字。身份查询填空字符串。")))));
+                                "type", "string", "minLength", identity ? 0 : 1, "maxLength", 256)))));
     }
 
     /**
@@ -415,8 +419,7 @@ public final class MemoryCall {
      * 3. v2 下登记本地 {@code inputs}/{@code watches} 并完成交付来源校验，最后写出 {@code memory_call_result} 审计事件。
      */
     public Result read(QueryKind kind, String query) throws IOException, InterruptedException {
-        if (!validQuery(kind != QueryKind.SELF_IDENTITY, query)
-                || (kind == QueryKind.SELF_HISTORY && !memory.canSearchSelfHistory(trace.scope()))) {
+        if (!queryKinds().contains(kind) || !validQuery(kind != QueryKind.SELF_IDENTITY, query)) {
             throw new IOException("memory_call 的 kind 或 query 不符合当前渠道的查询契约");
         }
         int requested = trace.write(eventId, caller.node, NAME, Map.of("kind", kind.name(), "query", query));

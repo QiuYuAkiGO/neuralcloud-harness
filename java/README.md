@@ -174,7 +174,7 @@ python java/src/test/python/verify_conversation_plan.py http://127.0.0.1:18900 "
 
 经 `POST /api/nodes/master/messages` 提交 `/memory revise 旧印象ID@版本 来源ID@版本 [更多来源]`。宿主复核 1–16 条可引用原文，将引文交给 Master，收到完整新正文后按旧版本与新证据持久提交。审计链的 `memory_impression_revised` 保存前一版本、实际来源与新回执。过期或撤权会触发重新查证。[跨仓库数据契约和验收报告](https://github.com/QiuYuAkiGO/neuralcloud-memory/blob/codex/memory-v2-stages-3-4/docs/acceptance/memory-v2-stage-3-4.md)
 
-在已启用 Memory v2 的控制台 Master 页签发送 `/intent 请核对周六的活动安排`，或向同一接口提交带此命令的 `text`。Master 先用 `memory_call` 取证，再用 `submit_intent` 提交判断与回复意图。审计链中的 `memory_call_result` 保存实际送入模型的编号材料，随后的 `intent` 事件在 `data.evidence` 中保存被选记录的 `record_id` 和 `revision`。操作在意图验收后结束。[意图字段与补交契约](../docs/proposals/console-free-chat-pipeline-20261121.md#4-master-的通用意图契约)
+在已启用 Memory v2 的控制台 Master 页签发送 `/intent 请核对周六的活动安排`，或向同一接口提交带此命令的 `text`。需要核对历史时，Master 先用 `memory_call` 取证，再用 `submit_intent` 提交意图。审计链中的 `memory_call_result` 保存模型收到的编号材料，`intent.data.evidence` 保存所选记录的 `record_id` 和 `revision`。问候、自我介绍等可直接提交意图，`evidence` 为空数组。在 QQ 群中，记忆工具只提供带具体检索词的 `HISTORY` 查询。Chat Worker 按配置的角色设定面对用户作答。[意图字段与补交契约](../docs/proposals/console-free-chat-pipeline-20261121.md#4-master-的通用意图契约)
 ## MistyAI 原版 APP 的 USB 隔离联调
 
 验收各使用一个空的 MistyAI 私聊邮箱、一个独立共享群和一个启用 `mobile_member_notices` 的 Memory v2 实例。先通过原群服务的邀请码为 A、B 分别注册凭据。测试适配器在每次私聊访问时核验 B 仍为群成员。原版 APP 的私聊接口使用单一邮箱，所以每次验收仅配对一名成员和一部手机。

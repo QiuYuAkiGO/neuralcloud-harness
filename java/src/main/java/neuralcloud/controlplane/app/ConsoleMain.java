@@ -349,7 +349,7 @@ public final class ConsoleMain {
         };
     }
 
-    /** 控制台的自然语言入口。先持久化原话、分流，再交 Master 查证；只有日常对话进入此单步计划。 */
+    /** 控制台的自然语言入口。先持久化原话并分流，日常对话由 Master 按需取证并提交回复意图。 */
     static ConsoleServer.Exchange plannedConversation(Master master, Router<Route> router, ChatWorker chat,
                                                        MemoryAccess store, int maxTokens, double temperature) {
         return (text, trace) -> {
@@ -478,7 +478,7 @@ public final class ConsoleMain {
                                                             "text",
                                                             step.text()));
                                     String reply =
-                                            chat.replyToPlan(step.text(), intent.replyIntent());
+                                            chat.replyToPlan(text, step.text(), intent.replyIntent());
                                     if (intent.evidence().stream()
                                                     .anyMatch(read.noticeEvidence()::containsKey)
                                             && !intent.quotes().stream().allMatch(reply::contains))
@@ -526,7 +526,7 @@ public final class ConsoleMain {
                     chat.planTurn(
                             text,
                             updates.isEmpty() ? trace.dialogue() : List.of(),
-                            store.reads().canSearchSelfHistory(trace.scope()),
+                            chatRead.queryKinds(),
                             updates);
             // 规划阶段已消费过增量变更通知，推进本地游标避免下一轮重复注入同一批更新。
             chatRead.refreshed();
