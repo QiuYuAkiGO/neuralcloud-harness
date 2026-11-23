@@ -26,13 +26,31 @@ public record MasterIntent(String assessment, String replyIntent, List<EvidenceR
     private static final Pattern OPINION = Pattern.compile("根据\\s*\\S.*?，我目前倾向于\\s*\\S.*",
             Pattern.DOTALL | Pattern.UNICODE_CHARACTER_CLASS);
     private static final List<String> FIELDS = List.of("assessment", "replyIntent", "evidence", "impression", "needsReply");
-    private static final Map<String, Object> PROPERTIES = Map.of(
-            "assessment", Map.of("type", "string", "description", "本轮评价，使用句式“" + FORM + "”"),
-            "replyIntent", Map.of("type", "string", "description", "非空的回复意图，说明希望传达的意思"),
-            "evidence", Map.of("type", "array", "items", Map.of("type", "integer", "minimum", 1),
-                    "description", "事实依据只填本轮记忆工具正文标出的证据序号，可为空数组"),
-            "impression", Map.of("type", "string", "description", "没有新印象时填空字符串，有依据时使用句式“" + FORM + "”"),
-            "needsReply", Map.of("type", "boolean", "description", "本轮是否需要向用户回复"));
+    private static final Map<String, Object> PROPERTIES =
+            Map.of(
+                    "assessment",
+                            Map.of("type", "string", "description", "本轮评价，使用句式“" + FORM + "”"),
+                    "replyIntent",
+                            Map.of(
+                                    "type",
+                                    "string",
+                                    "description",
+                                    "给下游的完整可传达事实，写明具体答案与不确定性。群通知中用于回答的原文片段用「」标出。"),
+                    "evidence",
+                            Map.of(
+                                    "type",
+                                    "array",
+                                    "items",
+                                    Map.of("type", "integer", "minimum", 1),
+                                    "description",
+                                    "事实依据只填本轮记忆工具正文标出的证据序号，可为空数组"),
+                    "impression",
+                            Map.of(
+                                    "type",
+                                    "string",
+                                    "description",
+                                    "没有新印象时填空字符串，有依据时使用句式“" + FORM + "”"),
+                    "needsReply", Map.of("type", "boolean", "description", "本轮是否需要向用户回复"));
     static final Map<String, Object> TOOL = Map.of("type", "function", "function", Map.of(
             "name", NAME, "description", "提交对本轮事项的判断、来源与回复意图", "strict", true,
             "parameters", Map.of("type", "object", "required", FIELDS, "additionalProperties", false,
@@ -51,6 +69,22 @@ public record MasterIntent(String assessment, String replyIntent, List<EvidenceR
 
     /** 严格解析一份完整提交。只有实际交付的编号可作为来源，空结果仍允许提交无依据、无新印象的判断。 */
     static MasterIntent parse(String arguments, List<EvidenceRef> offered) throws InvalidSubmission {
+        return parse(arguments, offered, false);
+    }
+
+    /** 渠道已确认必须答复时，把 needsReply 作为本轮提交契约交给模型校正。 */
+    static MasterIntent parse(String arguments, List<EvidenceRef> offered, boolean replyRequired)
+            throws InvalidSubmission {
+        return parse(arguments, offered, replyRequired, Map.of());
+    }
+
+    /** 引用群通知的意图必须携带源版本中可逐字核对的具体答案，下游只能看见获准外发的文字。 */
+    static MasterIntent parse(
+            String arguments,
+            List<EvidenceRef> offered,
+            boolean replyRequired,
+            Map<EvidenceRef, String> notices)
+            throws InvalidSubmission {
         if (!arguments.stripLeading().startsWith("{")) throw new InvalidSubmission("参数须为 JSON 对象");
         Map<String, JsonElement> fields;
         try {
@@ -70,6 +104,8 @@ public record MasterIntent(String assessment, String replyIntent, List<EvidenceR
         if (!(fields.get("needsReply") instanceof JsonPrimitive flag && flag.isBoolean())) {
             throw new InvalidSubmission("needsReply 须为布尔值");
         }
+        if (replyRequired && !flag.getAsBoolean())
+            throw new InvalidSubmission("本轮渠道已决定参与，needsReply 须为 true");
         if (!(fields.get("evidence") instanceof JsonArray indices)) {
             throw new InvalidSubmission("evidence 须为本轮证据序号数组");
         }
@@ -80,7 +116,32 @@ public record MasterIntent(String assessment, String replyIntent, List<EvidenceR
         if (!impression.isEmpty() && (references.isEmpty() || !OPINION.matcher(impression).matches())) {
             throw new InvalidSubmission("非空 impression 须引用 evidence 并使用“" + FORM + "”");
         }
-        return new MasterIntent(assessment, reply, List.copyOf(references), impression, flag.getAsBoolean());
+        var intent =
+                new MasterIntent(
+                        assessment,
+                        reply,
+                        List.copyOf(references),
+                        impression,
+                        flag.getAsBoolean());
+        var texts = references.stream().filter(notices::containsKey).map(notices::get).toList();
+        if (!texts.isEmpty()) {
+            var quotes = intent.quotes();
+            if (quotes.isEmpty()
+                    || quotes.stream().anyMatch(q -> texts.stream().noneMatch(t -> t.contains(q)))
+                    || texts.stream().anyMatch(t -> quotes.stream().noneMatch(t::contains)))
+                throw new InvalidSubmission("replyIntent 须用「」逐字引用每条所选群通知中回答本题的具体原文，请保留所问各项的值");
+        }
+        return intent;
+    }
+
+    /** 群通知中由 Master 选定的引用须由 Chat Worker 原样保留，其他措辞仍可使用角色口吻。 */
+    public List<String> quotes() {
+        return Pattern.compile("「([^「」]+)」")
+                .matcher(replyIntent)
+                .results()
+                .map(m -> m.group(1))
+                .filter(s -> !s.isBlank())
+                .toList();
     }
 
     /** 文本字段须由模型以 JSON 字符串提交。 */

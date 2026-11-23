@@ -1,7 +1,10 @@
 package neuralcloud.controlplane.console;
 
+import neuralcloud.controlplane.channel.QqGroups;
+
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
@@ -62,14 +65,26 @@ public final class ConsoleServer implements AutoCloseable {
      */
     public interface Trace {
         /** QQ 私聊渠道身份标识，规范化生成跨重启稳定的会话 ID（{@code c2c:onebot:<accountId>:<peerId>}）。 */
-        record QqPrivate(long accountId, long peerId) {
+        record QqPrivate(long accountId, long peerId, List<Long> memberGroups) {
+            public QqPrivate {
+                memberGroups = List.copyOf(memberGroups);
+            }
+
+            public QqPrivate(long accountId, long peerId) {
+                this(accountId, peerId, List.of());
+            }
+
             public String conversationId() {
                 return "c2c:onebot:" + accountId + ":" + peerId;
             }
         }
 
         /** QQ 群聊渠道身份标识（机器人账号、白名单群号、本条消息发件人 QQ 号）。 */
-        record QqGroup(long accountId, long groupId, long senderId) {}
+        record QqGroup(long accountId, long groupId, long senderId, boolean managed) {
+            public QqGroup(long accountId, long groupId, long senderId) {
+                this(accountId, groupId, senderId, false);
+            }
+        }
 
         /** 由 MistyAI 渠道认证的群成员，私聊按实例与稳定的成员编号隔离。 */
         record MobileMember(String instance, long memberId) {
@@ -144,8 +159,13 @@ public final class ConsoleServer implements AutoCloseable {
         }
 
         static Trace forQqPrivate(AuditLog audit, String chain, int request, long accountId, long peerId) {
-            return bound(audit, new Scope("openqq", chain, audit.runId(), Optional.of(new QqPrivate(accountId, peerId))),
-                    request);
+            return forQqPrivate(audit, chain, request, new QqPrivate(accountId, peerId));
+        }
+
+        /** 成员群来自本轮已认证 OneBot 查询，控制台消息正文不能提供此字段。 */
+        static Trace forQqPrivate(AuditLog audit, String chain, int request, QqPrivate qq) {
+            return bound(
+                    audit, new Scope("openqq", chain, audit.runId(), Optional.of(qq)), request);
         }
 
         /** 入口须先验证成员凭据；私聊审计链和 Memory 受众取自同一份身份。 */
@@ -245,15 +265,22 @@ public final class ConsoleServer implements AutoCloseable {
     private final AuditLog audit;
     private final NodeMonitor monitor;
     private final Optional<RouterMemoryWriter> writes;
+    private final Optional<QqGroups> qq;
     private final Map<String, Node> nodes = new LinkedHashMap<>();
     private final String probeChain;
 
-    private ConsoleServer(HttpServer server, AuditLog audit, NodeMonitor monitor, List<Node> nodes,
-                          Optional<RouterMemoryWriter> writes) {
+    private ConsoleServer(
+            HttpServer server,
+            AuditLog audit,
+            NodeMonitor monitor,
+            List<Node> nodes,
+            Optional<RouterMemoryWriter> writes,
+            Optional<QqGroups> qq) {
         this.server = server;
         this.audit = audit;
         this.monitor = monitor;
         this.writes = writes;
+        this.qq = qq;
         nodes.forEach(node -> this.nodes.put(node.id(), node));
         // 同一进程内的手动探测串成一条审计链，不混入会话。
         probeChain = PROBE_CHAIN_PREFIX + audit.runId();
@@ -262,7 +289,20 @@ public final class ConsoleServer implements AutoCloseable {
     /** 绑定监听地址、注册根路由与虚拟线程执行器并立即开始接受 HTTP 请求。 */
     public static ConsoleServer start(InetSocketAddress address, AuditLog audit, NodeMonitor monitor,
                                       List<Node> nodes, Optional<RouterMemoryWriter> writes) throws IOException {
-        var console = new ConsoleServer(HttpServer.create(address, 0), audit, monitor, nodes, writes);
+        return start(address, audit, monitor, nodes, writes, Optional.empty());
+    }
+
+    /** 正式控制台与 QQ 入站渠道共用同一个群策略实例，配置落盘成功后回执给操作者。 */
+    public static ConsoleServer start(
+            InetSocketAddress address,
+            AuditLog audit,
+            NodeMonitor monitor,
+            List<Node> nodes,
+            Optional<RouterMemoryWriter> writes,
+            Optional<QqGroups> qq)
+            throws IOException {
+        var console =
+                new ConsoleServer(HttpServer.create(address, 0), audit, monitor, nodes, writes, qq);
         console.server.createContext("/", console::handle);
         console.server.setExecutor(console.executor);
         console.server.start();
@@ -308,6 +348,45 @@ public final class ConsoleServer implements AutoCloseable {
             return staticFile(path.equals("/") ? "/index.html" : path);
         }
         String[] parts = path.substring("/api/".length()).split("/", -1);
+        if (parts.length >= 2 && parts[0].equals("qq") && parts[1].equals("groups")) {
+            if (parts.length == 2) {
+                expect(method, "GET");
+                return json(
+                        200,
+                        qq.map(QqGroups::view)
+                                .orElseGet(
+                                        () ->
+                                                Map.of(
+                                                        "enabled",
+                                                        false,
+                                                        "connected",
+                                                        false,
+                                                        "groups",
+                                                        List.of())));
+            }
+            if (parts.length == 4
+                    && parts[2].matches("[1-9][0-9]{4,15}")
+                    && parts[3].equals("policy")) {
+                expect(method, "PUT");
+                if (qq.isEmpty()) throw new RequestException(404, "未配置 QQ 群策略");
+                byte[] bytes = exchange.getRequestBody().readNBytes(1025);
+                try {
+                    if (bytes.length > 1024) throw new IllegalArgumentException();
+                    var cmd =
+                            QqGroups.decode(
+                                    REQUEST.fromJson(
+                                            new String(bytes, StandardCharsets.UTF_8),
+                                            JsonElement.class));
+                    return json(200, qq.get().change(Long.parseLong(parts[2]), cmd));
+                } catch (JsonParseException | IllegalArgumentException e) {
+                    throw new RequestException(400, "须提供合法的 policy 与非负整数 revision");
+                } catch (java.util.NoSuchElementException e) {
+                    throw new RequestException(404, e.getMessage());
+                } catch (java.util.ConcurrentModificationException e) {
+                    throw new RequestException(409, e.getMessage());
+                }
+            }
+        }
         if (parts.length == 1 && parts[0].equals("nodes")) {
             expect(method, "GET");
             return json(200, nodesView());
