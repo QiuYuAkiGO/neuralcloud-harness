@@ -112,6 +112,31 @@ public final class MasterEpochs implements AutoCloseable {
         return new Result<>(matter, outcome.value());
     }
 
+    @FunctionalInterface public interface Reflection<T> {
+        T evaluate() throws IOException, InterruptedException;
+    }
+
+    /** 观察可按更新后的证据重新评价。推理共用主干单步锁，只保存本次输入的检查点，队列负责业务回执。 */
+    public <T> T reflect(String audience, String input, Reflection<T> inference) throws IOException, InterruptedException {
+        T result;
+        writer.lockInterruptibly();
+        try {
+            checkBoundary();
+            long lease = journal.head().epoch();
+            result = inference.evaluate();
+            try {
+                journal.reflection(lease, audience, input, result);
+            } catch (IOException error) {
+                uncommittedStep = error;
+                throw error;
+            }
+        } finally {
+            writer.unlock();
+        }
+        maintain();
+        return result;
+    }
+
     /** 事项可由入口显式登记或由正式 Master 请求自动创建。只有对应的完成回执才能解除保留。 */
     public long open(String audience, String origin, String topic) throws IOException, InterruptedException {
         long matter = journal.openMatter(audience, origin, EpochJournal.Kind.MATTER, topic).seq();

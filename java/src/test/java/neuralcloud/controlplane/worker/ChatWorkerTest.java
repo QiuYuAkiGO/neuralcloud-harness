@@ -164,6 +164,20 @@ public class ChatWorkerTest {
     }
 
     @Test
+    public void workerCorrectsUnknownSearchTargetAndRequiresGroundsForReferral() throws IOException {
+        var requests = new CopyOnWriteArrayList<JsonObject>();
+        String question = "你还记得我们遇见了哪些人吗";
+        String weak = completed("{\"kind\":\"HISTORY\",\"query\":\"我们 遇见 人\"}");
+        String grounded = completed("{\"kind\":\"HISTORY\",\"query\":\"我们 遇见\"}");
+        var turn = withWorker(200, requests, worker -> worker.planTurn(question), weak, grounded);
+        assertEquals("我们 遇见", turn.query());
+        assertTrue(instructions(requests.getLast()).contains("上次的 query"));
+        assertThrows(IOException.class, () -> withWorker(200, requests, worker -> worker.planTurn(question), weak, weak));
+        assertThrows(IOException.class, () -> withWorker(200, requests, worker -> worker.planTurn("需要做一个取舍"),
+                completed("{\"kind\":\"SUBJECT_CONFLICT\",\"query\":\"\"}")));
+    }
+
+    @Test
     public void keepsPreviousTurnAsPrefixForFollowUpAndRejectsPlaceholderQueries() throws IOException {
         var requests = new CopyOnWriteArrayList<JsonObject>();
         String first = "你还记得我是谁吗？";

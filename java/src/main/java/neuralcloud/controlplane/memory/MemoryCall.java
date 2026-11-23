@@ -370,6 +370,17 @@ public final class MemoryCall {
         return notices;
     }
 
+    /** Worker 筛选完跨会话通知后，保留其他命中和检索范围说明，未选通知不进入最终回复输入。 */
+    public List<String> withoutNoticeTexts(List<String> sentences) throws IOException {
+        var remaining = new ArrayList<>(sentences);
+        for (var read : bindings) {
+            var item = read.item();
+            if (item.has("member_notice") && item.get("member_notice").getAsBoolean())
+                remaining.remove(ResidentV2.render(item, read.kind()));
+        }
+        return remaining;
+    }
+
     /** 顺序与当轮记忆工具正文的证据编号一致。热目录和刷新通知由各自的交付记录管理。 */
     public List<EvidenceRef> evidenceRefs() throws IOException {
         if (!numberEvidence) throw new IOException("submit_intent 只能引用意图轮次实际交付的编号");

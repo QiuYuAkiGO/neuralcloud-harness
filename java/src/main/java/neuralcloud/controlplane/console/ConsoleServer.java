@@ -80,7 +80,16 @@ public final class ConsoleServer implements AutoCloseable {
         }
 
         /** QQ 群聊渠道身份标识（机器人账号、白名单群号、本条消息发件人 QQ 号）。 */
-        record QqGroup(long accountId, long groupId, long senderId, boolean managed) {
+        record QqGroup(
+                long accountId,
+                long groupId,
+                long senderId,
+                boolean managed,
+                long observeRevision) {
+            public QqGroup(long accountId, long groupId, long senderId, boolean managed) {
+                this(accountId, groupId, senderId, managed, 0);
+            }
+
             public QqGroup(long accountId, long groupId, long senderId) {
                 this(accountId, groupId, senderId, false);
             }
@@ -353,16 +362,13 @@ public final class ConsoleServer implements AutoCloseable {
                 expect(method, "GET");
                 return json(
                         200,
-                        qq.map(QqGroups::view)
-                                .orElseGet(
-                                        () ->
-                                                Map.of(
+                        qq.isPresent() ? qq.get().view() : Map.of(
                                                         "enabled",
                                                         false,
                                                         "connected",
                                                         false,
                                                         "groups",
-                                                        List.of())));
+                                                        List.of()));
             }
             if (parts.length == 4
                     && parts[2].matches("[1-9][0-9]{4,15}")

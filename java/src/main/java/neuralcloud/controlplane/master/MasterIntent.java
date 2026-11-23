@@ -13,6 +13,7 @@ import neuralcloud.controlplane.memory.MemoryCall.EvidenceRef;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -35,7 +36,7 @@ public record MasterIntent(String assessment, String replyIntent, List<EvidenceR
                                     "type",
                                     "string",
                                     "description",
-                                    "给 Chat Worker 的交流目的和获准传达的具体事实、时间与不确定性。日常交流写明对象和目的，由角色自行措辞。群通知的原文片段用「」标出。"),
+                                    "给 Chat Worker 的交流目的和获准传达的具体事实、时间与不确定性。终审说明主体取舍及理由，由角色自行措辞。群通知的原文片段用「」标出。"),
                     "evidence",
                             Map.of(
                                     "type",
@@ -59,11 +60,11 @@ public record MasterIntent(String assessment, String replyIntent, List<EvidenceR
     /** 只有提交参数有误可以由模型补交。传输、授权和版本复核的失败由各自边界处理。 */
     static final class InvalidSubmission extends IOException {
         InvalidSubmission(String rule) {
-            super(NAME + " 不符合意图契约：" + rule);
+            super("Master 提交不符合契约：" + rule);
         }
 
         InvalidSubmission(String rule, Throwable cause) {
-            super(NAME + " 不符合意图契约：" + rule, cause);
+            super("Master 提交不符合契约：" + rule, cause);
         }
     }
 
@@ -85,17 +86,7 @@ public record MasterIntent(String assessment, String replyIntent, List<EvidenceR
             boolean replyRequired,
             Map<EvidenceRef, String> notices)
             throws InvalidSubmission {
-        if (!arguments.stripLeading().startsWith("{")) throw new InvalidSubmission("参数须为 JSON 对象");
-        Map<String, JsonElement> fields;
-        try {
-            // Map 适配器会拒绝重复键，避免同一字段的后一个值掩盖前一个值。
-            fields = JSON.fromJson(arguments, OBJECT);
-        } catch (JsonParseException error) {
-            throw new InvalidSubmission("参数须为字段不重复的合法 JSON 对象", error);
-        }
-        if (!fields.keySet().equals(PROPERTIES.keySet())) {
-            throw new InvalidSubmission("字段须恰为 " + FIELDS + "，实际为 " + fields.keySet());
-        }
+        var fields = fields(arguments, FIELDS);
         String assessment = string(fields, "assessment");
         String reply = string(fields, "replyIntent");
         String impression = string(fields, "impression");
@@ -106,16 +97,7 @@ public record MasterIntent(String assessment, String replyIntent, List<EvidenceR
         }
         if (replyRequired && !flag.getAsBoolean())
             throw new InvalidSubmission("本轮渠道已决定参与，needsReply 须为 true");
-        if (!(fields.get("evidence") instanceof JsonArray indices)) {
-            throw new InvalidSubmission("evidence 须为本轮证据序号数组");
-        }
-        var references = new ArrayList<EvidenceRef>();
-        for (JsonElement element : indices) {
-            references.add(offered.get(evidenceIndex(element, offered.size()) - 1));
-        }
-        if (!impression.isEmpty() && (references.isEmpty() || !OPINION.matcher(impression).matches())) {
-            throw new InvalidSubmission("非空 impression 须引用 evidence 并使用“" + FORM + "”");
-        }
+        var references = references(fields, offered, impression);
         var intent =
                 new MasterIntent(
                         assessment,
@@ -142,6 +124,74 @@ public record MasterIntent(String assessment, String replyIntent, List<EvidenceR
                 .map(m -> m.group(1))
                 .filter(s -> !s.isBlank())
                 .toList();
+    }
+
+    /** 后台工具只有评价和证据，不能表达外发意图或创建 Worker 步骤。 */
+    public record Impression(String impression, List<EvidenceRef> evidence) {}
+
+    static final String OBSERVE = "submit_impression";
+    private static final List<String> OBSERVE_FIELDS = List.of("impression", "evidence");
+    static final Map<String, Object> IMPRESSION_TOOL =
+            Map.of(
+                    "type",
+                    "function",
+                    "function",
+                    Map.of(
+                            "name",
+                            OBSERVE,
+                            "description",
+                            "提交本批群原文产生的新印象或空结论",
+                            "strict",
+                            true,
+                            "parameters",
+                            Map.of(
+                                    "type",
+                                    "object",
+                                    "required",
+                                    OBSERVE_FIELDS,
+                                    "additionalProperties",
+                                    false,
+                                    "properties",
+                                    Map.of(
+                                            "impression",
+                                            PROPERTIES.get("impression"),
+                                            "evidence",
+                                            PROPERTIES.get("evidence")))));
+
+    static Impression parseImpression(String arguments, List<EvidenceRef> offered)
+            throws InvalidSubmission {
+        var fields = fields(arguments, OBSERVE_FIELDS);
+        var impression = string(fields, "impression");
+        var refs = references(fields, offered, impression);
+        if (impression.isEmpty() && !refs.isEmpty() || new HashSet<>(refs).size() != refs.size())
+            throw new InvalidSubmission("无新印象时 evidence 须为空，有印象时每条原文只引用一次");
+        return new Impression(impression, refs);
+    }
+
+    /** 两种提交共享严格的 JSON、句式和实际交付序号校验，保留各自独立的必填字段。 */
+    private static Map<String, JsonElement> fields(String arguments, List<String> required)
+            throws InvalidSubmission {
+        if (!arguments.stripLeading().startsWith("{")) throw new InvalidSubmission("参数须为 JSON 对象");
+        try {
+            var fields = JSON.fromJson(arguments, OBJECT);
+            if (!fields.keySet().equals(new HashSet<>(required)))
+                throw new InvalidSubmission("字段须恰为 " + required + "，实际为 " + fields.keySet());
+            return fields;
+        } catch (JsonParseException error) {
+            throw new InvalidSubmission("参数须为字段不重复的合法 JSON 对象", error);
+        }
+    }
+
+    private static List<EvidenceRef> references(
+            Map<String, JsonElement> fields, List<EvidenceRef> offered, String impression)
+            throws InvalidSubmission {
+        if (!(fields.get("evidence") instanceof JsonArray indices))
+            throw new InvalidSubmission("evidence 须为本轮证据序号数组");
+        var refs = new ArrayList<EvidenceRef>();
+        for (var index : indices) refs.add(offered.get(evidenceIndex(index, offered.size()) - 1));
+        if (!impression.isEmpty() && (refs.isEmpty() || new HashSet<>(refs).size() != refs.size() || !OPINION.matcher(impression).matches()))
+            throw new InvalidSubmission("非空 impression 须引用不重复的 evidence 并使用“" + FORM + "”");
+        return List.copyOf(refs);
     }
 
     /** 文本字段须由模型以 JSON 字符串提交。 */
