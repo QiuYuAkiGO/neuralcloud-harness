@@ -83,7 +83,11 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 
 **任务执行。** 配置 `taskWorkerConfig=classpath:/config/task-worker-deepseek.properties` 并通过环境提供 `DEEPSEEK_API_KEY` 后，`ACTION_REQUEST` 会派给 DeepSeek 任务 Worker。首个能力读取运行控制台的 Linux 主机的运行时间、一分钟负载、内存与根分区容量。启用记忆时，DeepSeek 可以先用 `memory_call` 查证任务中提到的历史约定，再选择 `read_server_status` 或 `no_supported_action`。主机状态取自 Java 的实际采样。任务回执写入同一条审计链后，Chat Worker 才按回执生成回复。
 
-**OpenQQ 私聊。** 可选的 `openQqConfig` 指向 UTF-8 配置文件，包含 `endpoint`（`ws://127.0.0.1:端口/`）、登录账号 `accountId`、允许发来测试消息的 `allowedUserId` 和令牌环境变量名 `accessTokenEnv`。接入只处理该账号发来的纯文本私聊，每条消息复用同一对话处理器。审计链 `qq-private-<accountId>-<allowedUserId>` 记录入站、分流与回复，收到 OneBot 消息 ID 才记录发送确认。发送状态不明时不会自动重发。
+**OpenQQ 私聊。** 可选的 `openQqConfig` 指向 UTF-8 配置文件，包含 `endpoint`（`ws://127.0.0.1:端口/`）、登录账号 `accountId`、允许发来测试消息的 `allowedUserId` 和令牌环境变量名 `accessTokenEnv`。接入处理该账号发来的文本和图片私聊，每条消息复用同一对话处理器。审计链 `qq-private-<accountId>-<allowedUserId>` 记录入站、分流与回复，收到 OneBot 消息 ID 才记录发送确认。发送状态不明时不会自动重发。
+
+**QQ 图片识别。** 原消息按顺序以「【图片1】」等标记保留图片位置。图片来自已认证 OneBot 消息段的 `file_id` 或 `file`。Chat Worker 通过 `get_image` 取得字节，支持 JPEG、PNG、GIF、WebP。每条最多 4 张，每张最多 10 MiB，合计最多 20 MiB。取图或推理失败会写入审计并结束这一轮。
+
+「不接收」忽略整条消息。「仅观察」记录配文与图片标记。「观察与回复」结合图像内容判断参与，点名沿用直接回复流程。可从审计里的 `chat_worker_image_recognition` 追到 `chat_worker_image_input` 的模型、文件类型、大小、SHA-256，以及入站原文的 Memory 版本。识别文字以 Chat Worker 的观察交给后续节点。审计中不保存图片字节或下载链接。
 
 **会话记忆。** `memoryConfig` 可接独立的常驻记忆服务，指向含 `endpoint`、`characterId` 和 `accessTokenEnv` 的配置文件。启用记忆时，Master 配置使用支持原生工具调用的 `/v1/chat/completions`。Chat Worker、任务 Worker 和 Master 均可直接发起只读的 `memory_call`，模型只提交 `kind` 和 `query`。Router 负责写入。Chat Worker 收到消息后，Router 先取得用户发言的持久回执。QQ 确认送达或控制台写出 HTTP 正文后，Router 才提交角色回复入库。两次写入均沿用原始渠道事件作为幂等键。网页和 OpenQQ 分别使用 `console:` 和 `openqq:` 会话命名空间。
 
@@ -91,7 +95,7 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 
 **Java Memory v2。** 在 `memoryConfig` 指定的文件中设置 `apiVersion=2`、`recallMode=scoped` 和回环 `endpoint=http://127.0.0.1:端口/`。`characterId` 和 `accessTokenEnv` 与 Memory 服务配置对应，省略 `apiVersion` 时继续选择 v1。控制台在角色、协议和所需能力核验成功后开放，审计目录中的 `memory-v2-<角色>.sqlite` 持久保存写入待办、模型输入的证据版本和消费位置。
 
-**原作者授权。** Memory v2.1 的 `audience_reads` 能力让 Worker 按目标会话获取可引用的材料。启用 OpenQQ 原作者命令需在记忆配置增加 `grantAccessTokenEnv`，它与 Memory 的同名配置及 `grantAccountId` 对应。原作者在已认证的私聊中发送 `/memory grant <记录ID>@<版本> <目标会话> READ|CITE <理由>`，再凭回执中的授权 ID 发送 `/memory revoke <授权ID> <理由>`。单独设置 `allowedGroupId` 后，OpenQQ 也接受对应项目群中 @ 机器人的纯文本消息。渠道命令在进入模型前处理，普通私聊仍使用 `allowedUserId`。
+**原作者授权。** Memory v2.1 的 `audience_reads` 能力让 Worker 按目标会话获取可引用的材料。启用 OpenQQ 原作者命令需在记忆配置增加 `grantAccessTokenEnv`，它与 Memory 的同名配置及 `grantAccountId` 对应。原作者在已认证的私聊中发送 `/memory grant <记录ID>@<版本> <目标会话> READ|CITE <理由>`，再凭回执中的授权 ID 发送 `/memory revoke <授权ID> <理由>`。单独设置 `allowedGroupId` 后，OpenQQ 也接受对应项目群中 @ 机器人的文本和图片消息。渠道命令在进入模型前处理，普通私聊仍使用 `allowedUserId`。
 
 在 `POST /api/nodes/chat-worker/messages` 中，`chain`、`text` 沿用原入口。操作员转录有据可查的发言时，可另附 `observation`，含 `speaker`、`source_venue`、`occurred_at` 和明确的 `assertion`。会话范围仍由 Harness 绑定。OpenQQ 私聊从渠道事件取得发件人及消息 ID。可在同级 `neuralcloud-memory` 仓库运行 `python -u tests/acceptance.py` 复跑两服务的会议与故障恢复用例。
 

@@ -20,6 +20,7 @@ import neuralcloud.controlplane.orchestration.MasterEpochs;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.router.RouterMemoryWriter;
+import neuralcloud.controlplane.worker.ChatImage;
 import neuralcloud.controlplane.worker.ChatWorker;
 import neuralcloud.controlplane.worker.ReplySelector;
 import neuralcloud.controlplane.worker.TaskWorker;
@@ -205,7 +206,7 @@ public final class ConsoleMain {
                     ConsoleServer.start(settings.listen(), audit, monitor, nodes, writes, groups);
             opened.push(server);
 
-            // 网页控制台与 OpenQQ 渠道共用同一对话处理器 chatExchange。QQ 登录验证在后台连接中完成，断开时可独立重连。
+            // 启用群策略时与控制台共用 MasterRuntime，静态白名单走带图片读取器的常规对话入口。
             openQqSettings.ifPresent(
                     configured -> {
                         var openQqClient = HttpClient.newHttpClient();
@@ -219,20 +220,22 @@ public final class ConsoleMain {
                                         configured.allowedUserId(),
                                         configured.allowedGroupId(),
                                         audit,
-                                        chatExchange,
                                         writes,
                                         groups,
-                                        (text, trace, mode, addressed) ->
-                                                managedQq(
+                                        (text, trace, mode, addressed, images) -> groups.isPresent()
+                                                ? managedQq(
                                                         text,
                                                         trace,
                                                         mode,
                                                         addressed,
+                                                        images,
                                                         memory.orElseThrow(),
                                                         masterRuntime,
                                                         router,
                                                         chat,
-                                                        task));
+                                                        task)
+                                                : Optional.of(conversation(chat, router, task, memory, images)
+                                                        .send(text, trace)));
                         opened.push(channel);
                         channel.start();
                     });
@@ -383,6 +386,7 @@ public final class ConsoleMain {
             ConsoleServer.Trace trace,
             QqGroups.Mode mode,
             boolean addressed,
+            OpenQqChannel.Images images,
             MemoryAccess store,
             MasterRuntime master,
             Router<Route> router,
@@ -391,27 +395,29 @@ public final class ConsoleMain {
             throws IOException, InterruptedException {
         int input = store.writes().rememberInbound(trace, trace.request(), text);
         if (mode == QqGroups.Mode.OBSERVE) return Optional.empty();
+        var seen = observeImages(text, trace, input, images, chat);
         var context =
                 addressed
-                        ? ReplySelector.Context.direct(text)
+                        ? ReplySelector.Context.direct(seen.text())
                         : new ReplySelector.Context(
                                 ReplySelector.Addressing.AMBIENT,
-                                text,
+                                seen.text(),
                                 trace.dialogue().stream().map(m -> m.text()).toList());
         var decision = chat.selectReply(context);
         int selected =
                 trace.write(
-                        input,
+                        seen.event(),
                         "chat-worker",
                         "qq_participation",
                         Map.of("addressing", context.addressing(), "decision", decision));
         if (decision == ReplySelector.Decision.SKIP) return Optional.empty();
+        // 图片文字可帮助描述画面；外部动作仍须由用户配文发起。
         var route = router.route(text);
         int routed = trace.write(selected, "router", "router_route", Map.of("route", route.name()));
         if (route == Route.CONVERSATION)
             return Optional.of(
                     plannedReply(
-                            text,
+                            seen.text(),
                             trace,
                             routed,
                             master,
@@ -429,6 +435,27 @@ public final class ConsoleMain {
                         "chat_worker_reply",
                         Map.of("text", chat.reply(conversation).orElseThrow()),
                         routed));
+    }
+
+    /** 本轮图片观察独立标注来源，沿审计因果链交给 Master，不把模型识图文字写作群成员原话。 */
+    private record ObservedInput(String text, int event) {}
+
+    private static ObservedInput observeImages(String text, ConsoleServer.Trace trace, int parent,
+                                                OpenQqChannel.Images source, ChatWorker chat)
+            throws IOException, InterruptedException {
+        var images = source.read();
+        if (images.isEmpty()) return new ObservedInput(text, parent);
+        int submitted = trace.write(parent, "chat-worker", "chat_worker_image_input",
+                Map.of("images", images.stream().map(ChatImage::evidence).toList(), "model", chat.imageModel()));
+        String description;
+        try {
+            description = chat.describeImages(text, images);
+        } catch (IOException error) {
+            trace.write(submitted, "chat-worker", "chat_worker_image_failed", Map.of("detail", error.toString()));
+            throw error;
+        }
+        int observed = trace.write(submitted, "chat-worker", "chat_worker_image_recognition", Map.of("text", description));
+        return new ObservedInput(text + "\n\nChat Worker 对本条图片的观察（模型识别）依据如下：\n" + description, observed);
     }
 
     /** 从已入账的同一条原文继续 Master 验收和 Router 单步派单，发送前复核依据的版本。 */
@@ -511,32 +538,40 @@ public final class ConsoleMain {
      */
     static ConsoleServer.Exchange conversation(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task,
                                                 Optional<MemoryAccess> memory) {
+        return conversation(chat, router, task, memory, List::of);
+    }
+
+    /** 静态白名单 QQ 与控制台共用原有对话主链。私聊附件同样在原文取得持久回执之后才解码。 */
+    private static ConsoleServer.Exchange conversation(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task,
+                                                        Optional<MemoryAccess> memory, OpenQqChannel.Images images) {
         return (text, trace) -> {
             if (memory.isEmpty()) {
-                return routeAction(chat, router, task, text, trace, trace.request(), Optional.empty());
+                var seen = observeImages(text, trace, trace.request(), images, chat);
+                return routeAction(chat, router, task, text, seen.text(), trace, seen.event(), Optional.empty());
             }
             int accepted = trace.write(trace.request(), "chat-worker", "chat_worker_received", Map.of());
             var store = memory.orElseThrow();
             // 先由 Router 写入口持久化用户观察事件，取得审计事件编号作为后续全部步骤的因果父节点。
             int input = store.writes().rememberInbound(trace, accepted, text);
-            var chatRead = store.reads().bind(trace, Caller.CHAT_WORKER, input);
+            var seen = observeImages(text, trace, input, images, chat);
+            var chatRead = store.reads().bind(trace, Caller.CHAT_WORKER, seen.event());
             var updates = chatRead.startTurn();
             // 若记忆服务已提供热目录/近期更新包，则不再额外拼接审计链对话文本，避免上下文重复注入。
             var turn =
                     chat.planTurn(
-                            text,
+                            seen.text(),
                             updates.isEmpty() ? trace.dialogue() : List.of(),
                             chatRead.queryKinds(),
                             updates);
             // 规划阶段已消费过增量变更通知，推进本地游标避免下一轮重复注入同一批更新。
             chatRead.refreshed();
-            int planned = trace.write(input, "chat-worker", "chat_worker_turn_plan",
+            int planned = trace.write(seen.event(), "chat-worker", "chat_worker_turn_plan",
                     Map.of("kind", turn.kind().name(), "dialogueMessages", turn.dialogue().size(), "usage", turn.usage()));
             return switch (turn.kind()) {
                 case REPLY, CLARIFY -> new Reply("chat_worker_reply",
                         Map.of("text", chat.replyToTurn(turn, List.of()).orElseThrow()), planned);
                 case ACTION ->
-                        routeAction(chat, router, task, text, trace, planned, Optional.of(store));
+                        routeAction(chat, router, task, text, seen.text(), trace, planned, Optional.of(store));
                 case HISTORY, SELF_IDENTITY, SELF_HISTORY -> {
                     var read = store.reads().bind(trace, Caller.CHAT_WORKER, planned);
                     String reply = chat.replyWithMemory(turn, read).orElseThrow();
@@ -551,7 +586,7 @@ public final class ConsoleMain {
      * 仅当 Router 明确路由到 {@link Route#ACTION_REQUEST} 且系统配置了任务 Worker 时才派发现场执行；
      * 否则退回由 Chat Worker 按路由结果直接生成角色回复。
      */
-    private static Reply routeAction(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task, String text,
+    private static Reply routeAction(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task, String text, String observedText,
             ConsoleServer.Trace trace,
             int parent,
             Optional<MemoryAccess> memory)
@@ -562,6 +597,8 @@ public final class ConsoleMain {
         if (conversation.route() == Route.ACTION_REQUEST && task.isPresent()) {
             return executeTask(chat, task.orElseThrow(), conversation, trace, routed, memory);
         }
+        if (conversation.route() == Route.CONVERSATION)
+            conversation = new ChatWorker.RoutedConversation(ReplySelector.Context.direct(observedText), Route.CONVERSATION);
         return new Reply("chat_worker_reply", Map.of("text", chat.reply(conversation).orElseThrow()), routed);
     }
 
