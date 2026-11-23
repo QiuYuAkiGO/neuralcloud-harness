@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
+<!-- 顶部导航栏：应用标题、三大功能页签切换（对话 / 审计链 / 节点状态）以及亮暗主题切换按钮 -->
 <header>
   <h1>NeuralCloud 控制台</h1>
   <nav>
@@ -23,6 +24,7 @@
 </header>
 
 <main>
+  <!-- 对话页签：选择目标节点并围绕当前会话 chain 发送正文，消息列表始终从服务端审计链回放 -->
   <section id="tab-chat" class="panel active">
     <div class="toolbar">
       <label>节点 <select id="chat-node"></select></label>
@@ -37,6 +39,7 @@
     <p id="chat-error" class="error"></p>
   </section>
 
+  <!-- 审计链页签：左侧按最近活跃顺序列出全部会话/探测链，右侧以因果树渲染该链完整原始事件 -->
   <section id="tab-audit" class="panel">
     <div class="audit">
       <aside>
@@ -47,6 +50,7 @@
     </div>
   </section>
 
+  <!-- 节点状态页签：展示各模型节点健康状态、最近调用/探测结果、Prometheus 指标及本机 GPU 表格 -->
   <section id="tab-nodes" class="panel">
     <div class="toolbar"><strong>节点</strong><span id="nodes-updated" class="muted"></span><button id="nodes-refresh">刷新</button></div>
     <div id="node-cards" class="cards"></div>

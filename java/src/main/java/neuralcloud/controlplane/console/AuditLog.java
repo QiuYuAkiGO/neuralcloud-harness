@@ -24,19 +24,26 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 控制台审计链。每个进程写一份新的 JSONL，启动时按文件名顺序读回目录中的历史文件。
- * causedBy 只引用同一 runId 内的 eventId；chain 把同一会话或同一进程的探测串成一条链。
+ * 控制台与全链路事件的 JSONL 审计日志引擎。
+ * 持久化规则：
+ * 1. 每次进程启动在指定目录下创建一个以 UTC 时间戳 + 随机 {@code runId} 命名的新 JSONL 文件，
+ *    启动时按文件名排序把目录中全部历史文件读回内存，实现跨重启审计回溯与续聊；
+ * 2. {@code causedBy} 仅在同一个 {@code runId} 内引用前置 {@code eventId}，{@code chain} 把同一会话或同一进程的探测串成一条链；
+ * 3. 每次写入均即时 {@code flush()}，所有写与查询方法在实例级 {@code synchronized} 锁下保证顺序一致。
  */
 public final class AuditLog implements AutoCloseable {
+    /** 构造多轮续聊前缀对话时保留的最大历史正文总字符预算（从最近轮次向前裁剪）。 */
     private static final int DIALOGUE_CHAR_BUDGET = 48_000;
     private static final Gson JSON = new GsonBuilder().disableHtmlEscaping().setStrictness(Strictness.STRICT).create();
     private static final DateTimeFormatter FILE_TIME = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssSSS'Z'")
             .withZone(ZoneOffset.UTC);
 
+    /** 单条审计事件的不可变结构（schemaVersion 固定为 1）。 */
     public record Event(int schemaVersion, String runId, int eventId, Integer causedBy, String chain,
                         String node, String recordedAt, String type, JsonElement data) {
     }
 
+    /** 审计链摘要视图，供控制台侧边栏展示链名、涉及节点列表、起止时间与事件总数。 */
     public record Chain(String chain, List<String> nodes, String firstAt, String lastAt, int events) {
     }
 
@@ -58,6 +65,7 @@ public final class AuditLog implements AutoCloseable {
         this.writer = writer;
     }
 
+    /** 打开审计目录：加载并严格校验全部历史 {@code .jsonl} 文件，再为本次进程运行创建新的独占追加文件。 */
     public static AuditLog open(Path directory) throws IOException {
         Files.createDirectories(directory);
         var events = new ArrayList<Event>();
@@ -81,6 +89,7 @@ public final class AuditLog implements AutoCloseable {
                 Files.newBufferedWriter(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE));
     }
 
+    /** 严格反序列化单行 JSONL 审计记录并校验必需字段与版本号，防止损坏日志静默混入回放。 */
     private static Event parse(Path file, int line, String text) throws IOException {
         Event event;
         try {
@@ -100,7 +109,10 @@ public final class AuditLog implements AutoCloseable {
         return runId;
     }
 
-    // 每写一行就刷新，进程异常退出时保留已经发生的步骤。
+    /**
+     * 原子递增当前运行的 {@code eventId}、追加写入 JSONL 并立即刷盘，随后放入内存索引。
+     * 每写一行即刷新，确保进程意外中止时已发生的步骤不丢失。
+     */
     public synchronized int write(String chain, Integer causedBy, String node, String type, Object data)
             throws IOException {
         var event = new Event(1, runId, ++eventId, causedBy, chain, node, Instant.now().toString(), type,
@@ -112,7 +124,7 @@ public final class AuditLog implements AutoCloseable {
         return event.eventId();
     }
 
-    // 最近有新事件的链排在前面。
+    /** 按最近活跃时间倒序汇总全部审计链摘要（最近有新事件的链排在最前）。 */
     public synchronized List<Chain> chains() {
         var grouped = new LinkedHashMap<String, List<Event>>();
         for (Event event : events.reversed()) {
@@ -136,6 +148,14 @@ public final class AuditLog implements AutoCloseable {
                 && scope.runId().equals(event.runId()) && scope.chain().equals(event.chain())).findFirst().orElseThrow();
     }
 
+    /**
+     * 从审计链重建本轮请求（{@code request}）之前可用于续聊的纯文本多轮对话列表：
+     * 1. 严格截断在当前运行的 {@code request} 之前，不把本轮正在处理的消息混入历史；
+     * 2. 遇到 {@code memory_context_reset}（记忆证据发生修订/更正）时清空先前内存对话，强迫后续基于新证据重建上下文；
+     * 3. 角色回复只回放经当前渠道明确确认写出的条目（{@code console_response_written} 或 {@code qq_delivery}），
+     *    且排除带有 {@code source_refs} 的跨会话转授权回复（防止历史渠道回执绕过撤权永久重放）；
+     * 4. 最后按 {@value #DIALOGUE_CHAR_BUDGET} 字符上限从末尾保留最近若干轮。
+     */
     public synchronized List<DialogueMessage> dialogueBefore(String channel, String chain, int request) {
         var dialogue = new ArrayList<DialogueMessage>();
         var byRun = new HashMap<String, HashMap<Integer, Event>>();

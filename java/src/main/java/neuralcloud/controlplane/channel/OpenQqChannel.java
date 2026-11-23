@@ -29,14 +29,28 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+/**
+ * OpenQQ（OneBot v11 正向 WebSocket）渠道适配器。
+ * 核心职责与安全边界：
+ * 1. 后台虚拟线程维护持久 WebSocket 连接与断线重连（固定 3 秒退避），连接后先调用 {@code get_login_info} 核验登录账号与配置一致；
+ * 2. 严格过滤入站事件：仅受理白名单私聊用户、白名单项目群内 @本机器人的纯文本消息，以及启用授权后的原作者私聊 {@code /memory} 控制命令；
+ * 3. 基于审计链中的 {@code messageId} / {@code authorMessageId} 做入站幂等去重，防止重连补推触发重复执行；
+ * 4. 发送外部回复前通过 {@link RouterMemoryWriter#verifyDelivery} 复核跨会话引用权限；发送超时记 {@code qq_delivery_unknown} 且严禁自动重发，
+ *    只有收到 OneBot {@code status=ok, retcode=0} 与有效 {@code message_id} 才确认送达并调用 {@link RouterMemoryWriter#rememberDelivered} 入库。
+ */
 public final class OpenQqChannel implements AutoCloseable {
     private static final Gson JSON = new GsonBuilder().setStrictness(Strictness.STRICT).create();
+    /** WebSocket 建连、发送与等待 OneBot echo 回执的统一超时时间。 */
     private static final Duration IO_TIMEOUT = Duration.ofSeconds(10);
+    /** 单帧入站 JSON 事件的最大允许字符数，超限整帧丢弃以防内存放大。 */
     private static final int MAX_EVENT_CHARS = 65536;
+    /** 单条有效纯文本消息的最大字符数。 */
     private static final int MAX_MESSAGE_CHARS = 4096;
 
+    /** 通过边界过滤的入站 QQ 消息：{@code groupId == 0} 表示私聊，否则表示白名单项目群内 @机器人的群消息。 */
     record Incoming(long messageId, String text, long groupId, long senderId) {}
 
+    /** 正在等待 OneBot 回执的同步动作请求（通过唯一 {@code echo} 字段与返回帧配对）。 */
     private record Pending(String echo, CompletableFuture<JsonObject> response) {}
 
     private final HttpClient client;
@@ -73,10 +87,12 @@ public final class OpenQqChannel implements AutoCloseable {
         this.runner = Thread.ofVirtual().name("openqq-channel").unstarted(this::run);
     }
 
+    /** 启动后台虚拟线程连接 OneBot WebSocket 服务端。 */
     public void start() {
         runner.start();
     }
 
+    /** 渠道主循环：反复建立 {@link Session}，遇网络中断或超时等待 3 秒后自动重连，直到收到关闭信号或线程中断。 */
     private void run() {
         while (!closed) {
             var session = new Session();
@@ -97,6 +113,13 @@ public final class OpenQqChannel implements AutoCloseable {
         }
     }
 
+    /**
+     * 处理单条已通过边界校验的入站 QQ 消息，串行完成：
+     * 1. 按渠道与对话对象确定审计链名，拒绝群聊中的 {@code /memory} 授权命令，并按历史审计事件做幂等去重；
+     * 2. 写入 {@code qq_message} 或 {@code qq_author_command} 入站事件并构造绑定 QQ 身份的 {@link Trace}；
+     * 3. 授权命令直接转交 {@link RouterMemoryWriter#authorDecision}（绝不送入对话模型），普通消息交 {@link Exchange} 并在外发前执行 {@code verifyDelivery} 复核；
+     * 4. 通过 OneBot {@code send_private_msg}/{@code send_group_msg} 发送文本；仅在收到含有效 {@code message_id} 的成功回执后才记 {@code qq_delivery} 并落盘角色回复。
+     */
     private void handle(Session session, WebSocket socket, Incoming incoming) throws IOException, InterruptedException {
         boolean group = incoming.groupId() != 0;
         String chain =
@@ -227,10 +250,18 @@ public final class OpenQqChannel implements AutoCloseable {
         return incoming(event, accountId, allowedUserId, 0, false);
     }
 
+    /** 判断消息文本是否为原作者可见性授权控制命令（{@code /memory} 或 {@code /memory ...}）。 */
     private static boolean authorCommand(String text) {
         return text.equals("/memory") || text.startsWith("/memory ");
     }
 
+    /**
+     * OneBot v11 入站事件边界过滤器。
+     * 过滤规则：
+     * - 群聊仅接受配置白名单群（{@code allowedGroupId}）中非机器人自身发送、明确包含 {@code @accountId} 且其余片段全为纯文本的消息；
+     * - 私聊仅接受 {@code friend/other} 子类型的纯文本消息；非白名单用户仅在开启原作者授权且正文为 {@code /memory} 命令时放行；
+     * - 图片/语音/表情等非纯文本消息或超出 {@value #MAX_MESSAGE_CHARS} 字的正文一律丢弃返回 null。
+     */
     static Incoming incoming(
             JsonObject event,
             long accountId,
@@ -284,6 +315,7 @@ public final class OpenQqChannel implements AutoCloseable {
         return new Incoming(messageId, body, group ? allowedGroupId : 0, sender);
     }
 
+    /** 判断 OneBot 动作回执是否明确表示执行成功（{@code status == "ok"} 且 {@code retcode == 0}）。 */
     private static boolean successful(JsonObject response) {
         return "ok".equals(string(response.get("status"))) && new JsonPrimitive(0).equals(response.get("retcode"));
     }
@@ -299,6 +331,7 @@ public final class OpenQqChannel implements AutoCloseable {
         return 0;
     }
 
+    /** 停止重连循环、中断后台虚拟线程，并在超时范围内等待其优雅退出。 */
     @Override
     public void close() {
         closed = true;
@@ -310,6 +343,11 @@ public final class OpenQqChannel implements AutoCloseable {
         }
     }
 
+    /**
+     * 单次 WebSocket 连接生命周期封装。
+     * WebSocket 回调线程（{@link #onText}）负责拼帧、匹配 {@code pending} 动作回执并将合法入站消息推入有界队列 {@code inbox}；
+     * {@link #run()} 在虚拟线程中顺序消费 {@code inbox} 并串行调用 {@link #handle}，保证同一时刻最多只有一条在途动作请求。
+     */
     private final class Session implements WebSocket.Listener {
         private final ArrayBlockingQueue<Incoming> inbox = new ArrayBlockingQueue<>(32);
         private final StringBuilder fragments = new StringBuilder();
@@ -339,6 +377,7 @@ public final class OpenQqChannel implements AutoCloseable {
             }
         }
 
+        /** 发送一条带随机 {@code echo} 的 OneBot JSON 动作帧，并阻塞等待对应回执或超时。 */
         private JsonObject call(WebSocket socket, String action, Map<String, ?> params)
                 throws IOException, InterruptedException {
             var request = new Pending(UUID.randomUUID().toString(), new CompletableFuture<>());
@@ -379,6 +418,7 @@ public final class OpenQqChannel implements AutoCloseable {
             return null;
         }
 
+        /** 接收完整 JSON 文本帧：优先按 {@code echo} 唤醒等待中的同步动作调用，否则按入站消息过滤后送入有界队列。 */
         private void receive(String text) {
             JsonObject event;
             try {

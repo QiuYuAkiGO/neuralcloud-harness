@@ -15,9 +15,21 @@ import java.util.List;
 import java.util.Properties;
 import java.util.function.Function;
 
+/**
+ * Chat Worker（前台对话角色模型）的配置加载与实例装配器。
+ * 支持两种后端协议：
+ * 1. {@link ApiFormat#GEMINI}（默认）：Google Gemini {@code generateContent} HTTPS 接口，使用 {@code thinkingLevel} 控制思考深度；
+ * 2. {@link ApiFormat#OPENAI_CHAT}：兼容本机或云端 OpenAI 聊天接口，使用 {@code model}、{@code enableThinking} 与 {@code thinkingFormat}。
+ * 启动阶段校验所有必填/互斥字段并加载只读回复偏好摘要 {@code replyPreferences}。
+ */
 final class ChatWorkerConfig {
     private ChatWorkerConfig() {}
 
+    /**
+     * 读取并校验 Chat Worker 配置文件。
+     * 先解析两种协议共用的网络、超时、输出上限和回复偏好摘要，再按 {@code apiFormat} 分支校验协议专有字段，
+     * 并在末尾检查是否存在未消费的未知配置项。
+     */
     static Settings load(ConfigSource source) throws IOException {
         var properties = source.readProperties();
         ApiFormat format = apiFormat(properties);
@@ -31,6 +43,7 @@ final class ChatWorkerConfig {
             throw new IllegalArgumentException("replyPreferences 须指向非空的只读偏好摘要");
         }
 
+        // 按接口协议分流校验专有字段：Gemini 要求必填密钥与思考档位；OpenAI 聊天模式要求 model 与思考开关。
         Settings settings;
         if (format == ApiFormat.GEMINI) {
             URI endpoint = geminiEndpoint(MasterConfig.required(properties, "endpoint"));
@@ -58,6 +71,7 @@ final class ChatWorkerConfig {
         return settings;
     }
 
+    /** 解析协议类型，未配置 {@code apiFormat} 时默认兼容原有 Gemini 配置。 */
     private static ApiFormat apiFormat(Properties properties) {
         String value = MasterConfig.optional(properties, "apiFormat");
         if (value == null) {
@@ -70,6 +84,7 @@ final class ChatWorkerConfig {
         }
     }
 
+    /** 校验 Gemini 端点格式：必须为 HTTPS 且路径精确匹配 {@code /v1beta/models/<model>:generateContent}。 */
     private static URI geminiEndpoint(String value) {
         URI endpoint;
         try {
@@ -86,11 +101,16 @@ final class ChatWorkerConfig {
         return endpoint;
     }
 
+    /**
+     * 已校验的 Chat Worker 运行配置快照。
+     * 注意：此处只保存密钥的环境变量名 {@code keyEnvironment}，实际密钥在启动阶段调用 {@link #apiKey()} 时再读取，
+     * 避免将明文密钥长期暴露在静态配置结构中。
+     */
     record Settings(ApiFormat apiFormat, URI endpoint, String model, String keyEnvironment,
                     HttpClient.Version httpVersion, InetSocketAddress proxy, Duration connectTimeout,
                     Duration requestTimeout, int maxOutputTokens, String thinkingLevel, boolean enableThinking,
                     Master.ThinkingFormat thinkingFormat, String replyPreferences) {
-        // 配置代理时走显式 HTTP 代理，未配置时直连本机或云端端点。
+        /** 构造供 Chat Worker 使用的 HTTP 客户端；配置代理时走显式 HTTP 代理，未配置时直连端点。 */
         HttpClient newClient() {
             var builder = HttpClient.newBuilder().version(httpVersion).connectTimeout(connectTimeout);
             if (proxy != null) {
@@ -99,10 +119,12 @@ final class ChatWorkerConfig {
             return builder.build();
         }
 
+        /** 从当前进程环境变量解析 API 密钥。 */
         String apiKey() {
             return apiKey(System::getenv);
         }
 
+        /** 从指定环境变量提供器解析 API 密钥；未配置密钥变量（免鉴权本机端点）时返回 null。 */
         String apiKey(Function<String, String> env) {
             if (keyEnvironment == null) {
                 return null;
@@ -114,6 +136,7 @@ final class ChatWorkerConfig {
             return key;
         }
 
+        /** 根据已校验的协议类型创建对应的 {@link ChatWorker} 实例，并注入角色提示词与偏好摘要。 */
         ChatWorker create(HttpClient client, String apiKey, String rolePrompt) {
             if (apiFormat == ApiFormat.GEMINI) {
                 return new ChatWorker(client, endpoint, requestTimeout, maxOutputTokens, thinkingLevel, apiKey,

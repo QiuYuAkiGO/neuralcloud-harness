@@ -29,8 +29,20 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
+/**
+ * 前台角色对话节点（小雾 / Misty），同时实现 {@link ReplySelector} 群聊参与判定能力。
+ * 核心职责与边界：
+ * 1. 双协议适配：原生 Google Gemini {@code generateContent}（结构化输出依赖 {@code responseSchema}）
+ *    与 OpenAI 兼容聊天补全（结构化输出依赖唯一指定 {@code tool_choice} 函数调用）；
+ * 2. 四类前台任务：
+ *    - 群聊参与判定（{@link #selectReply}）：私聊/点名直放，旁听发言结合只读偏好摘要判断是否加入；
+ *    - 轮次意图规划（{@link #planTurn}）：输出严格枚举 {@link TurnKind} 与检索线索，由宿主控制面决定后续查证或路由；
+ *    - 角色润色与查证作答（{@link #reply} / {@link #replyWithMemory} / {@link #replyToTurn}）：只依据获准正文或记忆材料作答；
+ *    - 现场回执转述（{@link #replyToServerStatus}）：模型仅从白名单中选开场白，真实采样值由 {@link ServerStatus#measurements()} 拼接。
+ */
 public final class ChatWorker implements ReplySelector {
     private static final Gson JSON = new GsonBuilder().setStrictness(Strictness.STRICT).create();
+    /** 润色获准正文指令：用于转述编排结论、拒答或澄清话术，禁止擅自添加承诺或执行结果。 */
     private static final String DRAFT_INSTRUCTION =
             """
 
@@ -108,15 +120,23 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
     private final String rolePrompt;
     private final String selectionPrompt;
 
+    /** 经过 Router 分流后的会话包装，携带原始上下文与路由枚举。 */
     public record RoutedConversation(Context context, Route route) {}
 
+    /**
+     * 有记忆模式下的轮次规划类别：
+     * {@code REPLY} 直接回复；{@code HISTORY} 查同会话历史或工具回执；{@code SELF_IDENTITY} 查已确认称呼；
+     * {@code SELF_HISTORY} 跨会话查 QQ 本人原话；{@code ACTION} 交 Router 判定现场动作；{@code CLARIFY} 指代不明须追问澄清。
+     */
     public enum TurnKind { REPLY, HISTORY, SELF_IDENTITY, SELF_HISTORY, ACTION, CLARIFY }
 
+    /** 单轮规划产出：保存输入上下文、类别、检索词、已合并证据更新的前缀对话历史，以及提示词缓存统计 {@code usage}。 */
     public record Turn(Context context, TurnKind kind, String query, List<DialogueMessage> dialogue,
                        Map<String, Integer> usage) {}
 
     private record Generation(String text, Map<String, Integer> usage) {}
 
+    /** 构造原生 Gemini {@code generateContent} 协议的 Chat Worker。 */
     public ChatWorker(HttpClient client, URI endpoint, Duration requestTimeout, int maxOutputTokens,
                       String thinkingLevel, String apiKey, String rolePrompt, String preferences) {
         this(ApiFormat.GEMINI, client, endpoint, null, null, requestTimeout, maxOutputTokens,
@@ -153,6 +173,11 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         this.selectionPrompt = SELECTION_PROMPT.formatted(Objects.requireNonNull(preferences));
     }
 
+    /**
+     * 判断角色是否参与本轮对话。
+     * 直接对话（{@link Addressing#DIRECT}）由渠道确认寻址，直接返回 {@link Decision#REPLY}；
+     * 群聊旁听（{@link Addressing#AMBIENT}）结合只读偏好摘要通过受限枚举（Gemini {@code responseSchema} 或 OpenAI 强制工具）返回 REPLY/SKIP。
+     */
     @Override
     public Decision selectReply(Context context) throws IOException {
         // 直接对话已由渠道确认发言对象，兴趣偏好只影响是否主动加入群聊。
@@ -177,6 +202,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         }
     }
 
+    /** 先完成参与判定，获准参与后仅将编排层批准的正文交由角色模型润色为最终回复；若判定 SKIP 则返回空。 */
     public Optional<String> reply(Context context, String approvedText) throws IOException {
         if (approvedText.isBlank()) {
             throw new IllegalArgumentException("Chat Worker 需要非空的获准回复正文");
@@ -188,6 +214,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         return Optional.of(generateReply(DRAFT_INSTRUCTION, approvedText));
     }
 
+    /** 将直接对话的当前原文交给 Router 判定业务路由，返回绑定上下文与路由结果的 {@link RoutedConversation}。 */
     public RoutedConversation routeConversation(String message, Router<Route> router)
             throws IOException, InterruptedException {
         var context = Context.direct(message);
@@ -195,18 +222,27 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         return new RoutedConversation(context, router.route(context.message()));
     }
 
+    /** 无历史前缀的简化轮次规划入口。 */
     public Turn planTurn(String text) throws IOException {
         return planTurn(text, List.of());
     }
 
+    /** 带历史前缀、不开放本人跨会话历史检索的轮次规划入口。 */
     public Turn planTurn(String text, List<DialogueMessage> dialogue) throws IOException {
         return planTurn(text, dialogue, false);
     }
 
+    /** 带历史前缀并指定是否开放 {@code SELF_HISTORY} 的轮次规划入口。 */
     public Turn planTurn(String text, List<DialogueMessage> dialogue, boolean selfHistoryAvailable) throws IOException {
         return planTurn(text, dialogue, selfHistoryAvailable, List.of());
     }
 
+    /**
+     * 执行本轮意图与取证规划（仅产出结构化 {@link Turn}，不写回复正文）：
+     * 1. 若记忆服务在轮次开始提供了证据更新（{@code updates}），先作为前缀插入对话历史，保证规划与后续生成看到同一上下文；
+     * 2. 根据渠道能力动态裁剪可选枚举（是否包含 {@code SELF_HISTORY}），通过受限 Schema 或 {@code plan_turn} 工具获取 {@code kind} 与 {@code query}；
+     * 3. 复用 {@link MemoryCall#validQuery} 严格校验查询词合法性，拦截“上文内容/聊天记录”等空泛占位词。
+     */
     public Turn planTurn(
             String text,
             List<DialogueMessage> dialogue,
@@ -266,6 +302,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         throw new IOException("Chat Worker 的本轮处理选择或查询线索不符合契约");
     }
 
+    /** 按本轮规划先通过 {@link MemoryCall#read} 取证，再基于召回材料生成角色回复，并在产出后通知证据已交付。 */
     public Optional<String> replyWithMemory(Turn turn, MemoryCall memory) throws IOException, InterruptedException {
         var result = memory.read(QueryKind.valueOf(turn.kind().name()), turn.query());
         var reply = replyToTurn(turn, result.sentences());
@@ -273,6 +310,12 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         return reply;
     }
 
+    /**
+     * 根据规划结果与可选记忆材料生成本轮角色回复：
+     * - {@code CLARIFY} 走受控润色话术向用户追问澄清；
+     * - 非 {@code REPLY} 类别却未提供任何记忆材料时走明确的无结果提示，避免模型凭空臆造；
+     * - 正常回复携带完整前缀对话与记忆材料，结合角色提示、自由对话规范与召回约束生成。
+     */
     public Optional<String> replyToTurn(Turn turn, List<String> materials) throws IOException {
         if (selectReply(turn.context()) == Decision.SKIP) {
             return Optional.empty();
@@ -291,6 +334,10 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         return Optional.of(callOpenAiText(prompt, turn.dialogue(), turn.context().message(), materials).strip());
     }
 
+    /**
+     * 按 Router 的分流结论生成无任务执行时的角色回复：
+     * 普通交流由模型自然回答；动作请求（无可用执行能力时）与超范围请求均只传入固定受控状态由角色润色。
+     */
     public Optional<String> reply(RoutedConversation conversation) throws IOException {
         if (selectReply(conversation.context()) == Decision.SKIP) {
             return Optional.empty();
@@ -305,6 +352,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         });
     }
 
+    /** 构造 Gemini {@code contents} 多轮消息数组：前缀对话保持不变以利缓存复用，记忆材料仅作为当前用户消息的附加片段。 */
     private static List<Map<String, Object>> contents(List<DialogueMessage> dialogue, String current,
                                                        List<String> materials) {
         var contents = new ArrayList<Map<String, Object>>();
@@ -321,6 +369,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         return contents;
     }
 
+    /** 构造 OpenAI 兼容 {@code messages} 多轮消息数组：将系统提示置顶，并将记忆材料附加在当前用户消息末尾。 */
     private static List<Map<String, Object>> openAiMessages(String prompt, List<DialogueMessage> dialogue,
                                                             String current, List<String> materials) {
         var messages = new ArrayList<Map<String, Object>>();
@@ -339,6 +388,10 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         return Map.of("role", role, "parts", List.of(Map.of("text", text)));
     }
 
+    /**
+     * 为任务 Worker 已落盘的服务器状态回执生成角色回复。
+     * 安全约束：模型只能从 {@link #STATUS_INTROS} 白名单中选择开场白，具体负载/内存/磁盘数值由程序直接拼接，彻底避免数值幻觉。
+     */
     public Optional<String> replyToServerStatus(Context context, ServerStatus status) throws IOException {
         if (selectReply(context) == Decision.SKIP) {
             return Optional.empty();
@@ -360,6 +413,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         return Optional.of(intro + "\n" + status.measurements());
     }
 
+    /** 统一的单轮文本润色/回复入口：按配置的 {@link ApiFormat} 分派到 Gemini 或 OpenAI 兼容聊天后端。 */
     private String generateReply(String instruction, String text) throws IOException {
         if (apiFormat == ApiFormat.GEMINI) {
             return generate(rolePrompt + instruction, text, replyConfig()).strip();
@@ -381,6 +435,10 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         return generateWithUsage(prompt, contents, generationConfig).text();
     }
 
+    /**
+     * 调用 Gemini {@code generateContent} HTTP 接口并返回可见正文与用量统计（{@code usageMetadata}）。
+     * 通过 {@code x-goog-api-key} 传递密钥；非 200 响应不透传上游错误体，防止泄露敏感细节。
+     */
     private Generation generateWithUsage(String prompt, List<Map<String, Object>> contents,
                                          Map<String, ?> generationConfig) throws IOException {
         var body = Map.of(
@@ -409,6 +467,11 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         }
     }
 
+    /**
+     * 调用 OpenAI 兼容聊天端点生成纯文本回复。
+     * 强制要求 {@code finish_reason=stop}（拒绝被 max_tokens 截断的草稿）、禁止携带 {@code tool_calls}，
+     * 并返回非空可见正文。
+     */
     private String callOpenAiText(String prompt, List<DialogueMessage> dialogue, String current, List<String> materials)
             throws IOException {
         var body = new LinkedHashMap<String, Object>();
@@ -458,6 +521,10 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         throw new IOException("Chat Worker 结构化选择不符合契约");
     }
 
+    /**
+     * 调用 OpenAI 兼容聊天端点执行强制单工具调用（{@code temperature=0}、{@code parallel_tool_calls=false}），
+     * 校验返回的唯一函数调用名称匹配目标工具，并返回其 JSON 参数字符串与 token 统计。
+     */
     private Generation callOpenAiTool(String prompt, List<DialogueMessage> dialogue, String current,
                                       String toolName, String description, Map<String, Object> parameters)
             throws IOException {
@@ -490,6 +557,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         throw new IOException("Chat Worker 须通过一次 " + toolName + " 工具调用提交结构化结果");
     }
 
+    /** 发送 OpenAI 兼容 JSON POST 请求并核验 HTTP 200、有效 JSON 对象以及响应 {@code model} 与配置一致。 */
     private JsonObject sendOpenAi(Map<String, Object> body) throws IOException {
         var builder = HttpRequest.newBuilder(endpoint)
                 .version(httpVersion)
@@ -532,6 +600,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         return object.get(name) instanceof JsonPrimitive value && value.isString() ? value.getAsString() : "";
     }
 
+    /** 提取 OpenAI/DeepSeek 响应中的输入 token 与缓存命中 token 统计，兼容两种主流 cached 字段位置。 */
     private static Map<String, Integer> openAiUsage(JsonObject response) {
         var counts = new HashMap<String, Integer>();
         if (response.get("usage") instanceof JsonObject usage) {
@@ -560,6 +629,11 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         return Map.copyOf(counts);
     }
 
+    /**
+     * 解析 Gemini 响应中的唯一文本候选：
+     * 1. 要求 {@code finishReason=STOP}，避免把截断或被安全拦截的半成品交付给用户；
+     * 2. 遍历 {@code content.parts}，过滤掉 {@code thought=true} 的内部思考片段，只拼接最终可见正文。
+     */
     private static String replyText(JsonObject payload) throws IOException {
         if (payload == null || !(payload.get("candidates") instanceof JsonArray candidates)
                 || candidates.size() != 1 || !(candidates.get(0) instanceof JsonObject candidate)) {

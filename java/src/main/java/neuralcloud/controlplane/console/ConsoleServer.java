@@ -27,8 +27,14 @@ import java.util.function.BiConsumer;
 import java.util.regex.Pattern;
 
 /**
- * 网页控制台的 HTTP 边界。网页把操作者正文直接交给指定节点，节点的实际返回或失败写入审计链后再回给网页。
- * 请求体在这里按契约校验；节点只收到已校验的非空正文。
+ * 网页控制台的 HTTP 服务端边界（基于 JDK 内置 {@link HttpServer} 与每请求一虚拟线程执行器）。
+ * 职责与核心约定：
+ * 1. 提供静态前端页面（{@code /}、{@code /app.js}、{@code /style.css}）以及五类 JSON REST 接口：
+ *    节点列表与监控（{@code GET /api/nodes}）、向节点发消息（{@code POST /api/nodes/{id}/messages}）、
+ *    手动探测节点（{@code POST /api/nodes/{id}/probe}）、审计链列表与明细（{@code GET /api/audit/chains[/<id>]}）；
+ * 2. 在入口边界按严格契约校验 JSON 请求体（最大 64 KiB、拒绝 {@code probe-} 保留链名、限制可选 {@code observation} 白名单键）；
+ * 3. 定义跨通道共享的 {@link Trace} 审计追踪与受众范围抽象（控制台、QQ 私聊、QQ 群聊共用），
+ *    并在控制台 HTTP 响应正文实际写出之后再通过 {@code afterWrite} 钩子登记 {@code console_response_written} 并触发记忆落盘。
  */
 public final class ConsoleServer implements AutoCloseable {
     private static final Gson JSON = new GsonBuilder().serializeNulls().disableHtmlEscaping().create();
@@ -43,21 +49,33 @@ public final class ConsoleServer implements AutoCloseable {
     private static final String INVALID_MESSAGE = "请求体须为只含 chain 与 text 两个字符串字段的 JSON 对象，不超过 64 KiB；"
             + "chain 为 1 至 64 位字母、数字或连字符且不以 probe- 开头，text 非空";
 
+    /** 节点消息处理回调：接收经过边界校验的非空正文及本轮审计追踪 {@link Trace}，返回可审计的回复结构。 */
     @FunctionalInterface
     public interface Exchange {
         Reply send(String text, Trace trace) throws IOException, InterruptedException;
     }
 
-    // 绑定本轮会话的审计链。多步节点把中间步骤写在这里；request 是本轮操作者正文的事件 ID。
+    /**
+     * 绑定本轮单次请求的审计与受众隔离上下文（控制台与 OpenQQ 渠道共用）。
+     * 负责：记录中间步骤事件、回溯本轮之前的历史对话、收集本轮引用的跨会话共享来源（{@link #sharedSources()}）
+     * 及最早有效截止时间（{@link #validUntil()}），供渠道在发送前复核授权并在送达回执中附加 {@code source_refs}。
+     */
     public interface Trace {
+        /** QQ 私聊渠道身份标识，规范化生成跨重启稳定的会话 ID（{@code c2c:onebot:<accountId>:<peerId>}）。 */
         record QqPrivate(long accountId, long peerId) {
             public String conversationId() {
                 return "c2c:onebot:" + accountId + ":" + peerId;
             }
         }
 
+        /** QQ 群聊渠道身份标识（机器人账号、白名单群号、本条消息发件人 QQ 号）。 */
         record QqGroup(long accountId, long groupId, long senderId) {}
 
+        /**
+         * 会话隔离作用域：
+         * {@code sessionId()} 按渠道与审计链划分；{@code conversationId()} 在 QQ 渠道下映射为跨重启稳定的平台对话 ID，
+         * 控制台下与 {@code sessionId()} 保持一致。
+         */
         record Scope(
                 String channel,
                 String chain,
@@ -93,6 +111,7 @@ public final class ConsoleServer implements AutoCloseable {
 
         java.time.Instant validUntil();
 
+        /** 为渠道送达回执载荷补充本轮经过复核的跨会话引用清单 {@code source_refs}（若未引用共享来源则原样返回）。 */
         default Map<String, Object> delivery(Map<String, Object> data) {
             if (sharedSources().isEmpty()) return data;
             var receipt = new LinkedHashMap<>(data);
@@ -222,6 +241,7 @@ public final class ConsoleServer implements AutoCloseable {
         probeChain = PROBE_CHAIN_PREFIX + audit.runId();
     }
 
+    /** 绑定监听地址、注册根路由与虚拟线程执行器并立即开始接受 HTTP 请求。 */
     public static ConsoleServer start(InetSocketAddress address, AuditLog audit, NodeMonitor monitor,
                                       List<Node> nodes, Optional<RouterMemoryWriter> writes) throws IOException {
         var console = new ConsoleServer(HttpServer.create(address, 0), audit, monitor, nodes, writes);
@@ -231,6 +251,10 @@ public final class ConsoleServer implements AutoCloseable {
         return console;
     }
 
+    /**
+     * HTTP 顶层请求分发器：统一捕获客户端契约错误（4xx）与服务端异常（500），
+     * 写出响应头（禁用浏览器缓存 {@code no-store}）与响应体，并在响应流关闭确认写出后再执行 {@code afterWrite} 回调。
+     */
     private void handle(HttpExchange exchange) throws IOException {
         try {
             Response response;
@@ -257,6 +281,7 @@ public final class ConsoleServer implements AutoCloseable {
         }
     }
 
+    /** 按路径前缀分派静态资源与 {@code /api/...} REST 接口，并强制检查 HTTP 方法。 */
     private Response route(HttpExchange exchange) throws IOException, RequestException {
         String method = exchange.getRequestMethod();
         String path = exchange.getRequestURI().getPath();
@@ -292,6 +317,7 @@ public final class ConsoleServer implements AutoCloseable {
         throw new RequestException(404, "没有接口 " + path);
     }
 
+    /** 汇总全部已注册节点的元数据、监控快照与本机 GPU 读数，供控制台状态栏与右侧监控面板轮询。 */
     private Map<String, Object> nodesView() {
         var views = nodes.values().stream().map(node -> {
             var view = new LinkedHashMap<String, Object>();
@@ -309,7 +335,13 @@ public final class ConsoleServer implements AutoCloseable {
         return body;
     }
 
-    // 先记录操作者正文，再调用节点。调用失败同样写入审计链，并以 502 返回实际失败原因。
+    /**
+     * 向指定节点发送操作者消息：
+     * 1. 若携带 {@code observation} 来源凭据，仅允许发往启用 Memory v2 的 {@code chat-worker}；
+     * 2. 先落盘 {@code operator_message}，调用节点并在返回前执行 {@link RouterMemoryWriter#verifyDelivery} 复核引用权；
+     * 3. 记录节点回复与耗时；对于带记忆的 {@code chat_worker_reply}，在 HTTP 响应真正写出后通过 {@code afterWrite}
+     *    追加 {@code console_response_written} 并持久化角色回复，避免客户端断开前误记为已送达。
+     */
     private Response send(Node node, Message message) throws IOException {
         var observationData = new LinkedHashMap<String, Object>();
         observationData.put("text", message.text());
@@ -360,6 +392,7 @@ public final class ConsoleServer implements AutoCloseable {
         return response;
     }
 
+    /** 对支持探测的节点执行一次同步连通性探测，结果写入专属 {@code probe-<runId>} 审计链并更新监控面板。 */
     private Response probe(Node node) throws IOException, RequestException {
         if (node.probe() == null) {
             throw new RequestException(400, node.name() + " 不提供探测，状态以最近一次调用为准");
@@ -377,6 +410,7 @@ public final class ConsoleServer implements AutoCloseable {
         return json(200, Map.of("eventId", event, "latencyMs", latency));
     }
 
+    /** 统一处理节点调用或探测失败：输出完整堆栈、先写 {@code node_failed} 审计事件再恢复中断标记，并以 HTTP 502 返回。 */
     private Response failure(Node node, String chain, int cause, long started, Exception error,
                              BiConsumer<String, NodeMonitor.Outcome> record) throws IOException {
         long latency = elapsedMillis(started);
@@ -400,6 +434,11 @@ public final class ConsoleServer implements AutoCloseable {
         return node;
     }
 
+    /**
+     * 解析并校验 {@code POST /api/nodes/{id}/messages} 请求体：
+     * 限制体积不超过 64 KiB、严格 JSON、只含 {@code chain} 与 {@code text}（或附带白名单字段的 {@code observation}），
+     * 且 {@code chain} 禁止使用系统保留前缀 {@code probe-}；所有格式或契约违规合并由单一 HTTP 400 出口拒绝。
+     */
     private static Message message(HttpExchange exchange) throws IOException, RequestException {
         byte[] bytes = exchange.getRequestBody().readNBytes(MAX_BODY_BYTES + 1);
         JsonObject body = null;
@@ -434,6 +473,7 @@ public final class ConsoleServer implements AutoCloseable {
         }
     }
 
+    /** 仅放行严格匹配 {@code /[a-z]+.(html|js|css)} 的类路径内置控制台前端静态文件，天然杜绝路径穿越。 */
     private static Response staticFile(String path) throws IOException, RequestException {
         var matcher = STATIC.matcher(path);
         if (matcher.matches()) {

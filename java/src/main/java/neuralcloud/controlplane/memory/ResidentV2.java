@@ -12,16 +12,32 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.*;
 
+/**
+ * Memory v2 协议客户端，继承自 {@link ResidentMemory} 并挂载本地 SQLite 持久日志 {@link MemoryJournal}。
+ * 相对 v1 新增的核心控制面保障：
+ * 1. 启动能力协商与未决写命令对账恢复（{@link #verify} / {@link #recover}）；
+ * 2. 写前落盘（Outbox）与按 {@code v2/receipts} 幂等查证，确保网络抖动时不丢失回执也不产生重复写入；
+ * 3. 原作者跨会话可见性授权/撤回（{@link #authorDecision}，使用独立的 {@code grantToken}）；
+ * 4. 带快照流标识（{@code stream_id}）与全局序号（{@code read_seq}）的分域召回、热目录卡片读取与时态断言渲染；
+ * 5. 基于 {@code v2/changes} 变更流的按条目增量刷新（{@link #refresh}）以及执行/渠道交付前的证据有效性复核（{@link #verifyEvidence} / {@link #verifyDelivery}）。
+ */
 public final class ResidentV2 extends ResidentMemory {
     private static final String SOURCE = "neuralcloud-java";
     private static final Gson JSON = new GsonBuilder().disableHtmlEscaping().create();
+    /** 本地持久日志，保存待发送写命令队列、已交付给模型的不可变证据与变更监视游标。 */
     private final MemoryJournal journal;
+    /** 原作者可见性授权/撤回专用 Bearer 令牌，与常规读写令牌隔离；为 null 时禁用渠道授权。 */
     private final String grantToken;
+    /** 受众热目录卡片的 token 预算上限（0 表示不注入热目录）。 */
     final int hotIndexTokens;
+    /** 历史召回检索档位（{@code QUICK} 或 {@code THINKING}）。 */
     private final String historyProfile;
+    /** 服务端在 {@code v2/health} 返回的当前记忆流标识，用于检测远端记忆库是否重建或切换。 */
     private String stream;
+    /** 是否在 {@code scoped} 模式下协商通过了 {@code audience_reads} 能力（决定是否携带 {@code use=CITE}）。 */
     private boolean audienceReads;
 
+    /** 兼容构造器：默认关闭热目录（预算为 0）并使用 {@code QUICK} 检索档位。 */
     public ResidentV2(
             HttpClient client,
             URI endpoint,
@@ -33,6 +49,7 @@ public final class ResidentV2 extends ResidentMemory {
         this(client, endpoint, character, token, scoped, journal, grantToken, 0, "QUICK");
     }
 
+    /** 完整构造器：绑定 HTTP 客户端、角色配置、本地 SQLite 日志、可选授权令牌以及热目录与检索档位。 */
     public ResidentV2(
             HttpClient client,
             URI endpoint,
@@ -50,14 +67,17 @@ public final class ResidentV2 extends ResidentMemory {
         this.grantToken = grantToken;
     }
 
+    /** 返回启动核验阶段锁定的远端记忆流标识 {@code stream_id}。 */
     public String stream() {
         return stream;
     }
 
+    /** 返回是否配置了独立授权令牌以启用原作者跨会话授权能力。 */
     public boolean authorGrantsEnabled() {
         return grantToken != null;
     }
 
+    /** 便捷构建 JSON 对象的辅助方法（参数按 key, value 交替传入）。 */
     static JsonObject object(Object... pairs) {
         var result = new JsonObject();
         for (int i = 0; i < pairs.length; i += 2)
@@ -65,12 +85,14 @@ public final class ResidentV2 extends ResidentMemory {
         return result;
     }
 
+    /** 严格读取 JSON 对象中的非空字符串字段，缺失、非字符串或全空白即抛出契约异常。 */
     static String string(JsonObject o, String k) throws IOException {
         if (o.get(k) instanceof JsonPrimitive v && v.isString() && !v.getAsString().isBlank())
             return v.getAsString();
         throw new IOException("Memory v2 缺少字符串 " + k);
     }
 
+    /** 严格读取精确整数（拒绝小数与低于 {@code minimum} 的序号），用于校验版本、流序号和主版本号。 */
     static long integer(JsonObject o, String k, long minimum) throws IOException {
         if (o.get(k) instanceof JsonPrimitive v && v.isNumber()) {
             try {
@@ -82,6 +104,7 @@ public final class ResidentV2 extends ResidentMemory {
         throw new IOException("Memory v2 序号无效 " + k);
     }
 
+    /** 组装所有 Memory v2 请求共用的调用上下文（角色、会话、对话域、执行角色及可选 QQ 私聊双方账号）。 */
     private JsonObject context(Trace.Scope scope, String role) {
         var ctx =
                 object(
@@ -108,6 +131,12 @@ public final class ResidentV2 extends ResidentMemory {
         return ctx;
     }
 
+    /**
+     * 启动健康与能力核验：
+     * 1. 核对 {@code api_major=2}、{@code character_id} 与 {@code status=TEXT_READY}，并记录 {@code stream_id}；
+     * 2. 根据当前启用的功能集合（分域召回、渠道授权、QQ 私聊、热目录卡片）计算服务端必须声明的能力清单，缺一即拒启动；
+     * 3. 核验通过后立即调用 {@link #recover()} 回放本地 SQLite 队列中上次进程遗留的未决写命令。
+     */
     @Override
     public void verify(boolean qqEnabled) throws IOException, InterruptedException {
         var health = request("v2/health", null);
@@ -142,7 +171,11 @@ public final class ResidentV2 extends ResidentMemory {
         recover();
     }
 
-    // 只有渠道适配器传入已认证的私聊；命令正文没有代填发言人或授予者的字段。
+    /**
+     * 处理由渠道适配器转发的原作者跨会话可见性授权（{@code /memory grant ...}）或撤回（{@code /memory revoke ...}）命令。
+     * 安全约束：仅接受已认证 QQ 私聊来源，命令正文中不存在代填发言人或授予者的字段；
+     * 使用独立的 {@code grantToken} 提交，并以渠道消息 ID 构成幂等 {@code event_id}，遇 5xx/网络故障可安全重试一次取回回执。
+     */
     public JsonObject authorDecision(Trace.Scope scope, long messageId, String text)
             throws IOException, InterruptedException {
         if (grantToken == null || scope.qq().isEmpty()) throw new IOException("此渠道未启用原作者授权");
@@ -187,6 +220,7 @@ public final class ResidentV2 extends ResidentMemory {
         try {
             return request(path, cmd, grantToken);
         } catch (IOException first) {
+            // 4xx 为明确的业务或契约拒绝，不重试直接返回给渠道通知原作者。
             if (first instanceof ServiceError error && error.status < 500) throw first;
             // 网络失败可能发生在提交之后。按同一渠道消息和内容取回回执，外层只发送一次。
             try {
@@ -198,6 +232,7 @@ public final class ResidentV2 extends ResidentMemory {
         }
     }
 
+    /** 启动或补偿恢复：按入队顺序将本地日志中尚未确认回执的写命令逐条对账重放。 */
     public synchronized void recover() throws IOException, InterruptedException {
         for (var op : journal.pending(stream)) transmit(op, true);
     }
@@ -206,6 +241,12 @@ public final class ResidentV2 extends ResidentMemory {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
     }
 
+    /**
+     * 向 Memory v2 发送单条写命令并记录持久回执：
+     * - 当 {@code reconcile=true}（补偿/恢复模式）时，先查 {@code v2/receipts} 确认服务端是否早已落盘；
+     * - 未落盘时按事件类型发往 {@code v2/candidates}（派生印象）或 {@code v2/ingest}（观察/回复/工具记录）；
+     * - 若服务端返回 403/409/413/422 终态拒绝，则在本地记为 {@code REFUSED} 终结该命令，避免恢复队列死循环卡死。
+     */
     private Receipt transmit(JsonObject body, boolean reconcile)
             throws IOException, InterruptedException {
         String event = string(body, "event_id");
@@ -244,6 +285,11 @@ public final class ResidentV2 extends ResidentMemory {
         return rc;
     }
 
+    /**
+     * 写入用户入站观察（{@code observation}）或渠道已确认送达的角色回复（{@code self_expression}）。
+     * 自动附加场景标注（控制台 / QQ 私聊 / QQ 群聊）、渠道发件人元数据，以及可选的来源见证/跨会话引用清单 {@code origin}，
+     * 随后通过 {@link #submit} 走本地写前队列顺序落盘。
+     */
     public synchronized Receipt ingestEvent(
             Trace.Scope scope,
             String event,
@@ -274,8 +320,7 @@ public final class ResidentV2 extends ResidentMemory {
                 scope.group().isPresent()
                         ? "QQ 群聊"
                         : scope.qq().isPresent() ? "当前 QQ 私聊" : "当前控制台会话");
-        // Optional operator/channel attestation accompanies the inbound observation, never model
-        // output.
+        // 操作者/渠道见证信息或已复核的 source_refs 随事件透传给 v2 溯源，模型自由正文无权伪造此字段。
         if (origin != null) for (var e : origin.entrySet()) body.add(e.getKey(), e.getValue());
         scope.qq()
                 .ifPresent(
@@ -317,6 +362,7 @@ public final class ResidentV2 extends ResidentMemory {
         return submit(body);
     }
 
+    /** 写入宿主执行器登记的工具尝试（{@code tool_attempt}）或工具回执（{@code tool_result}），以 {@code action} 串联配对。 */
     public synchronized Receipt ingestTool(
             Trace.Scope scope,
             String event,
@@ -347,6 +393,10 @@ public final class ResidentV2 extends ResidentMemory {
                         action));
     }
 
+    /**
+     * 写前队列提交（Outbox 模式）：先将当前事件写入本地 SQLite {@code commands} 表，
+     * 随后先把此前尚未确认的旧命令按顺序对账冲刷完毕，最后发送当前命令，严格维持单流因果顺序。
+     */
     private Receipt submit(JsonObject body) throws IOException, InterruptedException {
         String event = string(body, "event_id");
         journal.enqueue(event, body, stream);
@@ -355,6 +405,7 @@ public final class ResidentV2 extends ResidentMemory {
         return transmit(body, false);
     }
 
+    /** 覆写基类 v1 入口，统一委派到 {@link #ingestEvent} 走 v2 持久队列协议。 */
     @Override
     public Receipt ingest(
             Trace.Scope scope,
@@ -367,8 +418,14 @@ public final class ResidentV2 extends ResidentMemory {
         return ingestEvent(scope, event, at, kind, content, messageId, null);
     }
 
+    /** 一次 v2 读/召回响应的强校验快照：含流 ID、全局读水位、条目列表与服务端评估结论（如 OK/CONFLICT/INCOMPLETE）。 */
     record Snapshot(String stream, long seq, List<JsonObject> items, String assessment) {}
 
+    /**
+     * 解析并校验 {@code v2/recall} 或 {@code v2/read} 的响应快照。
+     * 对每条 {@code ONLINE} 项强制核对 {@code citation_scope} 精确等于当前会话 ID，且自身 {@code ref}
+     * 与全部溯源 {@code source_refs} 均具备合法的 64 位十六进制记录 ID 与正整数版本号。
+     */
     private Snapshot snapshot(JsonObject raw, Trace.Scope scope, boolean recall)
             throws IOException {
         String id = string(raw, "stream_id");
@@ -397,11 +454,17 @@ public final class ResidentV2 extends ResidentMemory {
         return new Snapshot(id, seq, rows, assessment);
     }
 
+    /** 校验单个引用对象包含合法的 64 位十六进制 {@code record_id} 及 >= 1 的 {@code revision}。 */
     private static void checkRef(JsonObject ref) throws IOException {
         if (!string(ref, "record_id").matches("[0-9a-f]{64}")) throw new IOException("来源标识无效");
         integer(ref, "revision", 1);
     }
 
+    /**
+     * 按查询类别执行 Memory v2 查证：
+     * - 非分域（recent）下的 {@code HISTORY} 直接从本地 SQLite 读取最近已落盘的对话 ID 并批量 {@code v2/read}；
+     * - 其余查询统一发往 {@code v2/recall}，其中历史查询使用配置的 {@code historyProfile}，身份与本人发言固定走 {@code QUICK}。
+     */
     Snapshot lookup(Trace.Scope scope, String role, QueryKind kind, String query, Instant before)
             throws IOException, InterruptedException {
         if (!scopedRecall() && kind == QueryKind.HISTORY) {
@@ -430,6 +493,10 @@ public final class ResidentV2 extends ResidentMemory {
         return audienceRequest("v2/recall", body, scope, true);
     }
 
+    /**
+     * 发送受众隔离的读/召回请求：若服务端支持 {@code audience_reads}，在历史查询中自动声明 {@code use=CITE}，
+     * 使服务端只放行当前会话具备引用权限的材料（含显式 CITE 跨会话授权的记录）。
+     */
     private Snapshot audienceRequest(
             String path, JsonObject body, Trace.Scope scope, boolean recall)
             throws IOException, InterruptedException {
@@ -438,6 +505,7 @@ public final class ResidentV2 extends ResidentMemory {
         return snapshot(request(path, body), scope, recall);
     }
 
+    /** 通过 {@code v2/read} 按记录 ID 批量拉取最新在线状态与正文（单条截断长度 2048），用于回读、刷新与证据复核。 */
     Snapshot readItems(Trace.Scope scope, String role, String kind, List<String> ids)
             throws IOException, InterruptedException {
         return audienceRequest(
@@ -455,6 +523,7 @@ public final class ResidentV2 extends ResidentMemory {
                 false);
     }
 
+    /** 拉取当前会话的 L0 事项/人物热目录卡片指针列表（最多 12 张），并核对流标识与卡片引用合法性。 */
     JsonArray cardPointers(Trace.Scope scope) throws IOException, InterruptedException {
         var result =
                 request(
@@ -471,6 +540,7 @@ public final class ResidentV2 extends ResidentMemory {
         return items;
     }
 
+    /** 提交由 Master 修订产生的新印象候选记录（发往 {@code v2/candidates}），显式声明替换的旧印象与支撑的原始证据引用。 */
     synchronized Receipt replaceImpression(
             Trace.Scope scope,
             String event,
@@ -500,14 +570,21 @@ public final class ResidentV2 extends ResidentMemory {
                         previous));
     }
 
+    /**
+     * 将单条 Memory v2 证据项渲染为给模型阅读的自然语言材料。
+     * 关键业务语义：
+     * - 非 {@code ONLINE} 项统一提示“原依据已失效”；
+     * - 已到期证据（{@code evidence_active=false} 或断言 {@code valid_until} 已过当前时刻）只传达过期退出结论，
+     *   不再复述旧安排正文，防止模型把过期内容误当成当前仍有效的约束；
+     * - 活跃证据会清晰标注说话人、场景、证据级别（原话 / 派生线索 / 工具尝试 / 工具回执）、断言时态（未决或历史）及折算日期。
+     */
     static String render(JsonObject item, String purpose) throws IOException {
         if (!string(item, "status").equals("ONLINE")) return "此前引用的原依据已失效。";
         String value = string(item, "text");
         if (purpose.equals("SELF_IDENTITY")) return "当前账号经确认的称呼是「" + value + "」。";
         String venue = item.has("source_venue") ? "在" + string(item, "source_venue") : "";
         String who = item.has("speaker") ? string(item, "speaker") : "来源记录";
-        // A stale excerpt can be read explicitly through L2. Automatic updates convey expiry
-        // without restating the old assignment as fresh material for the next answer.
+        // 已过期节选仍可通过 L2 显式回看；自动注入的更新只提示已到期，不再复述旧安排以防误判为当前状态。
         String expiredAt = null;
         if (item.has("evidence_active") && !item.get("evidence_active").getAsBoolean())
             expiredAt = string(item, "evidence_valid_until");
@@ -545,6 +622,7 @@ public final class ResidentV2 extends ResidentMemory {
         return who + venue + "的" + label + "（" + when + "）：“" + value + "”。可在当前会话引用。";
     }
 
+    /** 将单条响应项与本次快照水位封装为可持久化的 {@link MemoryJournal.Read} 绑定对象。 */
     static MemoryJournal.Read binding(
             Trace.Scope scope, String role, String kind, JsonObject item, Snapshot s, String input)
             throws IOException {
@@ -559,6 +637,7 @@ public final class ResidentV2 extends ResidentMemory {
                 input);
     }
 
+    /** 登记常规召回/刷新材料包及其证据绑定，同时注册到 {@code watches} 表以便后续轮次监听变更。 */
     void prepare(
             String input,
             String role,
@@ -570,6 +649,7 @@ public final class ResidentV2 extends ResidentMemory {
             journal.prepare(input, role, scope.conversationId(), JSON.toJson(material), bindings, true);
     }
 
+    /** 登记 Master 热目录材料包及其审计证据（{@code watch=false}，因为热目录每轮重建，不建长期监视）。 */
     void prepareHot(
             String input, Trace.Scope scope, String block, List<MemoryJournal.Read> bindings)
             throws IOException {
@@ -582,19 +662,23 @@ public final class ResidentV2 extends ResidentMemory {
                 false);
     }
 
+    /** 将指定输入批次在本地日志中标记为已交付给模型。 */
     void delivered(String input) throws IOException {
         journal.delivered(input);
     }
 
+    /** 单轮变更刷新结果：待注入给模型的更正提示、需推进的水位更新项、以及构成更正依据的在线证据列表。 */
     record Refresh(
             List<String> messages,
             List<MemoryJournal.Read> updates,
             List<MemoryJournal.Read> evidence) {}
 
+    /** 在模型完成消费刷新提示后，事务性推进本地 {@code watches} 水位并合并收敛的重复监视。 */
     void finishRefresh(String input, Refresh refresh) throws IOException {
         journal.finishRefresh(input, refresh.updates());
     }
 
+    /** 忽略仅影响视图级别的 {@code view} 字段，比较两条证据载荷在业务语义上是否等价。 */
     private static boolean sameEvidence(JsonObject left, JsonObject right) {
         var a = left.deepCopy();
         var b = right.deepCopy();
@@ -603,6 +687,7 @@ public final class ResidentV2 extends ResidentMemory {
         return a.equals(b);
     }
 
+    /** 判断某条已监视证据是否直接匹配变更记录 ID，或其派生的 {@code source_refs} 间接依赖于该记录 ID。 */
     private static boolean depends(MemoryJournal.Read read, String id) {
         if (read.id().equals(id)) return true;
         var refs = read.item().getAsJsonArray("source_refs");
@@ -612,6 +697,13 @@ public final class ResidentV2 extends ResidentMemory {
         return false;
     }
 
+    /**
+     * 每轮开始前对当前角色在本会话已监视的证据执行增量变更检测：
+     * 1. 先查 {@code v2/health} 获取最新流与头序号 {@code high}；带有效期的条目即使账本水位未动也强制加入待检集合（因为墙钟时间可能已过有效期）；
+     * 2. 从所有同流监视项的最小 {@code seq} 起分页拉取 {@code v2/changes}，定位自身或上游 {@code source_refs} 发生变更的监视项；
+     * 3. 逐条重读受影响条目：若内容/状态改变则生成“记忆更正”提示；若原先活跃的时态断言翻转为非活跃（例如安排被替代或到期），
+     *    还会按同一 {@code (subject_id, predicate)} 自动召回当前替代安排一并注入模型。
+     */
     Refresh refresh(Trace.Scope scope, String role) throws IOException, InterruptedException {
         var registered = journal.reads(role, scope.conversationId());
         if (registered.isEmpty()) return new Refresh(List.of(), List.of(), List.of());
@@ -621,13 +713,12 @@ public final class ResidentV2 extends ResidentMemory {
         long cursor = high;
         var affected = new LinkedHashSet<MemoryJournal.Read>();
         for (var r : registered) {
-            // 业务时间可能越过有效期，此时账本水位可以完全不动。
+            // 业务时间可能越过有效期，此时账本水位可以完全不动，因此带时效/断言的条目必须每轮重检。
             if (r.item().has("evidence_valid_until") || r.item().has("assertion")) affected.add(r);
             if (!r.stream().equals(currentStream) || r.seq() > high) affected.add(r);
             else cursor = Math.min(cursor, r.seq());
         }
-        // Each item brings its original lower bound. A late registration is revisited even if
-        // another input already consumed the change.
+        // 每条监视项各自携带原始读水位下界；晚登记的条目即便变更已被其他输入消费过，也会被重新检查到。
         while (cursor < high) {
             var page =
                     request(
@@ -673,6 +764,7 @@ public final class ResidentV2 extends ResidentMemory {
                                     latest,
                                     r.input()));
                 }
+                // 当一条原本活跃的断言（如日程承诺/期限）变为非活跃时，主动补查同一主题与谓词下的新替代记录。
                 if (item.has("assertion_active")
                         && item.get("assertion_active").getAsBoolean()
                         && latest.has("assertion_active")
@@ -719,6 +811,10 @@ public final class ResidentV2 extends ResidentMemory {
         return new Refresh(List.copyOf(messages), updates, List.copyOf(evidence.values()));
     }
 
+    /**
+     * 行动/写入前的证据一致性复核：逐条重读依赖项，校验记忆流、在线状态、自身与上游版本号、
+     * 以及时效与断言活性均未发生漂移；任一项不符立即抛错阻断，迫使调用方重新取证。
+     */
     void verifyEvidence(Trace.Scope scope, String role, List<MemoryJournal.Read> deps)
             throws IOException, InterruptedException {
         for (var d : deps) {
@@ -736,6 +832,12 @@ public final class ResidentV2 extends ResidentMemory {
         }
     }
 
+    /**
+     * 渠道向外发送回复前的最终交付门禁复核：
+     * 1. 检查当前时刻仍严格早于本轮所有共享/时效证据的最早截止时间 {@link Trace#validUntil()}；
+     * 2. 以 {@code ROUTER} 身份向 {@code v2/read} 批量复核 {@link Trace#sharedSources()} 中每条记录仍处于 {@code ONLINE}
+     *    且版本号未修订，防止在模型生成回复期间授权被撤回或原始记录被改写后仍被外发。
+     */
     public void verifyDelivery(Trace trace) throws IOException, InterruptedException {
         if (!Instant.now().isBefore(trace.validUntil())) throw new IOException("渠道交付前引用的证据已到期");
         var now =

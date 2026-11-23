@@ -14,7 +14,13 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 
+/**
+ * 网页控制台总配置文件（{@code console.properties}）的解析与校验器。
+ * 职责：聚合控制台监听地址、审计目录、各模型节点子配置文件路径、监控指标采集配置，
+ * 以及可选的任务 Worker、OpenQQ 渠道与记忆服务配置路径，并在入口边界强制校验安全与格式契约。
+ */
 final class ConsoleConfig {
+    /** 控制台必填基础配置键集合（可选子模块和成对可选的指标端点在比对前剔除）。 */
     private static final Set<String> FIELDS = Set.of("listenHost", "listenPort", "auditDirectory",
             "chatWorkerConfig", "chatWorkerRolePrompt", "routerConfig", "routerRolePrompt",
             "masterConfig", "masterMaxTokens", "masterTemperature",
@@ -23,6 +29,10 @@ final class ConsoleConfig {
     private ConsoleConfig() {
     }
 
+    /**
+     * 已校验的控制台聚合配置快照。
+     * 子节点（Chat Worker、Router、Master、Task Worker、OpenQQ、Memory）的内部细节仍交由各自配置类加载校验。
+     */
     record Settings(InetSocketAddress listen, Path auditDirectory,
                     ConfigSource chatWorkerConfig, ConfigSource chatWorkerRolePrompt,
                     ConfigSource routerConfig, ConfigSource routerRolePrompt,
@@ -34,10 +44,14 @@ final class ConsoleConfig {
                     Optional<ConfigSource> memoryConfig) {
     }
 
-    // 控制台没有身份校验，只允许监听本机回环地址。各节点的模型配置沿用各自的配置文件和校验。
-    // 云端推理服务通常不提供 Prometheus /metrics 端点，因此 routerMetrics 与 masterMetrics 均为成对可选配置。
+    /**
+     * 读取并校验控制台总配置。
+     * 安全约束：控制台无身份认证，硬性要求 {@code listenHost} 为本机回环地址；
+     * 云端推理服务通常不提供 Prometheus {@code /metrics} 端点，因此 {@code routerMetrics} 与 {@code masterMetrics} 均为成对可选配置。
+     */
     static Settings load(ConfigSource source) throws IOException {
         var properties = source.readProperties();
+        // 先剔除允许省略的可选字段，确保必填集合精确匹配且无未知拼写项。
         var required = new HashSet<>(properties.stringPropertyNames());
         required.remove("routerMetrics");
         required.remove("routerMetricsFormat");
@@ -50,6 +64,7 @@ final class ConsoleConfig {
                 || properties.values().stream().anyMatch(value -> value.toString().isBlank())) {
             throw new IllegalArgumentException("控制台配置须包含以下非空字段 " + FIELDS);
         }
+        // 拒绝绑定非回环地址，避免未鉴权控制台暴露到局域网或公网。
         InetAddress host = InetAddress.getByName(properties.getProperty("listenHost"));
         if (!host.isLoopbackAddress()) {
             throw new IllegalArgumentException("listenHost 须为本机回环地址");
@@ -84,6 +99,10 @@ final class ConsoleConfig {
                 Optional.ofNullable(properties.getProperty("memoryConfig")).map(ConfigSource::new));
     }
 
+    /**
+     * 解析成对出现的 Prometheus 指标端点与格式（如 {@code routerMetrics} + {@code routerMetricsFormat}）。
+     * 二者同时省略表示该节点不采集 Prometheus 指标；仅配置其一时直接拒绝。
+     */
     private static Optional<NodeMonitor.Metrics> optionalMetrics(Properties properties, String field) {
         String formatField = field + "Format";
         boolean hasEndpoint = properties.containsKey(field);
@@ -104,6 +123,7 @@ final class ConsoleConfig {
                 enumValue(NodeMonitor.MetricsFormat.class, properties, formatField)));
     }
 
+    /** 按枚举类型严格解析字段值，非法值直接列出允许的枚举项。 */
     private static <E extends Enum<E>> E enumValue(Class<E> type, Properties properties, String field) {
         try {
             return Enum.valueOf(type, properties.getProperty(field));
@@ -112,6 +132,7 @@ final class ConsoleConfig {
         }
     }
 
+    /** 解析必填正整数配置项。 */
     private static int positive(Properties properties, String field) {
         try {
             int value = Integer.parseInt(properties.getProperty(field));

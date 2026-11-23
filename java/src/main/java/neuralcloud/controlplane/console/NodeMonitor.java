@@ -19,10 +19,14 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 节点运行状态。定时读取推理服务的 Prometheus 指标和本机 GPU 读数；最近一次调用与探测由控制台接口写入。
- * 指标端点不可达是可观察的运行状态，记录为失败读数，下一轮定时读取再更新。
+ * 节点运行状态与硬件监控采集器。
+ * 职责：
+ * 1. 通过单线程守护定时器周期拉取已配置节点的 Prometheus {@code /metrics} 指标与本机 {@code nvidia-smi} GPU 读数；
+ * 2. 接收控制台 HTTP 入口回写的最近一次调用结果（{@link #recordCall}）与手动探测结果（{@link #recordProbe}）；
+ * 3. 任何外部监控端点或命令不可达都不抛错中断控制面，而是记为 {@code ok=false} 的可观察失败读数，等待下个周期自动重试。
  */
 public final class NodeMonitor implements AutoCloseable {
+    /** 支持的推理服务 Prometheus 指标格式及各自白名单关注的指标名称集合。 */
     public enum MetricsFormat {
         VLLM("vllm:num_requests_running", "vllm:num_requests_waiting", "vllm:kv_cache_usage_perc",
                 "vllm:gpu_cache_usage_perc", "vllm:num_preemptions_total", "vllm:prompt_tokens_total",
@@ -37,21 +41,26 @@ public final class NodeMonitor implements AutoCloseable {
         }
     }
 
+    /** GPU 指标采集来源：{@code NVIDIA_SMI} 调用本机命令行读取显存/利用率/功耗，{@code NONE} 关闭采集。 */
     public enum GpuSource { NVIDIA_SMI, NONE }
 
+    /** 单个节点的 Prometheus 采集目标配置（地址与指标格式）。 */
     public record Metrics(URI endpoint, MetricsFormat format) {
     }
 
+    /** 最近一次节点业务调用或手动探测的结果摘要（时间、是否成功、耗时毫秒、失败原因）。 */
     public record Outcome(String at, boolean ok, long latencyMs, String detail) {
     }
 
-    // 指标值保留服务端原文，NaN、+Inf 等取值不做换算。
+    /** 单条 Prometheus 指标采样；指标值保留服务端原文，NaN、+Inf 等取值不做换算。 */
     public record Sample(String name, String labels, String value) {
     }
 
+    /** 周期采样的统一结果包装（成功携带条目列表，失败携带可读错误详情）。 */
     public record Reading<T>(String at, boolean ok, List<T> items, String detail) {
     }
 
+    /** 聚合单个节点的指标配置、最新指标读数、最近调用结果与最近探测结果，供 {@code /api/nodes} 返回。 */
     public record Status(Metrics metrics, Reading<Sample> metricsReading, Outcome lastCall, Outcome lastProbe) {
     }
 
@@ -80,6 +89,7 @@ public final class NodeMonitor implements AutoCloseable {
         this.metrics = Map.copyOf(metrics);
     }
 
+    /** 启动后台定时轮询：立即执行首轮采集，随后以固定间隔（{@code interval}）重复刷新。 */
     public void start(Duration interval) {
         scheduler.scheduleWithFixedDelay(this::refresh, 0, interval.toMillis(), TimeUnit.MILLISECONDS);
     }
@@ -100,6 +110,7 @@ public final class NodeMonitor implements AutoCloseable {
         return gpu;
     }
 
+    /** 执行单轮全量刷新：依次抓取所有已注册节点的 Prometheus 指标，按需刷新本机 GPU 读数。 */
     private void refresh() {
         metrics.forEach((node, source) -> readings.put(node, read(source)));
         if (gpuSource == GpuSource.NVIDIA_SMI) {
@@ -107,6 +118,7 @@ public final class NodeMonitor implements AutoCloseable {
         }
     }
 
+    /** 向指定节点的 {@code /metrics} 发起 HTTP GET 并在超时内解析关注的 Prometheus 指标样本。 */
     private Reading<Sample> read(Metrics source) {
         var request = HttpRequest.newBuilder(source.endpoint()).timeout(timeout).GET().build();
         try {
@@ -123,7 +135,10 @@ public final class NodeMonitor implements AutoCloseable {
         }
     }
 
-    // Prometheus 文本格式：名称、可选的 {标签}、取值、可选的时间戳。只保留该服务格式关注的指标。
+    /**
+     * 解析 Prometheus 文本暴露格式（每行形如 {@code 指标名{标签} 数值 [时间戳]}），
+     * 跳过注释与空行，仅抽取当前 {@link MetricsFormat} 白名单中声明的核心推理指标。
+     */
     static List<Sample> samples(String body, MetricsFormat format) {
         var samples = new ArrayList<Sample>();
         for (String raw : body.split("\n")) {
@@ -149,6 +164,7 @@ public final class NodeMonitor implements AutoCloseable {
         return List.copyOf(samples);
     }
 
+    /** 调用本机 {@code nvidia-smi} 查询多卡显存、算力利用率与功耗 CSV 输出，超限时强制终止子进程。 */
     private Reading<Map<String, String>> readGpu() {
         try {
             var process = new ProcessBuilder("nvidia-smi", "--query-gpu=" + String.join(",", GPU_FIELDS),

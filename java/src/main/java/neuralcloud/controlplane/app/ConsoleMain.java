@@ -31,8 +31,13 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * 网页控制台入口。启动顺序：校验全部配置，打开审计链，组装 Chat Worker、Router 与 Master，
- * 启动节点状态读取，最后开放 HTTP 端口。端口开放后才报告就绪；任一阶段失败都释放已打开的资源并退出。
+ * 网页控制台与全链路控制面的主启动入口。
+ * 启动顺序严格分阶段：
+ * 1. 配置校验：统一加载控制台、Chat Worker、Router、Master 及可选的 Task Worker、OpenQQ、Memory 配置，并检查跨组件契约；
+ * 2. 基础设施就绪：打开审计目录、连接并核验记忆服务（含 v2 本地 SQLite 日志恢复）；
+ * 3. 节点装配：创建各模型 HTTP 客户端、对话处理器（{@link #conversation} 与 {@link #masterConversation}）及监控轮询器；
+ * 4. 开放入口：启动本机 HTTP 控制台服务，随后按需启动 OpenQQ WebSocket 渠道；
+ * 5. 注册优雅关闭钩子：所有已打开资源压栈登记，启动失败或进程退出时按后进先出（LIFO）逆序释放。
  */
 public final class ConsoleMain {
     private static final ConfigSource DEFAULT_CONFIG = ConfigSource.bundled("console.properties");
@@ -40,28 +45,35 @@ public final class ConsoleMain {
     private ConsoleMain() {
     }
 
-    // 测试场景入口通过它追加节点。组件已按控制台配置组装；正式入口不追加任何节点。
+    /** 测试场景扩展点：允许测试入口在已装配的正式组件基础上追加临时节点；正式入口始终返回空列表。 */
     @FunctionalInterface
     interface Extension {
         List<Node> nodes(Components components) throws IOException;
     }
 
+    /** 传递已装配核心节点的轻量容器，供测试场景扩展点复用真实推理客户端。 */
     record Components(ChatWorker chat, Master routerInference, Master master, Master.Settings routerSettings,
                       Master.Settings masterSettings) {
     }
 
+    /** 记忆读写权限分离包装：模型节点只持有按轮次绑定的读取入口 {@code reads}，持久写入统一归口给 {@code writes}。 */
     record MemoryAccess(ConversationMemory reads, RouterMemoryWriter writes) {}
 
     public static void main(String[] args) {
         exitOnFailure(run(Main.configSource(args, DEFAULT_CONFIG), components -> List.of()));
     }
 
+    /** 非零退出码表示启动失败，显式终止 JVM；成功返回 0 时保留 HTTP 与后台线程持续运行。 */
     static void exitOnFailure(int code) {
         if (code != 0) {
             System.exit(code);
         }
     }
 
+    /**
+     * 按既定顺序完成全部配置加载、依赖核验与服务启动。
+     * 退出码约定：0 表示就绪运行；2 表示配置或跨模块契约校验失败；1 表示运行时打开资源或外部核验失败。
+     */
     static int run(ConfigSource config, Extension extension) {
         ConsoleConfig.Settings settings;
         ChatWorkerConfig.Settings chatSettings;
@@ -73,6 +85,7 @@ public final class ConsoleMain {
         Optional<TaskWorkerConfig> taskSettings;
         Optional<OpenQqConfig.Settings> openQqSettings;
         Optional<MemoryConfig> memorySettings;
+        // 第一阶段：加载并校验全部配置与跨模块前置条件，任一配置非法直接退出，不创建任何网络或磁盘资源。
         try {
             settings = ConsoleConfig.load(config);
             chatSettings = ChatWorkerConfig.load(settings.chatWorkerConfig());
@@ -87,6 +100,7 @@ public final class ConsoleMain {
                     ? Optional.of(OpenQqConfig.load(settings.openQqConfig().orElseThrow())) : Optional.empty();
             memorySettings = settings.memoryConfig().isPresent()
                     ? Optional.of(MemoryConfig.load(settings.memoryConfig().orElseThrow())) : Optional.empty();
+            // 项目群聊涉及跨受众数据隔离，必须开启 Memory v2 的 scoped 模式以防私聊记忆泄漏到群内。
             if (openQqSettings.filter(q -> q.allowedGroupId() != 0).isPresent()
                     && memorySettings
                             .filter(m -> m.apiVersion() == 2 && m.scopedRecall())
@@ -103,6 +117,7 @@ public final class ConsoleMain {
             return 2;
         }
 
+        // 第二阶段：依次打开持久化、记忆、推理客户端、监控、HTTP 控制台与 OpenQQ，并通过栈记录确保逆序清理。
         Deque<AutoCloseable> opened = new ArrayDeque<>();
         try {
             var audit = AuditLog.open(settings.auditDirectory());
@@ -118,6 +133,7 @@ public final class ConsoleMain {
                     .connectTimeout(settings.metricsTimeout()).build();
             opened.push(metricsClient);
 
+            // 组装各节点及其统一对话入口，注册到网页控制台节点列表。
             var chat = chatSettings.create(chatClient, chatKey, chatPrompt);
             var task = taskSettings.map(configured -> {
                 var taskClient = configured.newClient();
@@ -140,6 +156,7 @@ public final class ConsoleMain {
                             master::probeStartup)));
             nodes.addAll(extension.nodes(new Components(chat, routerInference, master, routerSettings, masterSettings)));
 
+            // 仅对已配置 Prometheus /metrics 端点的节点注册指标抓取，随后启动后台周期监控。
             var nodeMetrics = new LinkedHashMap<String, NodeMonitor.Metrics>();
             settings.routerMetrics().ifPresent(source -> nodeMetrics.put("router", source));
             settings.masterMetrics().ifPresent(source -> nodeMetrics.put("master", source));
@@ -151,7 +168,7 @@ public final class ConsoleMain {
             var server = ConsoleServer.start(settings.listen(), audit, monitor, nodes, writes);
             opened.push(server);
 
-            // 两个入口使用同一对话处理器。QQ 登录验证在后台连接中完成，断开时可独立重连。
+            // 网页控制台与 OpenQQ 渠道共用同一对话处理器 chatExchange。QQ 登录验证在后台连接中完成，断开时可独立重连。
             openQqSettings.ifPresent(
                     configured -> {
                         var openQqClient = HttpClient.newHttpClient();
@@ -185,6 +202,11 @@ public final class ConsoleMain {
         return 0;
     }
 
+    /**
+     * 打开并核验常驻记忆服务客户端。
+     * v2 模式下会在审计目录下挂载角色专属 SQLite 持久日志 {@link MemoryJournal}，并在 {@code verify} 期间
+     * 核对版本、角色、必需能力列表以及回放未落盘的写入队列；只有核验完全通过才返回读写封装。
+     */
     private static Optional<MemoryAccess> openMemory(Optional<MemoryConfig> settings,
                                                      Deque<AutoCloseable> opened, AuditLog audit, boolean qqPrivateEnabled)
             throws IOException, InterruptedException {
@@ -196,6 +218,7 @@ public final class ConsoleMain {
         opened.push(client);
         ResidentMemory memory;
         if (config.apiVersion() == 2) {
+            // v2 依赖本地 SQLite 日志登记会话句柄、写入回执与授权状态，实现崩溃恢复。
             var journal =
                     new MemoryJournal(
                             audit.directory()
@@ -221,6 +244,7 @@ public final class ConsoleMain {
                             config.token(),
                 config.scopedRecall());
         }
+        // 核验远端健康状态与能力契约；v2 还会在此触发本地待确认写入记录的补偿恢复。
         memory.verify(qqPrivateEnabled);
         if (memory instanceof ResidentV2 v2) {
             audit.write(
@@ -242,6 +266,11 @@ public final class ConsoleMain {
         return Optional.of(new MemoryAccess(new ConversationMemory(audit, memory), new RouterMemoryWriter(audit, memory)));
     }
 
+    /**
+     * 构造 Master 节点的对话处理函数。
+     * 配置记忆时为本轮绑定一个 {@link MemoryCall} 句柄，允许 Master 自主发起记忆工具查询并将结果写入审计链；
+     * 未配置记忆时直接走无工具补全。
+     */
     static ConsoleServer.Exchange masterConversation(Master master, int maxTokens, double temperature,
                                                      Optional<ConversationMemory> memory) {
         return (text, trace) -> {
@@ -253,6 +282,14 @@ public final class ConsoleMain {
         };
     }
 
+    /**
+     * 构造前台自由对话主链路（供控制台 Chat Worker 页签和 OpenQQ 渠道共用）。
+     * 有记忆时的标准执行时序：
+     * 1. 先落盘入站用户发言（{@code rememberInbound}）——若持久写入失败则立即中止，避免模型基于未落盘事实作答；
+     * 2. 拉取本轮增量更新/热目录卡片（{@code startTurn}），交由 Chat Worker 进行轮次规划（{@code planTurn}）；
+     * 3. 根据规划结果分流：直接回复/澄清（{@code REPLY/CLARIFY}）、交 Router 分流执行现场动作（{@code ACTION}）、
+     *    或携带按需记忆工具查询后再生成角色回复（{@code HISTORY/SELF_IDENTITY/SELF_HISTORY}）。
+     */
     static ConsoleServer.Exchange conversation(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task,
                                                 Optional<MemoryAccess> memory) {
         return (text, trace) -> {
@@ -261,15 +298,18 @@ public final class ConsoleMain {
             }
             int accepted = trace.write(trace.request(), "chat-worker", "chat_worker_received", Map.of());
             var store = memory.orElseThrow();
+            // 先由 Router 写入口持久化用户观察事件，取得审计事件编号作为后续全部步骤的因果父节点。
             int input = store.writes().rememberInbound(trace, accepted, text);
             var chatRead = store.reads().bind(trace, Caller.CHAT_WORKER, input);
             var updates = chatRead.startTurn();
+            // 若记忆服务已提供热目录/近期更新包，则不再额外拼接审计链对话文本，避免上下文重复注入。
             var turn =
                     chat.planTurn(
                             text,
                             updates.isEmpty() ? trace.dialogue() : List.of(),
                             store.reads().canSearchSelfHistory(trace.scope()),
                             updates);
+            // 规划阶段已消费过增量变更通知，推进本地游标避免下一轮重复注入同一批更新。
             chatRead.refreshed();
             int planned = trace.write(input, "chat-worker", "chat_worker_turn_plan",
                     Map.of("kind", turn.kind().name(), "dialogueMessages", turn.dialogue().size(), "usage", turn.usage()));
@@ -287,6 +327,11 @@ public final class ConsoleMain {
         };
     }
 
+    /**
+     * 将本轮用户消息交给 Router 判定业务流程：
+     * 仅当 Router 明确路由到 {@link Route#ACTION_REQUEST} 且系统配置了任务 Worker 时才派发现场执行；
+     * 否则退回由 Chat Worker 按路由结果直接生成角色回复。
+     */
     private static Reply routeAction(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task, String text,
             ConsoleServer.Trace trace,
             int parent,
@@ -301,6 +346,12 @@ public final class ConsoleMain {
         return new Reply("chat_worker_reply", Map.of("text", chat.reply(conversation).orElseThrow()), routed);
     }
 
+    /**
+     * 执行现场动作并遵循“先持久记录意图 -> 执行采样 -> 持久落盘回执 -> 再由角色润色回复”的严格顺序：
+     * 1. 执行外部动作前先通过回调登记工具调用请求（{@code rememberTool(..., completed=false)}）；
+     * 2. 若任务 Worker 判定当前请求超出已有执行能力（返回空），记录不可用事件并回退给 Chat Worker 礼貌说明；
+     * 3. 读取成功后先写审计事件与记忆工具结果回执（{@code completed=true}），最后才交由 Chat Worker 将测量值转述给用户。
+     */
     private static Reply executeTask(ChatWorker chat, TaskWorker task, ChatWorker.RoutedConversation conversation,
             ConsoleServer.Trace trace,
             int routed,
@@ -309,6 +360,7 @@ public final class ConsoleMain {
         int dispatched = trace.write(routed, "task-worker", "task_worker_dispatch",
                 Map.of("provider", task.endpoint().getHost(), "model", task.model()));
         var read = memory.map(store -> store.reads().bind(trace, Caller.TASK_WORKER, dispatched));
+        // 以“运行批次 ID + 派发审计事件序号”构造稳定的 actionId，将请求与回执配对关联。
         String actionId = trace.scope().runId() + ":" + dispatched;
         var status =
                 task.execute(
@@ -343,7 +395,11 @@ public final class ConsoleMain {
         return new Reply("chat_worker_reply", Map.of("text", reply), receipt);
     }
 
-    // 后打开的先关闭：先停止接收请求，再停止状态读取、关闭模型客户端，最后关闭审计文件。
+    /**
+     * 按打开的逆序（后进先出）逐个关闭资源：
+     * 先停止 OpenQQ 与 HTTP 控制台接收新请求，再停监控与关闭各 HTTP 客户端、SQLite 日志，最后关闭审计文件。
+     * 单个资源关闭异常不会阻断其余资源的释放。
+     */
     private static void closeAll(Deque<AutoCloseable> opened) {
         while (!opened.isEmpty()) {
             try {

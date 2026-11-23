@@ -23,9 +23,19 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
+/**
+ * 任务执行 Worker：负责在 Router 判定为 {@code ACTION_REQUEST} 后，借助工具选择模型判定当前请求
+ * 是否匹配已挂载的本机现场执行能力（首期仅提供只读的 {@code read_server_status}），并由宿主安全执行真实采样。
+ * 安全边界：
+ * - 模型只负责在强制工具调用下选择 {@code read_server_status}、{@code no_supported_action} 或先发起一次 {@code memory_call} 明确目标；
+ * - 实际读取前先执行 {@link BeforeStatusRead} 持久化工具尝试，再调用 {@link MemoryCall#verifyEvidence()} 复核依赖证据未过期/未改写，
+ *   最后由宿主调用 {@link StatusReader} 获取真实采样值，模型无权编造或改写运行数据。
+ */
 public final class TaskWorker {
     private static final Gson JSON = new GsonBuilder().setStrictness(Strictness.STRICT).create();
+    /** 已挂载的唯一现场工具名：读取运行本控制台的本机 Linux 状态。 */
     private static final String READ_STATUS = "read_server_status";
+    /** 拒答/能力缺失工具名：用于明确拒绝其他主机、修改系统或超出能力描述的请求。 */
     private static final String UNAVAILABLE = "no_supported_action";
     private static final List<Map<String, Object>> TOOLS = List.of(
             tool(READ_STATUS, "读取运行本控制台的 Linux 服务器的当前负载、运行时间、内存和根分区容量。"),
@@ -35,11 +45,13 @@ public final class TaskWorker {
             如指定其他主机、超出工具描述或需要修改系统，调用 no_supported_action。不要输出状态或执行结果。
             """;
 
+    /** 宿主机状态采样接口（生产环境绑定 {@link ServerStatus#readLinux()}，测试环境可注入桩数据）。 */
     @FunctionalInterface
     public interface StatusReader {
         ServerStatus read() throws IOException;
     }
 
+    /** 执行真实采样前的钩子回调，供控制面先落盘 {@code TOOL_ATTEMPT} 意图回执。 */
     @FunctionalInterface
     public interface BeforeStatusRead {
         void run() throws IOException, InterruptedException;
@@ -54,13 +66,14 @@ public final class TaskWorker {
     private final Duration timeout;
     private final StatusReader statusReader;
 
+    /** 兼容构造器：默认使用 HTTP/1.1 与 DeepSeek 思考格式。 */
     public TaskWorker(HttpClient client, URI endpoint, String model, String apiKey, Duration timeout,
                       StatusReader statusReader) {
         this(client, endpoint, HttpClient.Version.HTTP_1_1, model, apiKey, Master.ThinkingFormat.DEEPSEEK,
                 timeout, statusReader);
     }
 
-    /** 构造任务 Worker；apiKey 为 null 时用于免鉴权的本机推理端点。 */
+    /** 完整构造器；{@code apiKey} 为 null 时用于免鉴权的本机兼容推理端点。 */
     public TaskWorker(HttpClient client, URI endpoint, HttpClient.Version httpVersion, String model, String apiKey,
                       Master.ThinkingFormat thinkingFormat, Duration timeout, StatusReader statusReader) {
         this.client = Objects.requireNonNull(client);
@@ -81,14 +94,24 @@ public final class TaskWorker {
         return model;
     }
 
+    /** 无记忆上下文的简化执行入口。 */
     public Optional<ServerStatus> execute(String task) throws IOException, InterruptedException {
         return execute(task, Optional.empty());
     }
 
+    /** 带可选记忆取证能力但不带写前回调的执行入口。 */
     public Optional<ServerStatus> execute(String task, Optional<MemoryCall> memory) throws IOException, InterruptedException {
         return execute(task, memory, () -> {});
     }
 
+    /**
+     * 执行完整的“可选记忆取证 -> 能力选择 -> 登记尝试与证据复核 -> 现场采样”流程：
+     * 1. 若配置记忆，先拉取本轮证据更新并在首轮工具列表中加入 {@code memory_call}；
+     * 2. 若模型首轮调用 {@code memory_call}，回填查询结果后在第二轮仅提供无记忆工具集合（{@link #TOOLS}）强迫其做最终执行选择；
+     * 3. 校验所选工具必须为无参 JSON 对象 {@code {}}；若选择 {@code no_supported_action} 返回 {@link Optional#empty()}；
+     * 4. 若选择 {@code read_server_status}，依次执行 {@code beforeRead}（写 {@code TOOL_ATTEMPT}）、{@code verifyEvidence()}（确保依赖依据未变化），
+     *    最后由 {@link #statusReader} 读取真实宿主机状态。
+     */
     public Optional<ServerStatus> execute(
             String task, Optional<MemoryCall> memory, BeforeStatusRead beforeRead)
             throws IOException, InterruptedException {
@@ -108,6 +131,7 @@ public final class TaskWorker {
         memory.ifPresent(reader -> tools.add(reader.tool()));
         var call = choose(messages, tools);
         if (memory.isPresent()) memory.get().refreshed();
+        // 允许模型先发起至多一次 memory_call 确认指代目标，随后在第二轮收拢到纯执行工具集合。
         if (MemoryCall.NAME.equals(call.name()) && memory.isPresent()) {
             if (call.id().isBlank()) {
                 throw new IOException("DeepSeek 的 memory_call 缺少工具调用 id");
@@ -123,6 +147,7 @@ public final class TaskWorker {
                 var input = JSON.fromJson(call.arguments(), JsonObject.class);
                 if (input != null && input.isEmpty()) {
                     if (!READ_STATUS.equals(call.name())) return Optional.empty();
+                    // 先落盘尝试记录并复核所依赖的记忆证据仍在线未修订，全部通过后才读取本机状态。
                     beforeRead.run();
                     if (memory.isPresent()) memory.get().verifyEvidence();
                     return Optional.of(statusReader.read());
@@ -134,8 +159,13 @@ public final class TaskWorker {
         throw new IOException(rule);
     }
 
+    /** 单轮工具选择响应的内部承载结构。 */
     private record Call(String id, String name, String arguments, String content) {}
 
+    /**
+     * 调用 OpenAI 兼容聊天端点完成一轮强制工具选择（{@code tool_choice=required}、{@code temperature=0}、关闭思考模式）。
+     * 严格校验响应模型匹配、{@code finish_reason=tool_calls} 且返回唯一一次合法函数调用。
+     */
     private Call choose(List<Map<String, Object>> messages, List<Map<String, Object>> tools)
             throws IOException, InterruptedException {
         var body = new LinkedHashMap<String, Object>();
@@ -185,6 +215,7 @@ public final class TaskWorker {
         throw new IOException(rule);
     }
 
+    /** 构造严格无参（{@code additionalProperties=false}）的 OpenAI 工具声明。 */
     private static Map<String, Object> tool(String name, String description) {
         return Map.of("type", "function", "function", Map.of("name", name, "description", description,
                 "parameters", Map.of("type", "object", "properties", Map.of(), "additionalProperties", false)));

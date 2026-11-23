@@ -6,6 +6,11 @@ import java.io.IOException;
 import java.net.http.HttpClient;
 import java.nio.file.Path;
 
+/**
+ * 独立 Master 节点的命令行启动探测入口。
+ * 职责：解析并校验 Master 配置、构造 HTTP 客户端并向推理端点发起一次启动探测，
+ * 根据执行结果返回明确的进程退出码（0 通过、1 推理/中断失败、2 配置非法）。
+ */
 public final class Main {
     private static final ConfigSource DEFAULT_CONFIG = ConfigSource.bundled("master.properties");
 
@@ -16,6 +21,10 @@ public final class Main {
         System.exit(run(args));
     }
 
+    /**
+     * 执行完整的“配置校验 -> 组装 Master -> 启动探测 -> 资源回收”流程。
+     * 退出码约定：0 表示配置与推理探测均通过；2 表示配置阶段失败；1 表示网络、契约或中断失败。
+     */
     private static int run(String[] args) {
         Master.Settings settings;
         try {
@@ -43,6 +52,10 @@ public final class Main {
         }
     }
 
+    /**
+     * 解析命令行参数确定配置来源。
+     * 无参数时回退到默认内置配置；传入 {@code --config <路径>} 时指向外部文件，其他参数组合一律拒绝。
+     */
     static ConfigSource configSource(String[] args, ConfigSource defaultConfig) {
         if (args.length == 0) {
             return defaultConfig;
