@@ -216,7 +216,8 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
 
     /** 派单决定如何表达，Master 批准的意图决定可传达的事实。角色只收到本步所需的两段文字。 */
     public String replyToPlan(String instruction, String replyIntent) throws IOException {
-        return generateReply(DRAFT_INSTRUCTION + "获准正文见 replyIntent。step 只指导表达，不得扩大正文的事实和承诺。",
+        return generateReply(
+                DRAFT_INSTRUCTION + "获准正文见 replyIntent。step 只指导表达。逐字保留「」内选定的事实，只用获准正文中明确给出的事实和承诺。",
                 JSON.toJson(Map.of("step", instruction, "replyIntent", replyIntent)));
     }
 

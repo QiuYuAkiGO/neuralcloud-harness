@@ -1,6 +1,7 @@
 package neuralcloud.controlplane.app;
 
 import neuralcloud.controlplane.channel.OpenQqChannel;
+import neuralcloud.controlplane.channel.QqGroups;
 import neuralcloud.controlplane.console.AuditLog;
 import neuralcloud.controlplane.console.ConsoleServer;
 import neuralcloud.controlplane.console.ConsoleServer.Node;
@@ -18,6 +19,7 @@ import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.router.RouterMemoryWriter;
 import neuralcloud.controlplane.worker.ChatWorker;
+import neuralcloud.controlplane.worker.ReplySelector;
 import neuralcloud.controlplane.worker.TaskWorker;
 
 import java.io.IOException;
@@ -103,7 +105,12 @@ public final class ConsoleMain {
             memorySettings = settings.memoryConfig().isPresent()
                     ? Optional.of(MemoryConfig.load(settings.memoryConfig().orElseThrow())) : Optional.empty();
             // 项目群聊涉及跨受众数据隔离，必须开启 Memory v2 的 scoped 模式以防私聊记忆泄漏到群内。
-            if (openQqSettings.filter(q -> q.allowedGroupId() != 0).isPresent()
+            if (openQqSettings
+                            .filter(
+                                    q ->
+                                            q.allowedGroupId() != 0
+                                                    || q.groupPoliciesFile().isPresent())
+                            .isPresent()
                     && memorySettings
                             .filter(m -> m.apiVersion() == 2 && m.scopedRecall())
                             .isEmpty())
@@ -124,7 +131,15 @@ public final class ConsoleMain {
         try {
             var audit = AuditLog.open(settings.auditDirectory());
             opened.push(audit);
-            var memory = openMemory(memorySettings, opened, audit, openQqSettings.isPresent());
+            var memory =
+                    openMemory(
+                            memorySettings,
+                            opened,
+                            audit,
+                            openQqSettings.isPresent(),
+                            openQqSettings
+                                    .flatMap(OpenQqConfig.Settings::groupPoliciesFile)
+                                    .isPresent());
             var chatClient = chatSettings.newClient();
             opened.push(chatClient);
             var routerClient = routerSettings.newClient();
@@ -171,7 +186,18 @@ public final class ConsoleMain {
             monitor.start(settings.metricsInterval());
 
             var writes = memory.map(MemoryAccess::writes);
-            var server = ConsoleServer.start(settings.listen(), audit, monitor, nodes, writes);
+            Optional<QqGroups> groups;
+            if (openQqSettings.flatMap(OpenQqConfig.Settings::groupPoliciesFile).isPresent()) {
+                var qq = openQqSettings.orElseThrow();
+                groups =
+                        Optional.of(
+                                new QqGroups(
+                                        qq.groupPoliciesFile().orElseThrow(),
+                                        qq.accountId(),
+                                        audit));
+            } else groups = Optional.empty();
+            var server =
+                    ConsoleServer.start(settings.listen(), audit, monitor, nodes, writes, groups);
             opened.push(server);
 
             // 网页控制台与 OpenQQ 渠道共用同一对话处理器 chatExchange。QQ 登录验证在后台连接中完成，断开时可独立重连。
@@ -189,7 +215,21 @@ public final class ConsoleMain {
                                         configured.allowedGroupId(),
                                         audit,
                                         chatExchange,
-                                        writes);
+                                        writes,
+                                        groups,
+                                        (text, trace, mode, addressed) ->
+                                                managedQq(
+                                                        text,
+                                                        trace,
+                                                        mode,
+                                                        addressed,
+                                                        memory.orElseThrow(),
+                                                        master,
+                                                        router,
+                                                        chat,
+                                                        task,
+                                                        settings.masterMaxTokens(),
+                                                        settings.masterTemperature()));
                         opened.push(channel);
                         channel.start();
                     });
@@ -215,6 +255,17 @@ public final class ConsoleMain {
      */
     static Optional<MemoryAccess> openMemory(Optional<MemoryConfig> settings,
                                                      Deque<AutoCloseable> opened, AuditLog audit, boolean qqPrivateEnabled)
+            throws IOException, InterruptedException {
+        return openMemory(settings, opened, audit, qqPrivateEnabled, false);
+    }
+
+    /** 群策略管理依赖服务端的群通知受众契约，握手不通过时不会开放渠道。 */
+    private static Optional<MemoryAccess> openMemory(
+            Optional<MemoryConfig> settings,
+            Deque<AutoCloseable> opened,
+            AuditLog audit,
+            boolean qqPrivateEnabled,
+            boolean managedGroups)
             throws IOException, InterruptedException {
         if (settings.isEmpty()) {
             return Optional.empty();
@@ -251,7 +302,8 @@ public final class ConsoleMain {
                 config.scopedRecall());
         }
         // 核验远端健康状态与能力契约；v2 还会在此触发本地待确认写入记录的补偿恢复。
-        memory.verify(qqPrivateEnabled);
+        if (memory instanceof ResidentV2 v2) v2.verify(qqPrivateEnabled, managedGroups);
+        else memory.verify(qqPrivateEnabled);
         if (memory instanceof ResidentV2 v2) {
             audit.write(
                     "memory-startup",
@@ -300,16 +352,101 @@ public final class ConsoleMain {
     /** 控制台的自然语言入口。先持久化原话、分流，再交 Master 查证；只有日常对话进入此单步计划。 */
     static ConsoleServer.Exchange plannedConversation(Master master, Router<Route> router, ChatWorker chat,
                                                        MemoryAccess store, int maxTokens, double temperature) {
-        var orchestrator = new Orchestrator();
         return (text, trace) -> {
             int inbound = store.writes().rememberInbound(trace, trace.request(), text);
             var route = router.route(text);
             if (route != Route.CONVERSATION) {
                 return new Reply("router_route", Map.of("route", route.name()), inbound);
             }
-            int routed = trace.write(inbound, "router", "router_route", Map.of("route", route.name()));
+            int routed =
+                    trace.write(inbound, "router", "router_route", Map.of("route", route.name()));
+            return plannedReply(
+                    text,
+                    trace,
+                    routed,
+                    master,
+                    router,
+                    chat,
+                    store,
+                    maxTokens,
+                    temperature,
+                    false);
+        };
+    }
+
+    /** 群的观察模式只写原文。参与判断成功后才调用 Router；私聊与点名由现有 DIRECT 契约直接通过。 */
+    private static Optional<Reply> managedQq(
+            String text,
+            ConsoleServer.Trace trace,
+            QqGroups.Mode mode,
+            boolean addressed,
+            MemoryAccess store,
+            Master master,
+            Router<Route> router,
+            ChatWorker chat,
+            Optional<TaskWorker> task,
+            int maxTokens,
+            double temperature)
+            throws IOException, InterruptedException {
+        int input = store.writes().rememberInbound(trace, trace.request(), text);
+        if (mode == QqGroups.Mode.OBSERVE) return Optional.empty();
+        var context =
+                addressed
+                        ? ReplySelector.Context.direct(text)
+                        : new ReplySelector.Context(
+                                ReplySelector.Addressing.AMBIENT,
+                                text,
+                                trace.dialogue().stream().map(m -> m.text()).toList());
+        var decision = chat.selectReply(context);
+        int selected =
+                trace.write(
+                        input,
+                        "chat-worker",
+                        "qq_participation",
+                        Map.of("addressing", context.addressing(), "decision", decision));
+        if (decision == ReplySelector.Decision.SKIP) return Optional.empty();
+        var route = router.route(text);
+        int routed = trace.write(selected, "router", "router_route", Map.of("route", route.name()));
+        if (route == Route.CONVERSATION)
+            return Optional.of(
+                    plannedReply(
+                            text,
+                            trace,
+                            routed,
+                            master,
+                            router,
+                            chat,
+                            store,
+                            maxTokens,
+                            temperature,
+                            true));
+        var conversation =
+                new ChatWorker.RoutedConversation(ReplySelector.Context.direct(text), route);
+        if (route == Route.ACTION_REQUEST && task.isPresent())
+            return Optional.of(
+                    executeTask(chat, task.get(), conversation, trace, routed, Optional.of(store)));
+        return Optional.of(
+                new Reply(
+                        "chat_worker_reply",
+                        Map.of("text", chat.reply(conversation).orElseThrow()),
+                        routed));
+    }
+
+    /** 从已入账的同一条原文继续 Master 验收和 Router 单步派单，发送前复核依据的版本。 */
+    private static Reply plannedReply(
+            String text,
+            ConsoleServer.Trace trace,
+            int routed,
+            Master master,
+            Router<Route> router,
+            ChatWorker chat,
+            MemoryAccess store,
+            int maxTokens,
+            double temperature,
+            boolean replyRequired)
+            throws IOException, InterruptedException {
             var read = store.reads().bindMasterIntent(trace, routed).orElseThrow();
-            var intent = master.submitIntent(text, maxTokens, temperature, read);
+        var intent = master.submitIntent(text, maxTokens, temperature, read, replyRequired);
             int accepted = trace.write(read.eventId(), "master", "intent", intent.data());
             var scope = new Orchestrator.Scope(trace.scope().conversationId(), UUID.randomUUID());
             var submission = router.submitPlan(intent, scope);
@@ -321,16 +458,47 @@ public final class ConsoleMain {
                     "toolCallId", submitted.toolCallId(), "workflowId", scope.workflowId(), "steps", plan.steps()));
             // Router 生成计划与角色撰写回复期间，证据都可能发生变化。派发及交给渠道前分别复核。
             read.verifyEvidence();
-            var receipts = orchestrator.<Reply>execute(plan, (bound, step, dependencies) -> {
-                int dispatched = trace.write(planned, "orchestrator", "worker_dispatch", Map.of(
-                        "workflowId", bound.workflowId(), "action", step.id(), "worker", step.worker(), "text", step.text()));
-                String reply = chat.replyToPlan(step.text(), intent.replyIntent());
-                return new Orchestrator.Receipt<>(bound, step.id(), new Reply("chat_worker_reply", Map.of(
-                        "workflowId", bound.workflowId(), "stepId", step.id(), "text", reply), dispatched));
-            });
+        var receipts =
+                new Orchestrator()
+                        .<Reply>execute(
+                                plan,
+                                (bound, step, dependencies) -> {
+                                    int dispatched =
+                                            trace.write(
+                                                    planned,
+                                                    "orchestrator",
+                                                    "worker_dispatch",
+                                                    Map.of(
+                                                            "workflowId",
+                                                            bound.workflowId(),
+                                                            "action",
+                                                            step.id(),
+                                                            "worker",
+                                                            step.worker(),
+                                                            "text",
+                                                            step.text()));
+                                    String reply =
+                                            chat.replyToPlan(step.text(), intent.replyIntent());
+                                    if (intent.evidence().stream()
+                                                    .anyMatch(read.noticeEvidence()::containsKey)
+                                            && !intent.quotes().stream().allMatch(reply::contains))
+                                        throw new IOException("Chat Worker 回复缺少获准群通知的原文片段");
+                                    return new Orchestrator.Receipt<>(
+                                            bound,
+                                            step.id(),
+                                            new Reply(
+                                                    "chat_worker_reply",
+                                                    Map.of(
+                                                            "workflowId",
+                                                            bound.workflowId(),
+                                                            "stepId",
+                                                            step.id(),
+                                                            "text",
+                                                            reply),
+                                                    dispatched));
+                                });
             read.verifyEvidence();
             return receipts.get(plan.steps().getFirst().id()).result();
-        };
     }
 
     /**

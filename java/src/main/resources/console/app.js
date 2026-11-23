@@ -136,6 +136,13 @@ function showTab(name) {
   document.querySelectorAll('.panel').forEach((panel) => panel.classList.toggle('active', panel.id === `tab-${name}`));
   clearInterval(state.nodesTimer);
   clearInterval(state.auditTimer);
+  clearInterval(state.qqTimer);
+  if (name === 'qq') {
+    loadQq();
+    state.qqTimer = setInterval(() => {
+      if (!document.hidden && !document.activeElement?.closest('#qq-rooms select') && !document.querySelector('#qq-rooms select[data-saving]')) loadQq();
+    }, 5000);
+  }
   if (name === 'audit') {
     loadChains();
     refreshOpenAudit();
@@ -418,6 +425,49 @@ async function loadNodes() {
 
 document.getElementById('nodes-refresh').addEventListener('click', loadNodes);
 
+// 名单、保存与版本冲突均以服务器回执为准。每张卡可直接打开该群历史审计。
+const qqModes = { OFF: '不接收', OBSERVE: '仅观察', OBSERVE_REPLY: '观察与回复' };
+let qqRequest = 0;
+async function loadQq() {
+  const request = ++qqRequest;
+  const error = document.getElementById('qq-error');
+  try {
+    const data = await api('GET', '/api/qq/groups');
+    if (request !== qqRequest) return;
+    error.textContent = '';
+    document.getElementById('qq-status').textContent = !data.enabled ? '未配置群接入' :
+      [data.connected ? '已连接' : '已断开', '账号 ' + data.account, data.groups.length + ' 个群', time(data.refreshed)].filter(Boolean).join(' · ');
+    const cards = data.groups.map(room => {
+      const select = el('select', { 'aria-label': room.name + ' 接收策略' },
+        Object.entries(qqModes).map(([value, label]) => el('option', { value }, label)));
+      select.value = room.policy;
+      select.disabled = !data.connected;
+      select.addEventListener('change', async () => {
+        select.disabled = true;
+        select.dataset.saving = 'true';
+        ++qqRequest;
+        try {
+          await api('PUT', '/api/qq/groups/' + room.id + '/policy', { policy: select.value, revision: room.revision });
+          await loadQq();
+        } catch (failure) {
+          await loadQq();
+          error.textContent = failure.message;
+        }
+      });
+      const audit = el('button', {}, '查看审计链');
+      audit.disabled = room.received === 0;
+      audit.addEventListener('click', () => { showTab('audit'); loadAudit(room.chain); });
+      return el('article', { class: 'card' }, el('h2', {}, room.name), el('p', { class: 'muted' }, '群号 ' + room.id + ' · ' + room.members + ' 人'),
+        el('p', {}, '接收 ' + room.received + ' 条 · 确认回复 ' + room.delivered + ' 条'),
+        room.lastReceived ? el('p', { class: 'muted' }, '最近接收 ' + time(room.lastReceived)) : null,
+        room.lastDelivered ? el('p', { class: 'muted' }, '最近回复 ' + time(room.lastDelivered)) : null,
+        el('div', { class: 'toolbar' }, el('label', {}, '接收策略 ', select), audit));
+    });
+    document.getElementById('qq-rooms').replaceChildren(...cards);
+  } catch (failure) { if (request === qqRequest) error.textContent = failure.message; }
+}
+document.getElementById('qq-refresh').addEventListener('click', loadQq);
+
 /* ---------- 启动 ---------- */
 
 // 页面初始化：先加载可用节点填充下拉框，再按“URL ?chain 参数 > 上次 localStorage 会话 > 随机 UUID”恢复当前对话。
@@ -427,6 +477,7 @@ async function init() {
     ...state.nodes.map((node) => el('option', { value: node.id }, node.name)));
   const linked = new URL(location.href).searchParams.get('chain');
   await loadChat(linked ?? localStorage.getItem('neuralcloud.chain') ?? crypto.randomUUID(), linked !== null);
+  if (location.hash === '#qq') showTab('qq');
   document.getElementById('chat-send').disabled = false;
 }
 
