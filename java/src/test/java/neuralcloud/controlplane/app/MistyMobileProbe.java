@@ -7,6 +7,8 @@ import neuralcloud.controlplane.console.AuditLog;
 import neuralcloud.controlplane.console.ConsoleServer;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
 import neuralcloud.controlplane.master.Master;
+import neuralcloud.controlplane.master.MasterRuntime;
+import neuralcloud.controlplane.orchestration.MasterEpochs;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 
@@ -33,13 +35,14 @@ public final class MistyMobileProbe {
         var master = MasterConfig.load(config.masterConfig());
         var opened = new ArrayDeque<AutoCloseable>();
         try (var audit = AuditLog.open(config.auditDirectory()); var chatHttp = chat.newClient();
+                var epochs = new MasterEpochs(audit.directory().resolve("master-epochs.sqlite"), config.masterEpoch());
                 var routerHttp = router.newClient(); var masterHttp = master.newClient();
                 var input = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))) {
             var store = ConsoleMain.openMemory(Optional.of(memory), opened, audit, false).orElseThrow();
-            var exchange = ConsoleMain.plannedConversation(new Master(masterHttp, master),
+            var exchange = ConsoleMain.plannedConversation(new MasterRuntime(new Master(masterHttp, master), epochs,
+                            config.masterMaxTokens(), config.masterTemperature()),
                     new Router<>(new Master(routerHttp, router), config.routerRolePrompt().readText(), Route.class),
-                    chat.create(chatHttp, chat.apiKey(), config.chatWorkerRolePrompt().readText()), store,
-                    config.masterMaxTokens(), config.masterTemperature());
+                    chat.create(chatHttp, chat.apiKey(), config.chatWorkerRolePrompt().readText()), store);
             emit(Map.of("ready", true));
             for (String line; (line = input.readLine()) != null;) {
                 turn(input, JsonParser.parseString(line).getAsJsonObject(), audit, exchange, store);

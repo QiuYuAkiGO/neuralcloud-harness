@@ -8,6 +8,7 @@ import neuralcloud.controlplane.console.ConsoleServer.Node;
 import neuralcloud.controlplane.console.ConsoleServer.Reply;
 import neuralcloud.controlplane.console.NodeMonitor;
 import neuralcloud.controlplane.master.Master;
+import neuralcloud.controlplane.master.MasterRuntime;
 import neuralcloud.controlplane.memory.ConversationMemory;
 import neuralcloud.controlplane.memory.MemoryCall;
 import neuralcloud.controlplane.memory.MemoryCall.Caller;
@@ -15,6 +16,7 @@ import neuralcloud.controlplane.memory.ResidentMemory;
 import neuralcloud.controlplane.memory.ResidentV2;
 import neuralcloud.controlplane.memory.MemoryJournal;
 import neuralcloud.controlplane.orchestration.Orchestrator;
+import neuralcloud.controlplane.orchestration.MasterEpochs;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.router.RouterMemoryWriter;
@@ -160,6 +162,10 @@ public final class ConsoleMain {
             var routerInference = new Master(routerClient, routerSettings);
             var router = new Router<>(routerInference, routerPrompt, Route.class);
             var master = new Master(masterClient, masterSettings);
+            // 先恢复唯一的主干租约，再把同一运行时交给控制台和 QQ。Router 只复用推理客户端。
+            var epochs = new MasterEpochs(audit.directory().resolve("master-epochs.sqlite"), settings.masterEpoch());
+            opened.push(epochs);
+            var masterRuntime = new MasterRuntime(master, epochs, settings.masterMaxTokens(), settings.masterTemperature());
             var chatExchange = conversation(chat, router, task, memory);
             var nodes = new ArrayList<>(List.of(
                     new Node("chat-worker", "Chat Worker", chatSettings.endpoint().toString(), chatSettings.model(),
@@ -168,13 +174,12 @@ public final class ConsoleMain {
                             (text, trace) -> new Reply("router_route", Map.of("route", router.route(text).name())),
                             routerInference::probeStartup),
                     new Node("master", "Master", masterSettings.endpoint().toString(), masterSettings.model(),
-                            masterConversation(master, settings.masterMaxTokens(), settings.masterTemperature(),
-                                    memory.map(MemoryAccess::reads)),
+                            masterConversation(masterRuntime, memory.map(MemoryAccess::reads)),
                             master::probeStartup)));
             // 只有已握手的 Memory v2 能把意图证据解析为具体版本，才开放正式的对话派单入口。
             memory.filter(store -> store.writes().supportsAttestation()).ifPresent(store ->
                     nodes.add(new Node("conversation", "对话编排", routerSettings.endpoint().toString(), routerSettings.model(),
-                            plannedConversation(master, router, chat, store, settings.masterMaxTokens(), settings.masterTemperature()), null)));
+                            plannedConversation(masterRuntime, router, chat, store), null)));
             nodes.addAll(extension.nodes(new Components(chat, routerInference, master, routerSettings, masterSettings)));
 
             // 仅对已配置 Prometheus /metrics 端点的节点注册指标抓取，随后启动后台周期监控。
@@ -224,12 +229,10 @@ public final class ConsoleMain {
                                                         mode,
                                                         addressed,
                                                         memory.orElseThrow(),
-                                                        master,
+                                                        masterRuntime,
                                                         router,
                                                         chat,
-                                                        task,
-                                                        settings.masterMaxTokens(),
-                                                        settings.masterTemperature()));
+                                                        task));
                         opened.push(channel);
                         channel.start();
                     });
@@ -329,29 +332,31 @@ public final class ConsoleMain {
      * 配置记忆时为本轮绑定一个 {@link MemoryCall} 句柄，允许 Master 自主发起记忆工具查询并将结果写入审计链；
      * 未配置记忆时直接走无工具补全。
      */
-    static ConsoleServer.Exchange masterConversation(Master master, int maxTokens, double temperature,
+    static ConsoleServer.Exchange masterConversation(MasterRuntime master,
                                                      Optional<ConversationMemory> memory) {
         return (text, trace) -> {
+            if (text.equals("/epoch") || text.startsWith("/epoch ")) {
+                return new Reply("master_epoch_matter", Map.of("text", master.matterCommand(text, trace)), trace.request());
+            }
             // 操作者在 Master 节点请求一份结构化意图。事件保存宿主解析后的证据版本，供后续派单引用。
             if (text.equals("/intent") || text.startsWith("/intent ")) {
                 String prompt = text.substring("/intent".length()).stripLeading();
                 if (prompt.isBlank()) throw new IOException("/intent 需要非空事项正文");
                 var read = memory.flatMap(store -> store.bindMasterIntent(trace, trace.request()))
                         .orElseThrow(() -> new IOException("submit_intent 需要配置 Memory v2 以核对证据版本"));
-                var intent = master.submitIntent(prompt, maxTokens, temperature, read);
+                var intent = master.intent(prompt, trace, read, false, false).value();
                 return new Reply("intent", intent.data(), read.eventId());
             }
             var read = memory.map(store -> store.bind(trace, Caller.MASTER, trace.request()));
-            var completion = read.isPresent() ? master.completeWithMemory(text, maxTokens, temperature, read.orElseThrow())
-                    : master.complete(text, maxTokens, temperature, List.of());
+            var completion = master.complete(text, trace, read);
             return new Reply("master_completion", Map.of("text", completion.text(), "finishReason", completion.finishReason(),
                     "reasoningFieldPresent", completion.reasoningFieldPresent()), read.map(MemoryCall::eventId).orElse(trace.request()));
         };
     }
 
     /** 控制台的自然语言入口。先持久化原话并分流，日常对话由 Master 按需取证并提交回复意图。 */
-    static ConsoleServer.Exchange plannedConversation(Master master, Router<Route> router, ChatWorker chat,
-                                                       MemoryAccess store, int maxTokens, double temperature) {
+    static ConsoleServer.Exchange plannedConversation(MasterRuntime master, Router<Route> router, ChatWorker chat,
+                                                       MemoryAccess store) {
         return (text, trace) -> {
             int inbound = store.writes().rememberInbound(trace, trace.request(), text);
             var route = router.route(text);
@@ -368,8 +373,6 @@ public final class ConsoleMain {
                     router,
                     chat,
                     store,
-                    maxTokens,
-                    temperature,
                     false);
         };
     }
@@ -381,12 +384,10 @@ public final class ConsoleMain {
             QqGroups.Mode mode,
             boolean addressed,
             MemoryAccess store,
-            Master master,
+            MasterRuntime master,
             Router<Route> router,
             ChatWorker chat,
-            Optional<TaskWorker> task,
-            int maxTokens,
-            double temperature)
+            Optional<TaskWorker> task)
             throws IOException, InterruptedException {
         int input = store.writes().rememberInbound(trace, trace.request(), text);
         if (mode == QqGroups.Mode.OBSERVE) return Optional.empty();
@@ -417,8 +418,6 @@ public final class ConsoleMain {
                             router,
                             chat,
                             store,
-                            maxTokens,
-                            temperature,
                             true));
         var conversation =
                 new ChatWorker.RoutedConversation(ReplySelector.Context.direct(text), route);
@@ -437,27 +436,26 @@ public final class ConsoleMain {
             String text,
             ConsoleServer.Trace trace,
             int routed,
-            Master master,
+            MasterRuntime master,
             Router<Route> router,
             ChatWorker chat,
             MemoryAccess store,
-            int maxTokens,
-            double temperature,
             boolean replyRequired)
             throws IOException, InterruptedException {
-            var read = store.reads().bindMasterIntent(trace, routed).orElseThrow();
-        var intent = master.submitIntent(text, maxTokens, temperature, read, replyRequired);
-            int accepted = trace.write(read.eventId(), "master", "intent", intent.data());
-            var scope = new Orchestrator.Scope(trace.scope().conversationId(), UUID.randomUUID());
-            var submission = router.submitPlan(intent, scope);
-            if (submission.isEmpty()) return new Reply("conversation_no_reply", Map.of(), accepted);
+        var read = store.reads().bindMasterIntent(trace, routed).orElseThrow();
+        var result = master.intent(text, trace, read, true, replyRequired);
+        var intent = result.value();
+        int accepted = trace.write(read.eventId(), "master", "intent", intent.data());
+        var scope = new Orchestrator.Scope(trace.scope().conversationId(), UUID.randomUUID());
+        var submission = router.submitPlan(intent, scope);
+        if (submission.isEmpty()) return new Reply("conversation_no_reply", Map.of(), accepted);
 
-            var submitted = submission.orElseThrow();
-            var plan = submitted.plan();
-            int planned = trace.write(accepted, "router", "router_plan", Map.of("tool", "submit_plan",
-                    "toolCallId", submitted.toolCallId(), "workflowId", scope.workflowId(), "steps", plan.steps()));
-            // Router 生成计划与角色撰写回复期间，证据都可能发生变化。派发及交给渠道前分别复核。
-            read.verifyEvidence();
+        var submitted = submission.orElseThrow();
+        var plan = submitted.plan();
+        int planned = trace.write(accepted, "router", "router_plan", Map.of("tool", "submit_plan",
+                "toolCallId", submitted.toolCallId(), "workflowId", scope.workflowId(), "steps", plan.steps()));
+        // Router 生成计划与角色撰写回复期间，证据都可能发生变化。派发及交给渠道前分别复核。
+        read.verifyEvidence();
         var receipts =
                 new Orchestrator()
                         .<Reply>execute(
@@ -497,8 +495,10 @@ public final class ConsoleMain {
                                                             reply),
                                                     dispatched));
                                 });
-            read.verifyEvidence();
-            return receipts.get(plan.steps().getFirst().id()).result();
+        read.verifyEvidence();
+        var reply = receipts.get(plan.steps().getFirst().id()).result();
+        master.workerReturned(trace, result.matter(), reply.data());
+        return reply;
     }
 
     /**

@@ -8,6 +8,8 @@ import com.sun.net.httpserver.HttpServer;
 import neuralcloud.controlplane.console.AuditLog;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
 import neuralcloud.controlplane.master.Master;
+import neuralcloud.controlplane.master.MasterRuntime;
+import neuralcloud.controlplane.orchestration.MasterEpochs;
 import neuralcloud.controlplane.memory.ConversationMemory;
 import neuralcloud.controlplane.memory.MemoryCall;
 import neuralcloud.controlplane.memory.MemoryJournal;
@@ -23,6 +25,7 @@ import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.sql.DriverManager;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -63,7 +66,8 @@ public class DirectMemoryCallTest {
                     """);
         });
         server.start();
-        try (var client = HttpClient.newHttpClient(); var audit = AuditLog.open(folder.getRoot().toPath())) {
+        try (var client = HttpClient.newHttpClient(); var audit = AuditLog.open(folder.getRoot().toPath());
+             var epochs = new MasterEpochs(audit.directory().resolve("epochs.sqlite"), MasterEpochs.Profile.DEFAULT)) {
             var base = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
             var memory = new ConversationMemory(audit, new ResidentMemory(client, base, "misty", "test-token", true));
             var timeout = Duration.ofSeconds(3);
@@ -77,7 +81,8 @@ public class DirectMemoryCallTest {
                 var trace = Trace.forChain(audit, "console", "s", parent);
                 int resultId;
                 if ("master".equals(node)) {
-                    var reply = ConsoleMain.masterConversation(master, 128, 0, Optional.of(memory)).send("查巡检别名。", trace);
+                    var reply = ConsoleMain.masterConversation(new MasterRuntime(master, epochs, 128, 0),
+                            Optional.of(memory)).send("查巡检别名。", trace);
                     assertEquals("巡检别名指外部主机。", reply.data().get("text"));
                     resultId = reply.causedBy();
                 } else {
@@ -151,6 +156,7 @@ public class DirectMemoryCallTest {
         var base = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
         var dir = folder.getRoot().toPath();
         try (var client = HttpClient.newHttpClient(); var audit = AuditLog.open(dir);
+             var epochs = new MasterEpochs(dir.resolve("epochs.sqlite"), MasterEpochs.Profile.DEFAULT);
              var journal = new MemoryJournal(dir.resolve("journal.sqlite"))) {
             var memory = new ConversationMemory(audit, new ResidentV2(client, base, "misty", "test-token", true, journal, null));
             var timeout = Duration.ofSeconds(3);
@@ -158,7 +164,8 @@ public class DirectMemoryCallTest {
                     timeout, timeout, "探测", 8, 0, false));
             var trace = Trace.forChain(audit, "console", "intent", audit.write("intent", null, "master", "operator_message",
                     Map.of("text", "/intent 请核对周六的安排")));
-            var reply = ConsoleMain.masterConversation(master, 256, 0, Optional.of(memory)).send("/intent 请核对周六的安排", trace);
+            var reply = ConsoleMain.masterConversation(new MasterRuntime(master, epochs, 256, 0),
+                    Optional.of(memory)).send("/intent 请核对周六的安排", trace);
             assertEquals("intent", reply.type());
             assertEquals(List.of(new MemoryCall.EvidenceRef("a".repeat(64), 3)), reply.data().get("evidence"));
             assertEquals(3, requests.size());
@@ -194,6 +201,7 @@ public class DirectMemoryCallTest {
         var base = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
         var dir = folder.getRoot().toPath();
         try (var client = HttpClient.newHttpClient(); var audit = AuditLog.open(dir);
+             var epochs = new MasterEpochs(dir.resolve("epochs.sqlite"), MasterEpochs.Profile.DEFAULT);
              var journal = new MemoryJournal(dir.resolve("journal.sqlite"))) {
             var memory = new ConversationMemory(audit, new ResidentV2(client, base, "misty", "test-token", true, journal, null));
             var timeout = Duration.ofSeconds(3);
@@ -202,7 +210,10 @@ public class DirectMemoryCallTest {
             int routed = audit.write("group", null, "router", "router_route", Map.of("route", "CONVERSATION"));
             var trace = Trace.forQqGroup(audit, "group", routed, new Trace.QqGroup(10001, 20001, 10002, true));
             var read = memory.bindMasterIntent(trace, routed).orElseThrow();
-            var intent = master.submitIntent(message, 256, 0, read, true);
+            var runtime = new MasterRuntime(master, epochs, 256, 0);
+            var admission = runtime.intent(message, trace, read, true, true);
+            var intent = admission.value();
+            runtime.workerReturned(trace, admission.matter(), Map.of("text", "大家好"));
             assertTrue(intent.needsReply());
             assertTrue(intent.evidence().isEmpty());
             assertEquals(routed, read.eventId());
@@ -223,6 +234,19 @@ public class DirectMemoryCallTest {
             assertEquals(1, audit.events("group").size());
         } finally {
             server.stop(0);
+        }
+        // 已验收意图与 Worker 回执先于后续派发落盘，完整内容不混入可重放的受众标签。
+        try (var db = DriverManager.getConnection("jdbc:sqlite:" + dir.resolve("epochs.sqlite"));
+             var sql = db.createStatement();
+             var rows = sql.executeQuery("SELECT kind,body,checkpoint FROM segment WHERE checkpoint IS NOT NULL ORDER BY seq")) {
+            assertTrue(rows.next());
+            assertEquals("DECISION", rows.getString(1));
+            assertFalse(rows.getString(2).contains("向大家问好"));
+            assertEquals("向大家问好", JsonParser.parseString(rows.getString(3)).getAsJsonObject().get("replyIntent").getAsString());
+            assertTrue(rows.next());
+            assertEquals("RECEIPT", rows.getString(1));
+            assertEquals("大家好", JsonParser.parseString(rows.getString(3)).getAsJsonObject().get("text").getAsString());
+            assertFalse(rows.next());
         }
     }
 

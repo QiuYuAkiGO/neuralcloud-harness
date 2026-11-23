@@ -115,6 +115,12 @@ java -cp 'java/target/test-classes;java/target/neuralcloud-control-plane-0.1.0-S
 
 vLLM 以 `--enforce-eager` 启动时，首次请求要编译内核，可能超过 Router 的请求超时。正式联调前先在节点状态页对 Router 做一次推理探测。
 
+### Master 的 Epoch 上下文换代
+
+正式控制台启动时在审计目录恢复 `master-epochs.sqlite`。Master 页签、网页对话编排和使用该编排的 QQ 请求共享一个主干，每次推理只加载原会话的工作记录。需要按模型档位调节水位时，在控制台配置中成对指定 `masterEpochWorkingBytes` 和 `masterEpochTriggerBytes`。两者都是正整数，前者须小于后者。省略时分别取 2,048 和 4,096，计量范围是历史分段正文的 UTF-8 字节。固定提示、本轮问题和按需取证材料另行组装。
+
+在 Master 页签同一会话发送 `/epoch open 周五前核对供应商书面回执` 可登记跨轮事项，返回的事项号在换代和重启后继续有效。收到回执后发送 `/epoch resolve <事项号> <回执正文>`。由 Master 派给 Worker 的事项自动登记并关联处理结果。控制台关闭后，查询 SQLite 日志的 `epoch` 表可核对各代的冻结序号和交接时的最终序号，`member` 保存每一代按序重建所需的段号。[设计与恢复语义](../docs/proposals/master-worker-runtime-discussion-20261117.md#103-java-首版换代契约2026-11-23)
+
 ## 编排器
 
 调用方提交带事项标识的计划，每个步骤包含唯一标识、目标 Worker、指令正文和前置步骤标识。`Orchestrator` 在派发前校验依赖关系，收到同一事项及对应步骤的回执后才派发依赖它的步骤。执行结果按步骤标识返回，业务规则和回执解释由调用方负责。

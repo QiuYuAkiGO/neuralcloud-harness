@@ -173,6 +173,14 @@ public class ConfigCompatibilityTest {
                 metricsTimeoutSeconds=5
                 """);
         var console = ConsoleConfig.load(ConfigSource.file(cloudConsole));
+        assertEquals(4096, console.masterEpoch().triggerBytes());
+        String configText = Files.readString(cloudConsole);
+        var epoch = write("console-epoch.properties", configText + "masterEpochWorkingBytes=32\nmasterEpochTriggerBytes=64\n");
+        assertEquals(32, ConsoleConfig.load(ConfigSource.file(epoch)).masterEpoch().workingBytes());
+        Files.writeString(epoch, configText + "masterEpochWorkingBytes=32\n");
+        assertThrows(IllegalArgumentException.class, () -> ConsoleConfig.load(ConfigSource.file(epoch)));
+        Files.writeString(epoch, configText + "masterEpochWorkingBytes=64\nmasterEpochTriggerBytes=64\n");
+        assertThrows(IllegalArgumentException.class, () -> ConsoleConfig.load(ConfigSource.file(epoch)));
         assertTrue(console.routerMetrics().isEmpty());
         assertTrue(console.masterMetrics().isEmpty());
 
