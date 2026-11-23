@@ -27,6 +27,27 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public class ChatWorkerTest {
+    private static final String PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=";
+
+    /** 图像保持独立二进制部件，审计摘要不含数据；格式错误或字节超额在调用模型前拒绝。 */
+    @Test
+    public void sendsVerifiedImageBytesToGemini() throws IOException {
+        var image = ChatImage.fromBase64(PNG, ChatImage.MAX_TOTAL_BYTES);
+        var requests = new CopyOnWriteArrayList<JsonObject>();
+        var result = withWorker(200, requests, worker -> worker.describeImages("看图", List.of(image)), completed("可见图案"));
+        assertEquals("可见图案", result);
+        var parts = requests.getFirst().getAsJsonArray("contents").get(0).getAsJsonObject().getAsJsonArray("parts");
+        assertEquals("看图", parts.get(0).getAsJsonObject().get("text").getAsString());
+        var inline = parts.get(1).getAsJsonObject().getAsJsonObject("inlineData");
+        assertEquals("image/png", inline.get("mimeType").getAsString());
+        assertEquals(PNG, inline.get("data").getAsString());
+        assertEquals(64, image.evidence().get("sha256").toString().length());
+        assertFalse(image.evidence().toString().contains(PNG));
+        for (String bad : List.of("", "%%%", "dGV4dA=="))
+            assertThrows(IOException.class, () -> ChatImage.fromBase64(bad, ChatImage.MAX_BYTES));
+        assertThrows(IOException.class, () -> ChatImage.fromBase64(PNG, image.size()-1));
+    }
+
     private static final String APPROVED_TEXT = "会议已改到周六11时。";
     private static final Context DIRECT = Context.direct("会议的时间改好了吗？");
     private static final Context AMBIENT = new Context(Addressing.AMBIENT, "这个好看吗？", List.of("发了一张照片。"));
@@ -199,6 +220,18 @@ public class ChatWorkerTest {
             var serverStatus = new ServerStatus("2026-11-23T00:00:00Z", 3600, 0.25, 1L << 30, 2L << 30, 4L << 30, 8L << 30);
             assertTrue(cloud.replyToServerStatus(DIRECT, serverStatus).orElseThrow()
                     .startsWith("刚查过这台服务器，结果在这儿。\n"));
+
+            // 云端识图发送实际字节，文字端点继续沿用上面的纯字符串契约。
+            replies.add("""
+                    {"model":"deepseek-flash","choices":[{"finish_reason":"stop","message":{"content":"可见图案"}}]}
+                    """);
+            var image = ChatImage.fromBase64(PNG, ChatImage.MAX_BYTES);
+            assertEquals("可见图案", cloud.describeImages("比较两张", List.of(image, image)));
+            var visual = requests.getLast().getAsJsonArray("messages").get(1).getAsJsonObject().getAsJsonArray("content");
+            assertEquals(3, visual.size());
+            assertEquals("比较两张", visual.get(0).getAsJsonObject().get("text").getAsString());
+            assertEquals("data:image/png;base64," + PNG,
+                    visual.get(2).getAsJsonObject().getAsJsonObject("image_url").get("url").getAsString());
 
             // 3. 截断与 HTTP 错误不泄露上游错误正文
             replies.add("""

@@ -9,16 +9,17 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
 import neuralcloud.controlplane.console.AuditLog;
-import neuralcloud.controlplane.console.ConsoleServer.Exchange;
 import neuralcloud.controlplane.console.ConsoleServer.Reply;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
 import neuralcloud.controlplane.router.RouterMemoryWriter;
+import neuralcloud.controlplane.worker.ChatImage;
 
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.WebSocket;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -33,7 +34,7 @@ import java.util.concurrent.TimeoutException;
  * OpenQQ（OneBot v11 正向 WebSocket）渠道适配器。
  * 核心职责与安全边界：
  * 1. 后台虚拟线程维护持久 WebSocket 连接与断线重连（固定 3 秒退避），连接后先调用 {@code get_login_info} 核验登录账号与配置一致；
- * 2. 严格过滤入站事件：仅受理白名单私聊用户、白名单项目群内 @本机器人的纯文本消息，以及启用授权后的原作者私聊 {@code /memory} 控制命令；
+ * 2. 按群策略或静态白名单接收文本和图片；原作者私聊 {@code /memory} 控制命令只接受纯文本；
  * 3. 基于审计链中的 {@code messageId} / {@code authorMessageId} 做入站幂等去重，防止重连补推触发重复执行；
  * 4. 发送外部回复前通过 {@link RouterMemoryWriter#verifyDelivery} 复核跨会话引用权限；发送超时记 {@code qq_delivery_unknown} 且严禁自动重发，
  *    只有收到 OneBot {@code status=ok, retcode=0} 与有效 {@code message_id} 才确认送达并调用 {@link RouterMemoryWriter#rememberDelivered} 入库。
@@ -44,31 +45,40 @@ public final class OpenQqChannel implements AutoCloseable {
     private static final Duration IO_TIMEOUT = Duration.ofSeconds(10);
     /** 单帧入站 JSON 事件的最大允许字符数，超限整帧丢弃以防内存放大。 */
     private static final int MAX_EVENT_CHARS = 65536;
+    /** OpenQQ 的 get_image 最多内联 16 MiB；仅其在途回执可使用较大的帧预算。 */
+    private static final int MAX_IMAGE_FRAME_CHARS = 4 * ((16 * 1024 * 1024 + 2) / 3) + MAX_EVENT_CHARS;
     /** 单条有效纯文本消息的最大字符数。 */
     private static final int MAX_MESSAGE_CHARS = 4096;
 
-    /** 通过边界过滤的入站 QQ 消息：{@code groupId == 0} 表示私聊，否则表示白名单项目群内 @机器人的群消息。 */
+    /** 图片标号与原始消息段顺序一致，媒体标识只在本次已认证的 OneBot 连接中使用。 */
     record Incoming(
             long messageId,
             String text,
             long groupId,
             long senderId,
             boolean addressed,
-            QqGroups.Policy policy) {
+            QqGroups.Policy policy,
+            List<String> imageKeys) {
         Incoming(long messageId, String text, long groupId, long senderId) {
-            this(messageId, text, groupId, senderId, true, null);
+            this(messageId, text, groupId, senderId, true, null, List.of());
         }
+    }
+
+    /** 延迟读取当前消息附件，调用方在原文入账并检查接收策略之后才可取图。 */
+    @FunctionalInterface
+    public interface Images {
+        List<ChatImage> read() throws IOException, InterruptedException;
     }
 
     /** 受理的消息只入账一次。策略和寻址决定是否经过参与判断，再进入已验收的编排链。 */
     @FunctionalInterface
     public interface ManagedExchange {
-        Optional<Reply> send(String text, Trace trace, QqGroups.Mode mode, boolean addressed)
+        Optional<Reply> send(String text, Trace trace, QqGroups.Mode mode, boolean addressed, Images images)
                 throws IOException, InterruptedException;
     }
 
     /** 正在等待 OneBot 回执的同步动作请求（通过唯一 {@code echo} 字段与返回帧配对）。 */
-    private record Pending(String echo, CompletableFuture<JsonObject> response) {}
+    private record Pending(String echo, CompletableFuture<JsonObject> response, boolean image) {}
 
     private final HttpClient client;
     private final URI endpoint;
@@ -77,7 +87,6 @@ public final class OpenQqChannel implements AutoCloseable {
     private final long allowedUserId;
     private final long allowedGroupId;
     private final AuditLog audit;
-    private final Exchange conversation;
     private final Optional<RouterMemoryWriter> writes;
     private final Optional<QqGroups> groups;
     private final ManagedExchange managed;
@@ -92,7 +101,6 @@ public final class OpenQqChannel implements AutoCloseable {
             long allowedUserId,
             long allowedGroupId,
             AuditLog audit,
-            Exchange conversation,
             Optional<RouterMemoryWriter> writes,
             Optional<QqGroups> groups,
             ManagedExchange managed) {
@@ -103,7 +111,6 @@ public final class OpenQqChannel implements AutoCloseable {
         this.allowedUserId = allowedUserId;
         this.allowedGroupId = allowedGroupId;
         this.audit = audit;
-        this.conversation = conversation;
         this.writes = writes;
         this.groups = groups;
         this.managed = managed;
@@ -140,7 +147,7 @@ public final class OpenQqChannel implements AutoCloseable {
      * 处理单条已通过边界校验的入站 QQ 消息，串行完成：
      * 1. 按渠道与对话对象确定审计链名，拒绝群聊中的 {@code /memory} 授权命令，并按历史审计事件做幂等去重；
      * 2. 写入 {@code qq_message} 或 {@code qq_author_command} 入站事件并构造绑定 QQ 身份的 {@link Trace}；
-     * 3. 授权命令直接转交 {@link RouterMemoryWriter#authorDecision}（绝不送入对话模型），普通消息交 {@link Exchange} 并在外发前执行 {@code verifyDelivery} 复核；
+     * 3. 授权命令直接转交 {@link RouterMemoryWriter#authorDecision}，普通消息交对话处理器并在外发前复核引用；
      * 4. 通过 OneBot {@code send_private_msg}/{@code send_group_msg} 发送文本；仅在收到含有效 {@code message_id} 的成功回执后才记 {@code qq_delivery} 并落盘角色回复。
      */
     private void handle(Session session, WebSocket socket, Incoming incoming) throws IOException, InterruptedException {
@@ -177,7 +184,10 @@ public final class OpenQqChannel implements AutoCloseable {
                         null,
                         "openqq",
                         decision ? "qq_author_command" : "qq_message",
-                        Map.of("text", incoming.text(), "messageId", incoming.messageId()));
+                        incoming.imageKeys().isEmpty()
+                                ? Map.of("text", incoming.text(), "messageId", incoming.messageId())
+                                : Map.of("text", incoming.text(), "messageId", incoming.messageId(),
+                                        "imageCount", incoming.imageKeys().size()));
         var trace =
                 group
                         ? Trace.forQqGroup(
@@ -215,18 +225,11 @@ public final class OpenQqChannel implements AutoCloseable {
                                         verb + "授权 " + receipt.get("grant_id").getAsString()),
                                 committed);
             } else {
-                if (groups.isPresent()) {
-                    var result =
-                            managed.send(
-                                    incoming.text(),
-                                    trace,
-                                    group
-                                            ? incoming.policy().policy()
-                                            : QqGroups.Mode.OBSERVE_REPLY,
-                                    incoming.addressed());
-                    if (result.isEmpty()) return;
-                    reply = result.get();
-                } else reply = conversation.send(incoming.text(), trace);
+                var result = managed.send(incoming.text(), trace,
+                        incoming.policy() == null ? QqGroups.Mode.OBSERVE_REPLY : incoming.policy().policy(),
+                        incoming.addressed(), () -> session.images(socket, incoming));
+                if (result.isEmpty()) return;
+                reply = result.get();
                 if (writes.isPresent()) writes.get().verifyDelivery(trace);
             }
         } catch (IOException error) {
@@ -327,9 +330,8 @@ public final class OpenQqChannel implements AutoCloseable {
     /**
      * OneBot v11 入站事件边界过滤器。
      * 过滤规则：
-     * - 群聊仅接受配置白名单群（{@code allowedGroupId}）中非机器人自身发送、明确包含 {@code @accountId} 且其余片段全为纯文本的消息；
-     * - 私聊仅接受 {@code friend/other} 子类型的纯文本消息；非白名单用户仅在开启原作者授权且正文为 {@code /memory} 命令时放行；
-     * - 图片/语音/表情等非纯文本消息或超出 {@value #MAX_MESSAGE_CHARS} 字的正文一律丢弃返回 null。
+     * 静态群白名单要求点名；管理模式按群策略接收。文本与图片可混排，其他消息段沿用现有过滤。
+     * 非白名单私聊用户仅能提交纯文本的原作者授权命令。
      */
     static Incoming incoming(
             JsonObject event,
@@ -370,6 +372,7 @@ public final class OpenQqChannel implements AutoCloseable {
         }
         long messageId = id(event.get("message_id"));
         var text = new StringBuilder();
+        var images = new ArrayList<String>();
         boolean addressed = false;
         for (var item : segments) {
             if (!(item instanceof JsonObject segment)
@@ -378,6 +381,17 @@ public final class OpenQqChannel implements AutoCloseable {
                     && "at".equals(string(segment.get("type")))
                     && Long.toString(accountId).equals(string(data.get("qq")))) {
                 addressed = true;
+                continue;
+            }
+            if ("image".equals(string(segment.get("type")))) {
+                // OpenQQ 的 file_id 与 file 都是当前连接媒体索引的键；不使用 path、url 或用户文字。
+                String key = string(data.has("file_id") ? data.get("file_id") : data.get("file"));
+                if (key.isBlank() || key.length() > 1024 || key.chars().anyMatch(c -> c < 32)) {
+                    System.err.println("OpenQQ 图片段须有合法的 file_id 或 file");
+                    return null;
+                }
+                images.add(key);
+                text.append("【图片").append(images.size()).append("】");
                 continue;
             }
             if (!"text".equals(string(segment.get("type")))
@@ -394,9 +408,10 @@ public final class OpenQqChannel implements AutoCloseable {
                 || body.length() > MAX_MESSAGE_CHARS
                 || group && policy == null && !addressed) return null;
         // 允许原作者发控制命令，无须开放其普通私聊。身份始终取自已认证连接的事件。
-        if (!group && sender != allowedUserId && !(authorCommands && authorCommand(body)))
+        if (authorCommand(body) && !images.isEmpty()
+                || !group && sender != allowedUserId && !(authorCommands && authorCommand(body)))
             return null;
-        return new Incoming(messageId, body, group ? gid : 0, sender, !group || addressed, policy);
+        return new Incoming(messageId, body, group ? gid : 0, sender, !group || addressed, policy, List.copyOf(images));
     }
 
     /** 判断 OneBot 动作回执是否明确表示执行成功（{@code status == "ok"} 且 {@code retcode == 0}）。 */
@@ -436,7 +451,7 @@ public final class OpenQqChannel implements AutoCloseable {
      */
     private final class Session implements WebSocket.Listener {
         private final ArrayBlockingQueue<Incoming> inbox = new ArrayBlockingQueue<>(32);
-        private final StringBuilder fragments = new StringBuilder();
+        private StringBuilder fragments = new StringBuilder();
         private boolean oversized;
         private volatile boolean ended;
         private volatile Pending pending;
@@ -479,6 +494,26 @@ public final class OpenQqChannel implements AutoCloseable {
             return call(socket, action, params, null, List.of());
         }
 
+        /** 整批取图成功后才提交模型；群在等待期间改策略时取消本轮，不把图片交给外部模型。 */
+        private List<ChatImage> images(WebSocket socket, Incoming incoming) throws IOException, InterruptedException {
+            if (incoming.imageKeys().size() > ChatImage.MAX_COUNT)
+                throw new IOException("单条 QQ 消息最多识别 " + ChatImage.MAX_COUNT + " 张图片");
+            var images = new ArrayList<ChatImage>();
+            int remaining = ChatImage.MAX_TOTAL_BYTES;
+            for (String key : incoming.imageKeys()) {
+                var reply = call(socket, "get_image", Map.of("file", key), incoming, List.of());
+                if (!successful(reply) || !(reply.get("data") instanceof JsonObject data)
+                        || !(data.get("base64") instanceof JsonPrimitive raw) || !raw.isString())
+                    throw new IOException("OpenQQ get_image 未返回可读取的图片字节");
+                var image = ChatImage.fromBase64(raw.getAsString(), remaining);
+                remaining -= image.size();
+                images.add(image);
+            }
+            if (incoming.policy() != null && !incoming.policy().equals(groups.orElseThrow().current(incoming.groupId())))
+                throw new PolicyChanged();
+            return images;
+        }
+
         /** 仅 get_group_member_info 成功且回包群号、成员号均匹配时签入该群，拒绝或未知不授予引用权。 */
         private List<Long> memberships(WebSocket socket, long peer)
                 throws IOException, InterruptedException {
@@ -510,7 +545,7 @@ public final class OpenQqChannel implements AutoCloseable {
                 Incoming delivery,
                 List<Long> evidenceGroups)
                 throws IOException, InterruptedException {
-            var request = new Pending(UUID.randomUUID().toString(), new CompletableFuture<>());
+            var request = new Pending(UUID.randomUUID().toString(), new CompletableFuture<>(), "get_image".equals(action));
             pending = request;
             try {
                 if (ended) {
@@ -548,7 +583,9 @@ public final class OpenQqChannel implements AutoCloseable {
 
         @Override
         public CompletableFuture<Void> onText(WebSocket socket, CharSequence data, boolean last) {
-            oversized |= fragments.length() + data.length() > MAX_EVENT_CHARS;
+            var action = pending;
+            int limit = action != null && action.image() ? MAX_IMAGE_FRAME_CHARS : MAX_EVENT_CHARS;
+            oversized |= data.length() > limit - fragments.length();
             if (!oversized) {
                 fragments.append(data);
             }
@@ -556,7 +593,8 @@ public final class OpenQqChannel implements AutoCloseable {
                 if (!oversized) {
                     receive(fragments.toString());
                 }
-                fragments.setLength(0);
+                if (fragments.capacity() > MAX_EVENT_CHARS) fragments = new StringBuilder();
+                else fragments.setLength(0);
                 oversized = false;
             }
             socket.request(1);
@@ -580,6 +618,7 @@ public final class OpenQqChannel implements AutoCloseable {
                 action.response().complete(event);
                 return;
             }
+            if (text.length() > MAX_EVENT_CHARS) return;
             var message =
                     incoming(
                             event,
