@@ -175,3 +175,11 @@ python java/src/test/python/verify_conversation_plan.py http://127.0.0.1:18900 "
 经 `POST /api/nodes/master/messages` 提交 `/memory revise 旧印象ID@版本 来源ID@版本 [更多来源]`。宿主复核 1–16 条可引用原文，将引文交给 Master，收到完整新正文后按旧版本与新证据持久提交。审计链的 `memory_impression_revised` 保存前一版本、实际来源与新回执。过期或撤权会触发重新查证。[跨仓库数据契约和验收报告](https://github.com/QiuYuAkiGO/neuralcloud-memory/blob/codex/memory-v2-stages-3-4/docs/acceptance/memory-v2-stage-3-4.md)
 
 在已启用 Memory v2 的控制台 Master 页签发送 `/intent 请核对周六的活动安排`，或向同一接口提交带此命令的 `text`。Master 先用 `memory_call` 取证，再用 `submit_intent` 提交判断与回复意图。审计链中的 `memory_call_result` 保存实际送入模型的编号材料，随后的 `intent` 事件在 `data.evidence` 中保存被选记录的 `record_id` 和 `revision`。操作在意图验收后结束。[意图字段与补交契约](../docs/proposals/console-free-chat-pipeline-20261121.md#4-master-的通用意图契约)
+## MistyAI 原版 APP 的 USB 隔离联调
+
+验收各使用一个空的 MistyAI 私聊邮箱、一个独立共享群和一个启用 `mobile_member_notices` 的 Memory v2 实例。先通过原群服务的邀请码为 A、B 分别注册凭据。测试适配器在每次私聊访问时核验 B 仍为群成员。原版 APP 的私聊接口使用单一邮箱，所以每次验收仅配对一名成员和一部手机。
+
+1. 构建本仓库的 Java 包和测试类，按正式控制台格式配置 Master、Router、Chat Worker 的远程 API 和 v2 scoped Memory。给测试进程设置 `MISTY_TEST_MEMBER`（B 的群凭据）和 `MISTY_TEST_MEMORY_TOKEN`（测试 Memory 的访问凭据）。
+2. 执行 `python java/src/test/python/misty_mobile.py --help` 查看启动参数。`--memory` 指向测试服务的 `/v2`，`--classpath` 包含 `java/target/test-classes` 和构建的 JAR。`--pair-file` 指向新建的本机临时文件，写入本轮主机端口和手机连接地址。运行 `adb reverse tcp:<设备端口> tcp:<主机端口>`，在原 APP 私聊连接设置中填入配对地址。
+3. A 在测试群发 `/通知 <正文>`，B 在手机私聊询问。A 再发 `/变更通知 <首发群消息ID>@1 <新正文>`，B 重问同一问题。核对手机回包和审计链的 `mobile_delivery → chat_worker_reply → worker_dispatch → router_plan → intent`。两次引用应指向同一条通知的两个版本。
+4. 退出测试进程后本轮配对即失效。使用 `adb reverse --remove tcp:<设备端口>` 收回 USB 映射。

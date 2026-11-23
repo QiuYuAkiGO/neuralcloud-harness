@@ -128,6 +128,8 @@ public final class ResidentV2 extends ResidentMemory {
                                                 Long.toString(q.accountId()),
                                                 "peer_id",
                                                 Long.toString(q.peerId()))));
+        scope.mobile().ifPresent(m -> ctx.add("mobile_member", object(
+                "instance", m.instance(), "member_id", Long.toString(m.memberId()))));
         return ctx;
     }
 
@@ -319,7 +321,8 @@ public final class ResidentV2 extends ResidentMemory {
                 "source_venue",
                 scope.group().isPresent()
                         ? "QQ 群聊"
-                        : scope.qq().isPresent() ? "当前 QQ 私聊" : "当前控制台会话");
+                        : scope.qq().isPresent() ? "当前 QQ 私聊"
+                        : scope.mobile().isPresent() ? "MistyAI 私聊" : "当前控制台会话");
         // 操作者/渠道见证信息或已复核的 source_refs 随事件透传给 v2 溯源，模型自由正文无权伪造此字段。
         if (origin != null) for (var e : origin.entrySet()) body.add(e.getKey(), e.getValue());
         scope.qq()

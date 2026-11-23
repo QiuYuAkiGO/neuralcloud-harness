@@ -213,7 +213,7 @@ public final class ConsoleMain {
      * v2 模式下会在审计目录下挂载角色专属 SQLite 持久日志 {@link MemoryJournal}，并在 {@code verify} 期间
      * 核对版本、角色、必需能力列表以及回放未落盘的写入队列；只有核验完全通过才返回读写封装。
      */
-    private static Optional<MemoryAccess> openMemory(Optional<MemoryConfig> settings,
+    static Optional<MemoryAccess> openMemory(Optional<MemoryConfig> settings,
                                                      Deque<AutoCloseable> opened, AuditLog audit, boolean qqPrivateEnabled)
             throws IOException, InterruptedException {
         if (settings.isEmpty()) {
