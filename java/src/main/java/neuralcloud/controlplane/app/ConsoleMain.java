@@ -15,8 +15,11 @@ import neuralcloud.controlplane.memory.MemoryCall.Caller;
 import neuralcloud.controlplane.memory.ResidentMemory;
 import neuralcloud.controlplane.memory.ResidentV2;
 import neuralcloud.controlplane.memory.MemoryJournal;
+import neuralcloud.controlplane.memory.ObserveEvidence;
+import neuralcloud.controlplane.memory.ObserveQueue;
 import neuralcloud.controlplane.orchestration.Orchestrator;
 import neuralcloud.controlplane.orchestration.MasterEpochs;
+import neuralcloud.controlplane.orchestration.ObserveScheduler;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.router.RouterMemoryWriter;
@@ -64,7 +67,13 @@ public final class ConsoleMain {
     }
 
     /** 记忆读写权限分离包装：模型节点只持有按轮次绑定的读取入口 {@code reads}，持久写入统一归口给 {@code writes}。 */
-    record MemoryAccess(ConversationMemory reads, RouterMemoryWriter writes) {}
+    record MemoryAccess(
+            ConversationMemory reads,
+            RouterMemoryWriter writes,
+            Optional<ObservationAccess> observations) {}
+
+    /** 仅注册到动态群控制面，模型拿到的材料中不含调度和写入句柄。 */
+    record ObservationAccess(ObserveQueue queue, ObserveEvidence evidence) {}
 
     public static void main(String[] args) {
         exitOnFailure(run(Main.configSource(args, DEFAULT_CONFIG), components -> List.of()));
@@ -167,20 +176,21 @@ public final class ConsoleMain {
             var epochs = new MasterEpochs(audit.directory().resolve("master-epochs.sqlite"), settings.masterEpoch());
             opened.push(epochs);
             var masterRuntime = new MasterRuntime(master, epochs, settings.masterMaxTokens(), settings.masterTemperature());
-            var chatExchange = conversation(chat, router, task, memory);
+            var foreground = new ObserveScheduler.Foreground();
+            var chatExchange = foreground.wrap(conversation(chat, router, task, memory, List::of, Optional.of(masterRuntime)));
             var nodes = new ArrayList<>(List.of(
                     new Node("chat-worker", "Chat Worker", chatSettings.endpoint().toString(), chatSettings.model(),
                             chatExchange, null),
                     new Node("router", "Router", routerSettings.endpoint().toString(), routerSettings.model(),
-                            (text, trace) -> new Reply("router_route", Map.of("route", router.route(text).name())),
+                            foreground.wrap((text, trace) -> new Reply("router_route", Map.of("route", router.route(text).name()))),
                             routerInference::probeStartup),
                     new Node("master", "Master", masterSettings.endpoint().toString(), masterSettings.model(),
-                            masterConversation(masterRuntime, memory.map(MemoryAccess::reads)),
-                            master::probeStartup)));
+                            foreground.wrap(masterConversation(masterRuntime, memory)),
+                            () -> foreground.run(() -> { master.probeStartup(); return null; }))));
             // 只有已握手的 Memory v2 能把意图证据解析为具体版本，才开放正式的对话派单入口。
             memory.filter(store -> store.writes().supportsAttestation()).ifPresent(store ->
                     nodes.add(new Node("conversation", "对话编排", routerSettings.endpoint().toString(), routerSettings.model(),
-                            plannedConversation(masterRuntime, router, chat, store), null)));
+                            foreground.wrap(plannedConversation(masterRuntime, router, chat, store)), null)));
             nodes.addAll(extension.nodes(new Components(chat, routerInference, master, routerSettings, masterSettings)));
 
             // 仅对已配置 Prometheus /metrics 端点的节点注册指标抓取，随后启动后台周期监控。
@@ -195,12 +205,26 @@ public final class ConsoleMain {
             Optional<QqGroups> groups;
             if (openQqSettings.flatMap(OpenQqConfig.Settings::groupPoliciesFile).isPresent()) {
                 var qq = openQqSettings.orElseThrow();
-                groups =
-                        Optional.of(
-                                new QqGroups(
-                                        qq.groupPoliciesFile().orElseThrow(),
-                                        qq.accountId(),
-                                        audit));
+                var store = memory.orElseThrow();
+                var observation = store.observations().orElseThrow();
+                var queue = observation.queue();
+                var roster =
+                        new QqGroups(
+                                qq.groupPoliciesFile().orElseThrow(), qq.accountId(), audit, queue);
+                groups = Optional.of(roster);
+                // 恢复启用水位和未决命令后先启动调度；必须等 OneBot 名单核验后才能取证或首发。
+                var scheduler =
+                        new ObserveScheduler(
+                                qq.accountId(),
+                                queue,
+                                roster,
+                                observation.evidence(),
+                                store.writes(),
+                                audit,
+                                masterRuntime,
+                                foreground);
+                opened.push(scheduler);
+                scheduler.start();
             } else groups = Optional.empty();
             var server =
                     ConsoleServer.start(settings.listen(), audit, monitor, nodes, writes, groups);
@@ -222,11 +246,10 @@ public final class ConsoleMain {
                                         audit,
                                         writes,
                                         groups,
-                                        (text, trace, mode, addressed, images) -> groups.isPresent()
+                                        (text, trace, mode, addressed, images) -> foreground.run(() -> groups.isPresent()
                                                 ? managedQq(
                                                         text,
                                                         trace,
-                                                        mode,
                                                         addressed,
                                                         images,
                                                         memory.orElseThrow(),
@@ -234,8 +257,8 @@ public final class ConsoleMain {
                                                         router,
                                                         chat,
                                                         task)
-                                                : Optional.of(conversation(chat, router, task, memory, images)
-                                                        .send(text, trace)));
+                                                : Optional.of(conversation(chat, router, task, memory, images, Optional.of(masterRuntime))
+                                                        .send(text, trace))));
                         opened.push(channel);
                         channel.start();
                     });
@@ -327,7 +350,17 @@ public final class ConsoleMain {
                             config.historyProfile()));
         }
         // 两端共用已核验的服务。模型节点只接收按本轮绑定的读取能力，渠道回执只交给 Router 的写入口。
-        return Optional.of(new MemoryAccess(new ConversationMemory(audit, memory), new RouterMemoryWriter(audit, memory)));
+        var observation =
+                memory instanceof ResidentV2 v2 && managedGroups
+                        ? Optional.of(
+                                new ObservationAccess(
+                                        v2.observationQueue(), new ObserveEvidence(v2)))
+                        : Optional.<ObservationAccess>empty();
+        return Optional.of(
+                new MemoryAccess(
+                        new ConversationMemory(audit, memory),
+                        new RouterMemoryWriter(audit, memory),
+                        observation));
     }
 
     /**
@@ -336,7 +369,7 @@ public final class ConsoleMain {
      * 未配置记忆时直接走无工具补全。
      */
     static ConsoleServer.Exchange masterConversation(MasterRuntime master,
-                                                     Optional<ConversationMemory> memory) {
+                                                     Optional<MemoryAccess> memory) {
         return (text, trace) -> {
             if (text.equals("/epoch") || text.startsWith("/epoch ")) {
                 return new Reply("master_epoch_matter", Map.of("text", master.matterCommand(text, trace)), trace.request());
@@ -345,46 +378,39 @@ public final class ConsoleMain {
             if (text.equals("/intent") || text.startsWith("/intent ")) {
                 String prompt = text.substring("/intent".length()).stripLeading();
                 if (prompt.isBlank()) throw new IOException("/intent 需要非空事项正文");
-                var read = memory.flatMap(store -> store.bindMasterIntent(trace, trace.request()))
+                var read = memory.flatMap(store -> store.reads().bindMasterIntent(trace, trace.request()))
                         .orElseThrow(() -> new IOException("submit_intent 需要配置 Memory v2 以核对证据版本"));
                 var intent = master.intent(prompt, trace, read, false, false).value();
-                return new Reply("intent", intent.data(), read.eventId());
+                int saved = memory.orElseThrow().writes().rememberImpression(trace, read.eventId(), intent);
+                return new Reply("intent", intent.data(), saved);
             }
-            var read = memory.map(store -> store.bind(trace, Caller.MASTER, trace.request()));
+            var read = memory.map(store -> store.reads().bind(trace, Caller.MASTER, trace.request()));
             var completion = master.complete(text, trace, read);
             return new Reply("master_completion", Map.of("text", completion.text(), "finishReason", completion.finishReason(),
                     "reasoningFieldPresent", completion.reasoningFieldPresent()), read.map(MemoryCall::eventId).orElse(trace.request()));
         };
     }
 
-    /** 控制台的自然语言入口。先持久化原话并分流，日常对话由 Master 按需取证并提交回复意图。 */
+    /** 控制台的自然语言入口。先持久化原话并分流，日常交流和证据查询由 Chat Worker 自主处理，重大取舍才进入终审。 */
     static ConsoleServer.Exchange plannedConversation(MasterRuntime master, Router<Route> router, ChatWorker chat,
                                                        MemoryAccess store) {
         return (text, trace) -> {
             int inbound = store.writes().rememberInbound(trace, trace.request(), text);
             var route = router.route(text);
-            if (route != Route.CONVERSATION) {
+            if (route == Route.UNSUPPORTED) {
                 return new Reply("router_route", Map.of("route", route.name()), inbound);
             }
             int routed =
                     trace.write(inbound, "router", "router_route", Map.of("route", route.name()));
-            return plannedReply(
-                    text,
-                    trace,
-                    routed,
-                    master,
-                    router,
-                    chat,
-                    store,
-                    false);
+            return workerTurn(new ObservedInput(text, routed), trace, store, chat, router, Optional.of(master),
+                    Optional.of(route), parent -> new Reply("router_route", Map.of("route", route.name()), parent));
         };
     }
 
-    /** 群的观察模式只写原文。参与判断成功后才调用 Router；私聊与点名由现有 DIRECT 契约直接通过。 */
+    /** 接收策略允许参与时，以前台优先级入库、判断和派单。观察群由渠道的原文接收线程处理。 */
     private static Optional<Reply> managedQq(
             String text,
             ConsoleServer.Trace trace,
-            QqGroups.Mode mode,
             boolean addressed,
             OpenQqChannel.Images images,
             MemoryAccess store,
@@ -394,7 +420,6 @@ public final class ConsoleMain {
             Optional<TaskWorker> task)
             throws IOException, InterruptedException {
         int input = store.writes().rememberInbound(trace, trace.request(), text);
-        if (mode == QqGroups.Mode.OBSERVE) return Optional.empty();
         var seen = observeImages(text, trace, input, images, chat);
         var context =
                 addressed
@@ -414,30 +439,17 @@ public final class ConsoleMain {
         // 图片文字可帮助描述画面；外部动作仍须由用户配文发起。
         var route = router.route(text);
         int routed = trace.write(selected, "router", "router_route", Map.of("route", route.name()));
-        if (route == Route.CONVERSATION)
-            return Optional.of(
-                    plannedReply(
-                            seen.text(),
-                            trace,
-                            routed,
-                            master,
-                            router,
-                            chat,
-                            store,
-                            true));
-        var conversation =
-                new ChatWorker.RoutedConversation(ReplySelector.Context.direct(text), route);
-        if (route == Route.ACTION_REQUEST && task.isPresent())
-            return Optional.of(
-                    executeTask(chat, task.get(), conversation, trace, routed, Optional.of(store)));
-        return Optional.of(
-                new Reply(
-                        "chat_worker_reply",
-                        Map.of("text", chat.reply(conversation).orElseThrow()),
-                        routed));
+        var request = new ChatWorker.RoutedConversation(ReplySelector.Context.direct(text), route);
+        if (route == Route.UNSUPPORTED)
+            return Optional.of(new Reply("chat_worker_reply", Map.of("text", chat.reply(request).orElseThrow()), routed));
+        var inputForWorker = new ObservedInput(route == Route.ACTION_REQUEST ? text : seen.text(), routed);
+        return Optional.of(workerTurn(inputForWorker, trace, store, chat, router, Optional.of(master), Optional.of(route),
+                parent -> task.isPresent()
+                        ? executeTask(chat, task.orElseThrow(), request, trace, parent, Optional.of(store))
+                        : new Reply("chat_worker_reply", Map.of("text", chat.reply(request).orElseThrow()), parent)));
     }
 
-    /** 本轮图片观察独立标注来源，沿审计因果链交给 Master，不把模型识图文字写作群成员原话。 */
+    /** 本轮图片观察独立标注来源，沿审计因果链交给前台 Worker，不把模型识图文字写作群成员原话。 */
     private record ObservedInput(String text, int event) {}
 
     private static ObservedInput observeImages(String text, ConsoleServer.Trace trace, int parent,
@@ -458,28 +470,31 @@ public final class ConsoleMain {
         return new ObservedInput(text + "\n\nChat Worker 对本条图片的观察（模型识别）依据如下：\n" + description, observed);
     }
 
-    /** 从已入账的同一条原文继续 Master 验收和 Router 单步派单，发送前复核依据的版本。 */
-    private static Reply plannedReply(
-            String text,
+    /** 只有 Worker 提交重大主体取舍时进入终审。裁决可以交由前台传达，不能授权外部动作。 */
+    private static Reply arbitrate(
+            ChatWorker.Turn turn,
             ConsoleServer.Trace trace,
             int routed,
             MasterRuntime master,
             Router<Route> router,
             ChatWorker chat,
-            MemoryAccess store,
-            boolean replyRequired)
+            MemoryAccess store)
             throws IOException, InterruptedException {
-        var read = store.reads().bindMasterIntent(trace, routed).orElseThrow();
-        var result = master.intent(text, trace, read, true, replyRequired);
+        String text = turn.context().message();
+        int referral = trace.write(routed, "chat-worker", "subject_conflict", Map.of("conflict", turn.conflict()));
+        var read = store.reads().bindMasterIntent(trace, referral).orElseThrow();
+        String report = "本轮用户原文及渠道观察：\n" + text + "\nWorker 上报的待核取舍（仅供查证）：\n" + turn.conflict();
+        var result = master.intent(report, trace, read, true, true);
         var intent = result.value();
         int accepted = trace.write(read.eventId(), "master", "intent", intent.data());
+        int recorded = store.writes().rememberImpression(trace, accepted, intent);
         var scope = new Orchestrator.Scope(trace.scope().conversationId(), UUID.randomUUID());
         var submission = router.submitPlan(intent, scope);
-        if (submission.isEmpty()) return new Reply("conversation_no_reply", Map.of(), accepted);
+        if (submission.isEmpty()) return new Reply("conversation_no_reply", Map.of(), recorded);
 
         var submitted = submission.orElseThrow();
         var plan = submitted.plan();
-        int planned = trace.write(accepted, "router", "router_plan", Map.of("tool", "submit_plan",
+        int planned = trace.write(recorded, "router", "router_plan", Map.of("tool", "submit_plan",
                 "toolCallId", submitted.toolCallId(), "workflowId", scope.workflowId(), "steps", plan.steps()));
         // Router 生成计划与角色撰写回复期间，证据都可能发生变化。派发及交给渠道前分别复核。
         read.verifyEvidence();
@@ -539,12 +554,13 @@ public final class ConsoleMain {
      */
     static ConsoleServer.Exchange conversation(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task,
                                                 Optional<MemoryAccess> memory) {
-        return conversation(chat, router, task, memory, List::of);
+        return conversation(chat, router, task, memory, List::of, Optional.empty());
     }
 
     /** 静态白名单 QQ 与控制台共用原有对话主链。私聊附件同样在原文取得持久回执之后才解码。 */
     private static ConsoleServer.Exchange conversation(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task,
-                                                        Optional<MemoryAccess> memory, OpenQqChannel.Images images) {
+                                                        Optional<MemoryAccess> memory, OpenQqChannel.Images images,
+                                                        Optional<MasterRuntime> master) {
         return (text, trace) -> {
             if (memory.isEmpty()) {
                 var seen = observeImages(text, trace, trace.request(), images, chat);
@@ -555,31 +571,47 @@ public final class ConsoleMain {
             // 先由 Router 写入口持久化用户观察事件，取得审计事件编号作为后续全部步骤的因果父节点。
             int input = store.writes().rememberInbound(trace, accepted, text);
             var seen = observeImages(text, trace, input, images, chat);
-            var chatRead = store.reads().bind(trace, Caller.CHAT_WORKER, seen.event());
-            var updates = chatRead.startTurn();
-            // 若记忆服务已提供热目录/近期更新包，则不再额外拼接审计链对话文本，避免上下文重复注入。
-            var turn =
-                    chat.planTurn(
-                            seen.text(),
-                            updates.isEmpty() ? trace.dialogue() : List.of(),
-                            chatRead.queryKinds(),
-                            updates);
-            // 规划阶段已消费过增量变更通知，推进本地游标避免下一轮重复注入同一批更新。
-            chatRead.refreshed();
-            int planned = trace.write(seen.event(), "chat-worker", "chat_worker_turn_plan",
-                    Map.of("kind", turn.kind().name(), "dialogueMessages", turn.dialogue().size(), "usage", turn.usage()));
-            return switch (turn.kind()) {
-                case REPLY, CLARIFY -> new Reply("chat_worker_reply",
-                        Map.of("text", chat.replyToTurn(turn, List.of()).orElseThrow()), planned);
-                case ACTION ->
-                        routeAction(chat, router, task, text, seen.text(), trace, planned, Optional.of(store));
-                case HISTORY, SELF_IDENTITY, SELF_HISTORY -> {
-                    var read = store.reads().bind(trace, Caller.CHAT_WORKER, planned);
-                    String reply = chat.replyWithMemory(turn, read).orElseThrow();
-                    yield new Reply("chat_worker_reply", Map.of("text", reply), read.eventId());
-                }
-            };
+            return workerTurn(seen, trace, store, chat, router, master, Optional.empty(),
+                    parent -> routeAction(chat, router, task, text, seen.text(), trace, parent, Optional.of(store)));
         };
+    }
+
+    /** ACTION 只回到当前渠道原本具备的能力入口，终审不能授予新的现场操作。 */
+    @FunctionalInterface
+    private interface Action {
+        Reply run(int parent) throws IOException, InterruptedException;
+    }
+
+    /** 复用已持久化的入站。普通对话与待执行动作均由 Worker 识别是否需要主体终审。 */
+    private static Reply workerTurn(ObservedInput seen, ConsoleServer.Trace trace, MemoryAccess store,
+                                    ChatWorker chat, Router<Route> router, Optional<MasterRuntime> master,
+                                    Optional<Route> route, Action action)
+            throws IOException, InterruptedException {
+        var read = store.reads().bind(trace, Caller.CHAT_WORKER, seen.event());
+        var updates = read.startTurn();
+        var turn = chat.planTurn(seen.text(), updates.isEmpty() ? trace.dialogue() : List.of(),
+                read.queryKinds(), updates, route);
+        read.refreshed();
+        int planned = trace.write(read.eventId(), "chat-worker", "chat_worker_turn_plan",
+                Map.of("kind", turn.kind().name(), "dialogueMessages", turn.dialogue().size(), "usage", turn.usage()));
+        read.verifyEvidence();
+        var reply = switch (turn.kind()) {
+            case REPLY, CLARIFY -> new Reply("chat_worker_reply",
+                    Map.of("text", chat.replyToTurn(turn, List.of()).orElseThrow()), planned);
+            case ACTION -> action.run(planned);
+            case HISTORY, SELF_IDENTITY, SELF_HISTORY -> {
+                var recall = store.reads().bind(trace, Caller.CHAT_WORKER, planned);
+                String answer = chat.replyWithMemory(turn, recall).orElseThrow();
+                yield new Reply("chat_worker_reply", Map.of("text", answer), recall.eventId());
+            }
+            case SUBJECT_CONFLICT -> {
+                if (master.isEmpty() || !store.writes().supportsAttestation())
+                    throw new IOException("此入口未配置带版本核验的 Master 终审");
+                yield arbitrate(turn, trace, planned, master.get(), router, chat, store);
+            }
+        };
+        read.verifyEvidence();
+        return reply;
     }
 
     /**
@@ -595,6 +627,16 @@ public final class ConsoleMain {
         int submitted = trace.write(parent, "chat-worker", "chat_worker_router_request", Map.of());
         var conversation = chat.routeConversation(text, router);
         int routed = trace.write(submitted, "router", "router_route", Map.of("route", conversation.route().name()));
+        if (memory.isEmpty() && conversation.route() != Route.UNSUPPORTED) {
+            // 缺少版本核验时不能由前台代替主体作出承诺，未上报的动作继续原有授权流程。
+            var turn = chat.planTurn(conversation.route() == Route.ACTION_REQUEST ? text : observedText, trace.dialogue(),
+                    List.of(), List.of(), Optional.of(conversation.route()));
+            routed = trace.write(routed, "chat-worker", "chat_worker_turn_plan", Map.of("kind", turn.kind().name()));
+            if (turn.kind() == ChatWorker.TurnKind.SUBJECT_CONFLICT)
+                throw new IOException("此入口未配置带版本核验的 Master 终审");
+            if (turn.kind() != ChatWorker.TurnKind.ACTION)
+                return new Reply("chat_worker_reply", Map.of("text", chat.replyToTurn(turn, List.of()).orElseThrow()), routed);
+        }
         if (conversation.route() == Route.ACTION_REQUEST && task.isPresent()) {
             return executeTask(chat, task.orElseThrow(), conversation, trace, routed, memory);
         }

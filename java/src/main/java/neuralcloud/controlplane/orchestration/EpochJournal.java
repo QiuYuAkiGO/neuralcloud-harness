@@ -16,7 +16,7 @@ import java.util.List;
 final class EpochJournal implements AutoCloseable {
     private static final Gson JSON = new Gson();
     /** MATTER 由操作者登记，REQUEST 由入站自动创建；后续记录通过 matter 指回起始段号。 */
-    enum Kind { MATTER, REQUEST, DECISION, FAILED, RECEIPT }
+    enum Kind { MATTER, REQUEST, DECISION, FAILED, RECEIPT, REFLECTION }
 
     /** 冻结时只交付段号、业务标签和正文大小。候选不持有正文、数据库连接或派单接口。 */
     record Label(long seq, Kind kind, boolean required, long bytes) {}
@@ -128,6 +128,18 @@ final class EpochJournal implements AutoCloseable {
         }
     }
 
+    /** 反思的待办和重试由观察队列持有。一次已完成的推理只追加检查点，不打开第二份未决事项。 */
+    synchronized void reflection(long lease, String audience, String input, Object checkpoint) throws IOException {
+        try (var p = statement("""
+                INSERT INTO segment(audience,origin,kind,body,checkpoint)
+                SELECT ?,?,'REFLECTION','Master 已评价本批原文，是否形成长期印象以记忆回执为准。',?
+                WHERE ?=(SELECT max(id) FROM epoch)""", audience, input, JSON.toJson(checkpoint), lease)) {
+            if (p.executeUpdate() != 1) throw new IOException("反思检查点失去当前 Epoch 租约");
+        } catch (SQLException error) {
+            throw new IOException("Master 反思检查点未能落盘", error);
+        }
+    }
+
     /** 当前 seq 是全局追加位置，即使末段未被候选选中也不会倒退。正常入站只查看水位，不扫描全日志。 */
     synchronized Head head() throws IOException {
         try (var p = db.createStatement(); var rows = p.executeQuery("""
@@ -143,7 +155,7 @@ final class EpochJournal implements AutoCloseable {
     synchronized Snapshot freeze(Head head) throws IOException {
         var labels = new ArrayList<Label>();
         try (var p = statement("""
-                SELECT s.seq,s.kind,(s.kind<>'RECEIPT' AND r.seq IS NULL)
+                SELECT s.seq,s.kind,(s.kind NOT IN ('RECEIPT','REFLECTION') AND r.seq IS NULL)
                   OR (m.carried>0 AND s.seq>(SELECT COALESCE(max(seen_seq),0) FROM segment
                       WHERE audience=s.audience AND seen_epoch>=m.carried)),
                   length(CAST(s.body AS BLOB))
@@ -170,6 +182,7 @@ final class EpochJournal implements AutoCloseable {
             while (rows.next()) {
                 String label = switch (Kind.valueOf(rows.getString(2))) {
                     case MATTER, REQUEST -> "事项 " + rows.getLong(1) + (rows.getObject(5) == null ? " 仍待处理" : " 已结束");
+                    case REFLECTION -> "观察评价";
                     case DECISION -> "事项 " + rows.getLong(4) + " 的裁决";
                     case FAILED -> "事项 " + rows.getLong(4) + " 的中断记录";
                     case RECEIPT -> "事项 " + rows.getLong(4) + " 的完成记录";

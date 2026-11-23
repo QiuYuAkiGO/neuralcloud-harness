@@ -1,6 +1,6 @@
 # 网页自由对话走完整链路的方案
 
-2026-11-21 提案，2026-11-23 更新。第 4、5 节记录正式控制台已接入的 Master 意图和 Router 派单契约。目标是让操作者在网页控制台以用户身份与 Misty 自由对话，回复和中间事件写入同一条审计链。首期流程与角色边界沿用 [Java 实施方案](master-worker-router-java-implementation-20261118.md) 和 [设计修订草稿](master-worker-design-revisions-20261121.md)，开发遵循 [项目守则](../../AGENTS.md)。
+2026-11-21 提案，2026-11-23 更新。Epoch 恢复路线 B 的职责分工。第 2 节记录现行入口，第 4、5 节记录重大主体取舍的意图与派单契约。第 6、7 节保留早期提案及其验收设想。目标是让操作者在网页控制台以用户身份与 Misty 自由对话，回复和中间事件写入同一条审计链。首期流程与角色边界沿用 [Java 实施方案](master-worker-router-java-implementation-20261118.md) 和 [设计修订草稿](master-worker-design-revisions-20261121.md)，开发遵循 [项目守则](../../AGENTS.md)。
 
 ## 1. 提案时的现状与缺口
 
@@ -17,45 +17,42 @@
 
 ## 2. 一轮对话的数据流
 
-网页控制台在本方案中充当测试渠道：网页显示 Chat Worker 的回复即视为送达，显示由控制台自己确认，不经 MistyAI。
+控制台在 HTTP 正文写出后登记送达。QQ 以 OneBot 的成功回执确认送达。两者先持久化原话，QQ 的群策略和参与判断在对话分流前生效。
 
-```mermaid
+~~~mermaid
 sequenceDiagram
-    participant U as 网页（测试渠道）
-    participant C as Chat Worker
+    participant U as 渠道
     participant R as Router
-    participant K as 记忆读写适配器
-    participant M as Master
+    participant K as 记忆服务
+    participant C as Chat Worker
+    participant M as Master Epoch
     participant O as 编排器
-    U->>C: 用户消息
-    C->>R: 转述消息，附自己的印象
-    R->>K: 写入用户发言
-    K-->>R: 已记录（持久回执）
-    R->>R: 选择流程
-    R->>M: 事实与印象，分别标明来源
-    opt 回应需要历史事实或印象
-        M->>K: 查询事实源和印象源
-        K-->>M: 样板句或“未查到符合条件的记录”
+    U->>R: 用户原话
+    R->>K: 登记原话并取得持久回执
+    R->>C: 进入对话
+    alt 日常交流或查证
+        opt 需要依据
+            C->>K: 按当前受众检索
+            K-->>C: 来源、状态与版本
+        end
+    else 主体重大取舍
+        C->>M: 用户原话与具体冲突
+        M->>K: 按需取证
+        M->>R: 终审意图与所引版本
+        opt 有新主观印象
+            R->>K: 提交带来源的候选并取得持久回执
+        end
+        R->>O: 已批准的回复步骤
+        O->>C: 传达取舍及理由
     end
-    M->>R: 评价后的想法、行动意图与新印象
-    R->>K: 写入 Master 的新印象
-    K-->>R: 已记录（持久回执）
-    R->>O: 派单计划
-    O->>C: 对话指令
-    C-->>O: 回复草稿
-    O-->>U: 显示回复
-    O->>R: 回执
-    R->>K: 写入 Misty 的回复
-```
+    C-->>U: 回复前复核依据
+    U->>R: 送达回执
+    R->>K: 写入已送达的回复
+~~~
 
-1. **接收。** 网页提交 `chain` 与正文。`chain` 即测试会话标识，Java 为消息分配会话内序号和接收时间。
-2. **上报。** Chat Worker 读本会话最近若干轮的原文，用纯文本向 Router 转述用户本轮说了什么，可附一句印象，例如“用户可能是在开玩笑”。印象保留提出者，不作为事实入库。
-3. **入库与分流。** Router 将用户发言交给适配器写入，取得持久回执后再选流程。写入失败时本轮结束，不调用 Master。
-4. **取证与评价。** Master 按实施方案第 1.3 节判断是否需要历史材料，需要时先取证，再提交通用意图（见第 4 节）。
-5. **拆解与派发。** Router 写入 Master 的新印象，再把意图拆成派单计划，编排器按依赖执行。首期只有 Chat Worker 一类步骤，任务 Worker 不接入。
-6. **回复与回流。** Chat Worker 按指令生成回复。网页显示后，编排器把回执交回 Router，Router 将回复作为 Misty 的发言写入记忆。
+Chat Worker 选择直接回复、澄清或按受众核对历史、本人称呼与本人原话。它在报告主体重大取舍时填写具体冲突。现场动作仍按用户原文交给能力执行层。图片识别结果保留来源标注。后台观察批次和终审共用同一 Epoch 推理主干，已开始的群观察整理允许普通对话继续。
 
-## 3. 记忆读写适配器
+## 3. 早期 v1 记忆适配器提案
 
 适配器放在 `memory` 包，对外只有两类操作：写入一条记录并返回持久回执，按来源类别查询并返回样板句。HTTP 请求体、原始结果行和异常栈止于适配器。
 
@@ -75,7 +72,7 @@ Chat Worker 的印象只随本轮材料交给 Master，不入库；Master 评价
 
 ## 4. Master 的通用意图契约
 
-会议改期样例的必交结果按事项定制。Master 首轮在 `submit_intent` 和 `memory_call` 中选一个工具。问候、自我介绍等直接提交意图。依赖历史证据时先查询一次，再用 `submit_intent` 提交以下五个字段。控制台 Master 节点以 `/intent <事项正文>` 启动这项操作。Memory v2 为当轮查询提供可复核的记录版本。
+会议改期样例的必交结果按事项定制。Master 首轮在 `submit_intent` 和 `memory_call` 中选一个工具。显式操作或前台上报的主体重大取舍会启动意图轮。依赖历史证据时先查询一次，再用 `submit_intent` 提交以下五个字段。控制台 Master 节点以 `/intent <事项正文>` 启动这项操作。Memory v2 为当轮查询提供可复核的记录版本。
 
 | 字段 | 类型 | 含义 |
 | --- | --- | --- |
@@ -93,9 +90,9 @@ Chat Worker 的印象只随本轮材料交给 Master，不入库；Master 评价
 - **意图拆解。** Router 用 `submit_plan` 工具提交步骤列表，每步含 `id`、`worker`、`text`、`dependsOn`。`worker` 首期只允许 `CHAT_WORKER`，`text` 是给 Chat Worker 的纯文本指令。计划交给正式 `Orchestrator`，它已在任何 Worker 动作前校验标识唯一、依赖存在且无环。
 - **拆解由 Router 模型生成。** 正式配置使用 DeepSeek 官方 API 的 `deepseek-flash`。Master 接受意图后，Router 仅将 `replyIntent` 交给模型。当 `needsReply=false` 时结束本轮。
 
-正式控制台“对话编排”节点使用同步消息接口处理 `CONVERSATION`。其他路由返回分类结果。模型须通过一次完整的原生 `submit_plan` 调用提交恰含一个元素的 `steps` 数组。步骤字段必须齐全且唯一，`id` 与 `text` 为非空字符串，`worker=CHAT_WORKER`，`dependsOn=[]`。无效提交终止本轮。宿主绑定会话与工作流，在派单和交付前复核证据版本。审计记录工具调用 ID、步骤正文及工作流 ID。Chat Worker 按步骤表达 Master 批准的内容，控制台写出 HTTP 回复后登记送达并入库。
+正式控制台“对话编排”节点使用同步消息接口处理 `CONVERSATION`。其他路由返回分类结果。`SUBJECT_CONFLICT` 取得须传达的终审意图后，Router 模型通过一次完整的原生 `submit_plan` 调用提交恰含一个元素的 `steps` 数组。步骤字段必须齐全且唯一，`id` 与 `text` 为非空字符串，`worker=CHAT_WORKER`，`dependsOn=[]`。无效提交终止本轮。宿主绑定会话与工作流，在派单和交付前复核证据版本。审计记录工具调用 ID、步骤正文及工作流 ID。Chat Worker 按步骤表达 Master 批准的内容，控制台写出 HTTP 回复后登记送达并入库。
 
-## 6. 网页与审计
+## 6. 原提案的网页与审计设想
 
 - **异步提交。** `POST /api/pipeline/messages` 校验后立即返回 `202` 和请求事件号，后台执行。网页每秒拉取该会话的审计链，按事件逐步显示“Router 已分流”“Master 查询记忆”等进度，回复事件到达时显示在对话区。
 - **单会话串行。** 同一 `chain` 上一轮未结束时，新的提交返回 `409`，指出该会话仍在处理。不同会话可以并行，但 Master 与 Router 的推理服务均以 `--parallel 1`、`--max-num-seqs 1` 运行，实际会排队。

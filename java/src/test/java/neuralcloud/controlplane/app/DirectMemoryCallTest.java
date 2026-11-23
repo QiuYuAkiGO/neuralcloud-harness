@@ -9,6 +9,7 @@ import neuralcloud.controlplane.console.AuditLog;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
 import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.master.MasterRuntime;
+import neuralcloud.controlplane.router.RouterMemoryWriter;
 import neuralcloud.controlplane.orchestration.MasterEpochs;
 import neuralcloud.controlplane.memory.ConversationMemory;
 import neuralcloud.controlplane.memory.MemoryCall;
@@ -69,7 +70,8 @@ public class DirectMemoryCallTest {
         try (var client = HttpClient.newHttpClient(); var audit = AuditLog.open(folder.getRoot().toPath());
              var epochs = new MasterEpochs(audit.directory().resolve("epochs.sqlite"), MasterEpochs.Profile.DEFAULT)) {
             var base = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
-            var memory = new ConversationMemory(audit, new ResidentMemory(client, base, "misty", "test-token", true));
+            var resident = new ResidentMemory(client, base, "misty", "test-token", true);
+            var memory = new ConversationMemory(audit, resident);
             var timeout = Duration.ofSeconds(3);
             var master = new Master(client, new Master.Settings(base.resolve("/model"), "master", HttpClient.Version.HTTP_1_1,
                     timeout, timeout, "探测", 8, 0, false));
@@ -82,7 +84,7 @@ public class DirectMemoryCallTest {
                 int resultId;
                 if ("master".equals(node)) {
                     var reply = ConsoleMain.masterConversation(new MasterRuntime(master, epochs, 128, 0),
-                            Optional.of(memory)).send("查巡检别名。", trace);
+                            Optional.of(new ConsoleMain.MemoryAccess(memory, new RouterMemoryWriter(audit, resident), Optional.empty()))).send("查巡检别名。", trace);
                     assertEquals("巡检别名指外部主机。", reply.data().get("text"));
                     resultId = reply.causedBy();
                 } else {
@@ -158,14 +160,15 @@ public class DirectMemoryCallTest {
         try (var client = HttpClient.newHttpClient(); var audit = AuditLog.open(dir);
              var epochs = new MasterEpochs(dir.resolve("epochs.sqlite"), MasterEpochs.Profile.DEFAULT);
              var journal = new MemoryJournal(dir.resolve("journal.sqlite"))) {
-            var memory = new ConversationMemory(audit, new ResidentV2(client, base, "misty", "test-token", true, journal, null));
+            var resident = new ResidentV2(client, base, "misty", "test-token", true, journal, null);
+            var memory = new ConversationMemory(audit, resident);
             var timeout = Duration.ofSeconds(3);
             var master = new Master(client, new Master.Settings(base.resolve("/model"), "master", HttpClient.Version.HTTP_1_1,
                     timeout, timeout, "探测", 8, 0, false));
             var trace = Trace.forChain(audit, "console", "intent", audit.write("intent", null, "master", "operator_message",
                     Map.of("text", "/intent 请核对周六的安排")));
             var reply = ConsoleMain.masterConversation(new MasterRuntime(master, epochs, 256, 0),
-                    Optional.of(memory)).send("/intent 请核对周六的安排", trace);
+                    Optional.of(new ConsoleMain.MemoryAccess(memory, new RouterMemoryWriter(audit, resident), Optional.empty()))).send("/intent 请核对周六的安排", trace);
             assertEquals("intent", reply.type());
             assertEquals(List.of(new MemoryCall.EvidenceRef("a".repeat(64), 3)), reply.data().get("evidence"));
             assertEquals(3, requests.size());

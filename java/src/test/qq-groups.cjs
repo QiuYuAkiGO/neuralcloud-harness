@@ -130,7 +130,9 @@ async function main() {
   assert.equal(sent.length,0);
   const private1=await turn(103,'周六看展的集合地点和集合暗号是什么？请按群里最新通知回答。',false,false,delivered);
   const verify = (steps, version, words) => {
-    for (const name of ['intent','router_plan','worker_dispatch','chat_worker_reply','qq_delivery']) assert(steps.some(e=>e.type===name),name);
+    for (const name of ['chat_worker_turn_plan','memory_call','chat_worker_reply','qq_delivery']) assert(steps.some(e=>e.type===name),name);
+    assert(steps.find(e=>e.type==='memory_call').node==='chat-worker');
+    assert(!steps.some(e=>e.type==='intent' || e.type==='worker_dispatch'));
     assert(steps.find(delivered).data.source_refs?.some(r=>r.record_id===first.recordId && r.revision===version),'确切来源版本 '+version);
     for (const w of words) assert(sent.at(-1).text.includes(w),sent.at(-1).text);
   };

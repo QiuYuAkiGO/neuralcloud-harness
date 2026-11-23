@@ -37,6 +37,7 @@ public class ConsoleConversationTest {
         var route = new AtomicReference<>("CONVERSATION");
         var report = new AtomicReference<String>();
         var drafts = new AtomicInteger();
+        var plan = new AtomicReference<>("{\"kind\":\"REPLY\",\"query\":\"\"}");
         var generation = new AtomicReference<JsonObject>();
         var draftedText = new AtomicReference<>("喜欢摄影。");
         var capability = new AtomicReference<>("read_server_status");
@@ -76,12 +77,14 @@ public class ConsoleConversationTest {
                     """.formatted(route.get()));
         });
         backend.createContext("/generate", exchange -> {
-            drafts.incrementAndGet();
             generation.set(JsonParser.parseString(new String(exchange.getRequestBody().readAllBytes(),
                     StandardCharsets.UTF_8)).getAsJsonObject());
+            boolean planning = generation.get().getAsJsonObject("generationConfig").has("responseSchema")
+                    && "application/json".equals(generation.get().getAsJsonObject("generationConfig").get("responseMimeType").getAsString());
+            if (!planning) drafts.incrementAndGet();
             send(exchange, """
                     {"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":%s}]}}]}
-                    """.formatted(new JsonPrimitive(draftedText.get())));
+                    """.formatted(new JsonPrimitive(planning ? plan.get() : draftedText.get())));
         });
         backend.createContext("/deepseek", exchange -> {
             if (!"Bearer task-key".equals(exchange.getRequestHeaders().getFirst("Authorization"))) {
@@ -108,10 +111,16 @@ public class ConsoleConversationTest {
             assertEquals("你喜欢什么？", report.get());
             assertEquals("喜欢摄影。", reply.data().get("text"));
             assertTrue(systemInstruction(generation.get()).startsWith("你是小雾。"));
-            assertEquals(List.of("chat-worker:chat_worker_router_request", "router:router_route"), events);
-            assertEquals(Integer.valueOf(3), reply.causedBy());
+            assertEquals(List.of("chat-worker:chat_worker_router_request", "router:router_route", "chat-worker:chat_worker_turn_plan"), events);
+            assertEquals(Integer.valueOf(4), reply.causedBy());
 
             events.clear();
+            plan.set("{\"kind\":\"SUBJECT_CONFLICT\",\"query\":\"\",\"conflict\":\"两项重要承诺无法同时履行\"}");
+            assertThrows(IOException.class, () -> entry.send("两个重要约定只能兑现一个。", trace));
+            assertEquals(1, drafts.get());
+
+            events.clear();
+            plan.set("{\"kind\":\"ACTION\",\"query\":\"\"}");
             route.set("ACTION_REQUEST");
             draftedText.set("这次我还没法查，手上也没有结果。");
             var action = entry.send("检查服务器当前状态。", trace);
@@ -147,9 +156,9 @@ public class ConsoleConversationTest {
             events.clear();
             draftedText.set("嗯，我刚看了下这台服务器。");
             var status = withTask.send("检查服务器当前状态。", trace);
-            assertEquals(List.of("chat-worker:chat_worker_router_request", "router:router_route",
+            assertEquals(List.of("chat-worker:chat_worker_router_request", "router:router_route", "chat-worker:chat_worker_turn_plan",
                     "task-worker:task_worker_dispatch", "task-worker:task_worker_result"), events);
-            assertEquals(Integer.valueOf(5), status.causedBy());
+            assertEquals(Integer.valueOf(6), status.causedBy());
             assertEquals("本轮已完成服务器状态读取。", generationInput(generation.get()));
             assertEquals("text/x.enum", generation.get().getAsJsonObject("generationConfig")
                     .get("responseMimeType").getAsString());

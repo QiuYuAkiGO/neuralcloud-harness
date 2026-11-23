@@ -29,7 +29,7 @@ public record MasterRuntime(Master model, MasterEpochs epochs, int maxTokens, do
                 : "处理本会话第 " + trace.request() + " 号入站请求，原文及其受众以渠道记录为准。";
     }
 
-    /** 普通问答使用同一主干。显式记忆修订命令继续由原入口核对原文及授权。 */
+    /** 操作者显式发给 Master 的问答使用主体主干。记忆修订命令由原入口核对原文及授权。 */
     public Master.Completion complete(String prompt, Trace trace, Optional<MemoryCall> memory)
             throws IOException, InterruptedException {
         return epochs.run(trace.scope().conversationId(), origin(trace), topic(trace, prompt, false), history -> {
@@ -60,6 +60,13 @@ public record MasterRuntime(Master model, MasterEpochs epochs, int maxTokens, do
                 record += "回复目的：" + intent.replyIntent();
             return new MasterEpochs.Outcome<>(intent, record, waiting ? Status.WAITING_FOR_WORKER : Status.FINISHED);
         });
+    }
+
+    /** 观察批次沿同群受众取得同一 Epoch 租约。归档只投影处理状态，原文及印象下轮按当前授权读取。 */
+    public Master.ObservationSubmission observe(String audience, String inputId, String material,
+                                                List<MemoryCall.EvidenceRef> refs)
+            throws IOException, InterruptedException {
+        return epochs.reflect(audience, "observe:" + inputId, () -> model.observe(material, refs, maxTokens, temperature));
     }
 
     /** 只有收到并复核 Worker 回执后才结束派单事项。这条记录不声称渠道已经送达。 */

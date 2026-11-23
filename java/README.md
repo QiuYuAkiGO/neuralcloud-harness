@@ -174,7 +174,7 @@ Gemini 每次只收到该步骤获准传达的正文和 Chat Worker 职责提示
 
 ## Memory v2 分域目录与印象修订
 
-配置 `memoryConfig` 并完成 Memory v2 握手后，正式控制台会出现“对话编排”节点，对应 `POST /api/nodes/conversation/messages`。使用独立的验收实例，在同一新会话依次发送“我周六下午要去看展”和“我周六要干嘛来着？”，等第一轮回复出现后再发第二轮。打开审计链，从 `chat_worker_reply` 的 `causedBy` 回查 `worker_dispatch`、`router_plan`、`intent`。将 `intent.evidence` 中的 `record_id` 和 `revision` 与第一轮 `OBSERVATION` 的 `memory_durable` 回执匹配，即可定位当时的原文。以下命令复核两轮的派单、送达以及原文版本。
+配置 `memoryConfig` 并完成 Memory v2 握手后，正式控制台会出现“对话编排”节点，对应 `POST /api/nodes/conversation/messages`。使用独立的验收实例，在同一新会话依次发送“我周六下午要去看展”和“我周六要干嘛来着？”，等第一轮回复出现后再发第二轮。日常回复由 Chat Worker 独立规划。第二轮的 `memory_call` 调用方为 `chat-worker`，可把 `memory_recall` 的 `bindings` 中的来源版本与第一轮入库回执相对照。下面的命令复核两轮的查证和送达。
 
 ```sh
 python java/src/test/python/verify_conversation_plan.py http://127.0.0.1:18900 "网页会话标识"
@@ -184,7 +184,13 @@ python java/src/test/python/verify_conversation_plan.py http://127.0.0.1:18900 "
 
 经 `POST /api/nodes/master/messages` 提交 `/memory revise 旧印象ID@版本 来源ID@版本 [更多来源]`。宿主复核 1–16 条可引用原文，将引文交给 Master，收到完整新正文后按旧版本与新证据持久提交。审计链的 `memory_impression_revised` 保存前一版本、实际来源与新回执。过期或撤权会触发重新查证。[跨仓库数据契约和验收报告](https://github.com/QiuYuAkiGO/neuralcloud-memory/blob/codex/memory-v2-stages-3-4/docs/acceptance/memory-v2-stage-3-4.md)
 
-在已启用 Memory v2 的控制台 Master 页签发送 `/intent 请核对周六的活动安排`，或向同一接口提交带此命令的 `text`。需要核对历史时，Master 先用 `memory_call` 取证，再用 `submit_intent` 提交意图。审计链中的 `memory_call_result` 保存模型收到的编号材料，`intent.data.evidence` 保存所选记录的 `record_id` 和 `revision`。问候、自我介绍等可直接提交意图，`evidence` 为空数组。在 QQ 群中，记忆工具只提供带具体检索词的 `HISTORY` 查询。Chat Worker 按配置的角色设定面对用户作答。[意图字段与补交契约](../docs/proposals/console-free-chat-pipeline-20261121.md#4-master-的通用意图契约)
+在已启用 Memory v2 的控制台 Master 页签发送 `/intent 请核对周六的活动安排`，或向同一接口提交带此命令的 `text`。需要核对历史时，Master 先用 `memory_call` 取证，再用 `submit_intent` 提交意图。审计链中的 `memory_call_result` 保存模型收到的编号材料，`intent.data.evidence` 保存所选记录的 `record_id` 和 `revision`。无需查证的显式意图可以提交空 `evidence`。普通渠道问候和自我介绍由 Chat Worker 回应。在 QQ 群中，记忆工具只提供带具体检索词的 `HISTORY` 查询。Chat Worker 按配置的角色设定面对用户作答。[意图字段与补交契约](../docs/proposals/console-free-chat-pipeline-20261121.md#4-master-的通用意图契约)
+重大取舍的审计顺序是 `subject_conflict → intent → router_plan → worker_dispatch`。非空印象通过 Router 以 `kind=impression` 和确切来源版本提交，Memory 的持久回执确认入库。使用两个正式 JAR 和回环模型验证 P3 并行、普通查证、重大承诺终审及来源修订。
+
+~~~sh
+python java/src/test/python/conversation_responsibilities.py <Harness-JAR> <Memory-v2-JAR> <新的验收目录>
+~~~
+
 ## MistyAI 原版 APP 的 USB 隔离联调
 
 验收各使用一个空的 MistyAI 私聊邮箱、一个独立共享群和一个启用 `mobile_member_notices` 的 Memory v2 实例。先通过原群服务的邀请码为 A、B 分别注册凭据。测试适配器在每次私聊访问时核验 B 仍为群成员。原版 APP 的私聊接口使用单一邮箱，所以每次验收仅配对一名成员和一部手机。

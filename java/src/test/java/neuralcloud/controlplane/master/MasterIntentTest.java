@@ -54,6 +54,30 @@ public class MasterIntentTest {
         assertInvalid(INTENT.replace("\"needsReply\":true", "\"needsReply\":false,\"needsReply\":true"), "不重复");
     }
 
+    @Test
+    public void observationUsesOnlyTheFixedSourceNumbers() throws Exception {
+        assertEquals(
+                OFFERED.reversed(),
+                MasterIntent.parseImpression(
+                                "{\"impression\":\"根据两条原话，我目前倾向于继续观察\",\"evidence\":[2,1]}",
+                                OFFERED)
+                        .evidence());
+        assertEquals(
+                "",
+                MasterIntent.parseImpression("{\"impression\":\"\",\"evidence\":[]}", OFFERED)
+                        .impression());
+        for (var args :
+                List.of(
+                        "{\"impression\":\"\",\"evidence\":[1]}",
+                        "{\"impression\":\"根据发言，我目前倾向于等待\",\"evidence\":[3]}",
+                        "{\"impression\":\"猜测\",\"evidence\":[1]}",
+                        "{\"impression\":\"根据发言，我目前倾向于等待\",\"evidence\":[]}",
+                        "{\"impression\":\"\",\"evidence\":[],\"replyIntent\":\"发言\"}"))
+            assertThrows(
+                    MasterIntent.InvalidSubmission.class,
+                    () -> MasterIntent.parseImpression(args, OFFERED));
+    }
+
     /** 每次拒绝都应给产生方同一种契约错误和可用于补交的字段或规则。 */
     private static void assertInvalid(String input, String rule) {
         var error = assertThrows(MasterIntent.InvalidSubmission.class, () -> MasterIntent.parse(input, OFFERED));
