@@ -121,7 +121,7 @@ public class ConversationMemoryTest {
                     && "SELF_EXPRESSION".equals(event.data().getAsJsonObject().get("kind").getAsString())));
 
             var empty = reader.read(ConversationMemory.QueryKind.SELF_IDENTITY, "");
-            assertEquals(List.of("未查到符合条件的记录。"), empty.sentences());
+            assertEquals(List.of("没有查到当前发信用户经确认的称呼。"), empty.sentences());
             var unmatched = audit.events("shared").getLast().data().getAsJsonObject();
             assertEquals(0, unmatched.get("count").getAsInt());
             assertEquals(gson.toJsonTree(empty.sentences()), unmatched.get("sentences"));
@@ -250,7 +250,7 @@ public class ConversationMemoryTest {
 
             var mine = memory.selfIdentity(scope).orElseThrow();
             assertEquals("verified", mine.recordId());
-            assertEquals("当前 QQ 账号经确认的称呼是「测试称呼」。来源是记忆服务中经操作者确认的本人身份资料。",
+            assertEquals("当前 QQ 私聊的发件人（正在与 Chat Worker 对话的用户）经确认的称呼是「测试称呼」。来源是记忆服务中经操作者确认的本人身份资料。",
                     mine.message());
             assertEquals("10002", received.get().getAsJsonObject("subject").get("account_id").getAsString());
             assertTrue(!received.get().has("constraints"));

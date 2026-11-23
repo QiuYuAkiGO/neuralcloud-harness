@@ -272,13 +272,17 @@ public class ResidentMemory {
                 String name = text(identity, "name");
                 if (!id.isBlank() && !name.isBlank() && name.length() <= 128
                         && name.codePoints().noneMatch(Character::isISOControl)) {
-                    matches.add(new Match(id, 0, "当前 QQ 账号经确认的称呼是「" + name
-                            + "」。来源是记忆服务中经操作者确认的本人身份资料。"));
+                    matches.add(new Match(id, 0, senderNameEvidence(name) + "来源是记忆服务中经操作者确认的本人身份资料。"));
                 }
             }
         }
         return matches.stream().map(Match::message).distinct().count() == 1
                 ? Optional.of(matches.getFirst()) : Optional.empty();
+    }
+
+    /** 两版记忆接口都按私聊发件人查称呼，给模型的证据也明确写出这个主体。 */
+    static String senderNameEvidence(String name) {
+        return "当前 QQ 私聊的发件人（正在与 Chat Worker 对话的用户）经确认的称呼是「" + name + "」。";
     }
 
     private static Map<String, String> subject(long account) {

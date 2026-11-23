@@ -660,7 +660,7 @@ public final class ResidentV2 extends ResidentMemory {
     static String render(JsonObject item, String purpose) throws IOException {
         if (!string(item, "status").equals("ONLINE")) return "此前引用的原依据已失效。";
         String value = string(item, "text");
-        if (purpose.equals("SELF_IDENTITY")) return "当前账号经确认的称呼是「" + value + "」。";
+        if (purpose.equals("SELF_IDENTITY")) return senderNameEvidence(value);
         String venue = item.has("source_venue") ? "在" + string(item, "source_venue") : "";
         String who = item.has("speaker") ? string(item, "speaker") : "来源记录";
         // 已过期节选仍可通过 L2 显式回看；自动注入的更新只提示已到期，不再复述旧安排以防误判为当前状态。

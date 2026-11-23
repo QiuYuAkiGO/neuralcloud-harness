@@ -250,6 +250,40 @@ public class DirectMemoryCallTest {
         }
     }
 
+    /** 私聊的身份参数只来自已引用的 SELF_IDENTITY 版本，历史查询里相同的正文不构成身份证据。 */
+    @Test
+    public void onlyCitedSenderIdentityBecomesTheWorkersConfirmedName() throws Exception {
+        var evidence = new MemoryCall.EvidenceRef("a".repeat(64), 2);
+        var item = Map.of("ref", evidence, "source_refs", List.of(evidence), "status", "ONLINE",
+                "citation_scope", "c2c:onebot:10001:10002", "text", "青禾", "kind", "observation",
+                "speaker", "用户", "occurred_at", "2026-11-18T09:00:00Z");
+        var snapshot = Map.of("stream_id", "test-stream", "read_seq", 4, "items", List.of(item),
+                "assessment", Map.of("state", "DIRECT"));
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v2/recall", exchange -> respond(exchange, JSON.toJson(snapshot)));
+        server.start();
+        var dir = folder.getRoot().toPath();
+        try (var client = HttpClient.newHttpClient(); var audit = AuditLog.open(dir);
+             var journal = new MemoryJournal(dir.resolve("journal.sqlite"))) {
+            var base = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
+            var memory = new ConversationMemory(audit, new ResidentV2(client, base, "misty", "token", true, journal, null));
+            int inbound = audit.write("identity", null, "openqq", "qq_message", Map.of("text", "你和我怎么称呼？"));
+            var trace = Trace.forQqPrivate(audit, "identity", inbound, 10001, 10002);
+            var read = memory.bindMasterIntent(trace, inbound).orElseThrow();
+            var result = read.read(ConversationMemory.QueryKind.SELF_IDENTITY, "");
+            assertEquals(List.of("【证据 1】当前 QQ 私聊的发件人（正在与 Chat Worker 对话的用户）经确认的称呼是「青禾」。"),
+                    result.sentences());
+            assertEquals(Optional.of("青禾"), read.confirmedSenderName(List.of(evidence)));
+            assertTrue(read.confirmedSenderName(List.of()).isEmpty());
+            assertTrue(read.confirmedSenderName(List.of(new MemoryCall.EvidenceRef(evidence.recordId(), 1))).isEmpty());
+            var history = memory.bindMasterIntent(trace, inbound).orElseThrow();
+            history.read(ConversationMemory.QueryKind.HISTORY, "称呼");
+            assertTrue(history.confirmedSenderName(List.of(evidence)).isEmpty());
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private static Object tool(String name, String arguments) {
         return Map.of("tool_calls", List.of(Map.of("id", "lookup-id", "type", "function",
                 "function", Map.of("name", name, "arguments", arguments))));

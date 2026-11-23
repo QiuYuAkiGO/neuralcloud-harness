@@ -503,7 +503,8 @@ public final class ConsoleMain {
                                                             "text",
                                                             step.text()));
                                     String reply =
-                                            chat.replyToPlan(text, step.text(), intent.replyIntent());
+                                            chat.replyToPlan(text, step.text(), intent.replyIntent(),
+                                                    read.confirmedSenderName(intent.evidence()));
                                     if (intent.evidence().stream()
                                                     .anyMatch(read.noticeEvidence()::containsKey)
                                             && !intent.quotes().stream().allMatch(reply::contains))
