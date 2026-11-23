@@ -2,30 +2,13 @@
 
 NeuralCloud 的 Java 控制面。Chat Worker 处理对话，Router 分派任务并统一写入记忆，Master 根据证据作出决策。Worker 和 Master 可以直接查询独立的常驻记忆服务。[架构提案](docs/proposals/master-worker-cognitive-architecture-20261117.md) · [记忆服务 v1 HTTP 契约](contracts/resident/v1/openapi.v1.json)
 
-## 一次对话怎样读写 Memory v2
+## Memory v2 怎样存储记忆
 
-假设同一会话里已经有人把例会从周五下午改到了周六上午。图中启用了按会话检索的 Memory v2（`apiVersion=2`、`recallMode=scoped`）。两个 Java 进程通过本机 HTTP 通信，Harness 启动时调用 `GET /v2/health` 核对角色、协议版本和所需能力。[Memory v2 HTTP 契约](https://github.com/QiuYuAkiGO/neuralcloud-memory/blob/45c9c2934483185423b1acf5c62b1abfe05caabd/contracts/v2/openapi.json)
+Memory 把一次发言保存成有稳定 ID 的记录，每次编辑都追加一个版本。下图沿着一次会议改期，展示原文写到哪张表、旧摘要如何失效，以及 Harness 怎样找回当前会话可引用的依据。
 
-```mermaid
-sequenceDiagram
-    participant U as 用户渠道<br/>网页控制台 / OpenQQ
-    participant H as neuralcloud-harness<br/>处理对话、决策与任务
-    participant M as neuralcloud-memory<br/>保存原文、修订与引用权限
+![NeuralCloud Memory v2 的 SQLite 写入事务、修订关系、全文检索与证据复核](docs/harness/memory-v2-storage.svg)
 
-    U->>H: 例会最后改到几点？
-    H->>M: Router 写入本轮提问 · POST /v2/ingest
-    M-->>H: 返回入库回执，含记录 ID 和版本
-    H->>M: Chat Worker 查会话里的通知 · POST /v2/recall
-    M-->>H: 返回可引用的原文「改到周六 10 点」及其版本
-    H->>U: 改到周六上午 10 点。
-    Note over U,H: 网页已写出回复，或 QQ 已返回消息 ID
-    H->>M: Router 写入已发回复 · POST /v2/ingest
-    M-->>H: 返回这条回复的入库回执
-```
-
-Chat Worker 和任务 Worker 都能按需查询记忆。控制台另有“对话编排”入口，Master 在这里查证并给出回复意图，Router 据此生成计划，编排器再派 Chat Worker 回复。
-
-两边各有自己的 SQLite。Harness 登记待写事件、模型用过的证据版本和变更读取位置。Memory 保存原文、修订、引用授权和持久回执。后续轮次中，Harness 通过 `GET /v2/changes` 发现在用证据的变更，再向 Memory 核对。
+图中采用 `apiVersion=2` 和 `recallMode=scoped`。开发者详解给出了表名、接口、会议样例与对应的实现入口。[记忆存储开发者详解](docs/harness/memory-v2-storage.md) · [Memory v2 HTTP 契约](https://github.com/QiuYuAkiGO/neuralcloud-memory/blob/45c9c2934483185423b1acf5c62b1abfe05caabd/contracts/v2/openapi.json)
 
 ## 构建与测试
 
