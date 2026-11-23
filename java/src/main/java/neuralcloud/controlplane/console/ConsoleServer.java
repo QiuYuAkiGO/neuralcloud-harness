@@ -71,6 +71,13 @@ public final class ConsoleServer implements AutoCloseable {
         /** QQ 群聊渠道身份标识（机器人账号、白名单群号、本条消息发件人 QQ 号）。 */
         record QqGroup(long accountId, long groupId, long senderId) {}
 
+        /** 由 MistyAI 渠道认证的群成员，私聊按实例与稳定的成员编号隔离。 */
+        record MobileMember(String instance, long memberId) {
+            public String conversationId() {
+                return "c2c:mistyai:" + instance + ":" + memberId;
+            }
+        }
+
         /**
          * 会话隔离作用域：
          * {@code sessionId()} 按渠道与审计链划分；{@code conversationId()} 在 QQ 渠道下映射为跨重启稳定的平台对话 ID，
@@ -81,7 +88,11 @@ public final class ConsoleServer implements AutoCloseable {
                 String chain,
                 String runId,
                 Optional<QqPrivate> qq,
-                Optional<QqGroup> group) {
+                Optional<QqGroup> group,
+                Optional<MobileMember> mobile) {
+            public Scope(String channel, String chain, String runId, Optional<QqPrivate> qq, Optional<QqGroup> group) {
+                this(channel, chain, runId, qq, group, Optional.empty());
+            }
             public Scope(String channel, String chain, String runId, Optional<QqPrivate> qq) {
                 this(channel, chain, runId, qq, Optional.empty());
             }
@@ -95,6 +106,7 @@ public final class ConsoleServer implements AutoCloseable {
             }
 
             public String conversationId() {
+                if (mobile.isPresent()) return mobile.get().conversationId();
                 if (group.isPresent())
                     return "group:onebot:" + group.get().accountId() + ":" + group.get().groupId();
                 return qq.map(QqPrivate::conversationId).orElseGet(this::sessionId);
@@ -134,6 +146,12 @@ public final class ConsoleServer implements AutoCloseable {
         static Trace forQqPrivate(AuditLog audit, String chain, int request, long accountId, long peerId) {
             return bound(audit, new Scope("openqq", chain, audit.runId(), Optional.of(new QqPrivate(accountId, peerId))),
                     request);
+        }
+
+        /** 入口须先验证成员凭据；私聊审计链和 Memory 受众取自同一份身份。 */
+        static Trace forMobilePrivate(AuditLog audit, int request, MobileMember member) {
+            return bound(audit, new Scope("mistyai", member.conversationId(), audit.runId(),
+                    Optional.empty(), Optional.empty(), Optional.of(member)), request);
         }
 
         static Trace forQqGroup(AuditLog audit, String chain, int request, QqGroup group) {
