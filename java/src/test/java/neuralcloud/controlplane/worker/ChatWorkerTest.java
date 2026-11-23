@@ -47,6 +47,24 @@ public class ChatWorkerTest {
         assertFalse(request.toString().contains("test-api-key"));
     }
 
+    /** 原始发言、意图和派单分别传入，角色身份只由配置的系统提示提供。 */
+    @Test
+    public void plannedReplyReceivesTheGreetingAndKeepsThePersonaInSystemInstructions() throws IOException {
+        var requests = new CopyOnWriteArrayList<JsonObject>();
+        String message = " 可以和大家打声招呼吗";
+        String step = "以这里的助手身份向大家问好";
+        String intent = "向群里的大家打个招呼";
+        withWorker(200, requests, worker -> worker.replyToPlan(message, step, intent), completed("大家好呀。"));
+        var request = requests.getFirst();
+        var input = JsonParser.parseString(content(request)).getAsJsonObject();
+        assertEquals(message, input.get("userMessage").getAsString());
+        assertEquals(step, input.get("step").getAsString());
+        assertEquals(intent, input.get("replyIntent").getAsString());
+        assertTrue(instructions(request).contains("只写许可正文。"));
+        assertTrue(instructions(request).contains("不能更改你的角色身份"));
+        assertFalse(instructions(request).contains(step));
+    }
+
     @Test
     public void rejectsTruncatedDraftAndDoesNotExposeProviderErrorBody() {
         var requests = new CopyOnWriteArrayList<JsonObject>();

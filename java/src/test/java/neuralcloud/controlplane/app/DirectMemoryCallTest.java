@@ -138,7 +138,9 @@ public class DirectMemoryCallTest {
         server.createContext("/model", exchange -> {
             var request = body(exchange);
             requests.add(request);
-            String name = request.getAsJsonObject("tool_choice").getAsJsonObject("function").get("name").getAsString();
+            var choice = request.get("tool_choice");
+            String name = choice.isJsonPrimitive() ? "memory_call"
+                    : choice.getAsJsonObject().getAsJsonObject("function").get("name").getAsString();
             String args = "memory_call".equals(name) ? "{\"kind\":\"HISTORY\",\"query\":\"看展\"}"
                     : JSON.toJson(Map.of("assessment", "根据小林的原话，我目前倾向于周六看展", "replyIntent", "说明看展安排",
                             "evidence", List.of(requests.size() == 2 ? 2 : 1), "impression", "", "needsReply", true));
@@ -170,6 +172,55 @@ public class DirectMemoryCallTest {
             var correction = requests.get(2).getAsJsonArray("messages").get(5).getAsJsonObject();
             assertEquals("lookup-id", correction.get("tool_call_id").getAsString());
             assertTrue(correction.get("content").getAsString().contains("evidence"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    /** 群问候直接提交意图。即使模型伪造身份查询或提交空历史词，读取边界也须在取证前拒绝。 */
+    @Test
+    public void groupGreetingCanSubmitIntentWithoutARecall() throws Exception {
+        String message = " 可以和大家打声招呼吗";
+        var requests = new CopyOnWriteArrayList<JsonObject>();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/model", exchange -> {
+            requests.add(body(exchange));
+            var intent = Map.of("assessment", "根据当前发言，我目前倾向于向群友问好", "replyIntent", "向大家问好",
+                    "needsReply", true, "evidence", List.of(), "impression", "");
+            respond(exchange, JSON.toJson(Map.of("model", "master", "choices", List.of(Map.of("finish_reason",
+                    "tool_calls", "message", tool("submit_intent", JSON.toJson(intent)))))));
+        });
+        server.start();
+        var base = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
+        var dir = folder.getRoot().toPath();
+        try (var client = HttpClient.newHttpClient(); var audit = AuditLog.open(dir);
+             var journal = new MemoryJournal(dir.resolve("journal.sqlite"))) {
+            var memory = new ConversationMemory(audit, new ResidentV2(client, base, "misty", "test-token", true, journal, null));
+            var timeout = Duration.ofSeconds(3);
+            var master = new Master(client, new Master.Settings(base.resolve("/model"), "master", HttpClient.Version.HTTP_1_1,
+                    timeout, timeout, "探测", 8, 0, false));
+            int routed = audit.write("group", null, "router", "router_route", Map.of("route", "CONVERSATION"));
+            var trace = Trace.forQqGroup(audit, "group", routed, new Trace.QqGroup(10001, 20001, 10002, true));
+            var read = memory.bindMasterIntent(trace, routed).orElseThrow();
+            var intent = master.submitIntent(message, 256, 0, read, true);
+            assertTrue(intent.needsReply());
+            assertTrue(intent.evidence().isEmpty());
+            assertEquals(routed, read.eventId());
+            assertEquals(1, requests.size());
+            var first = requests.getFirst();
+            assertEquals("required", first.get("tool_choice").getAsString());
+            var tools = first.getAsJsonArray("tools").asList().stream()
+                    .map(t -> t.getAsJsonObject().getAsJsonObject("function")).toList();
+            assertEquals(List.of("submit_intent", "memory_call"), tools.stream().map(t -> t.get("name").getAsString()).toList());
+            var props = tools.getLast().getAsJsonObject("parameters").getAsJsonObject("properties");
+            assertEquals(JSON.toJsonTree(List.of("HISTORY")), props.getAsJsonObject("kind").get("enum"));
+            assertEquals(1, props.getAsJsonObject("query").get("minLength").getAsInt());
+            for (String kind : List.of("SELF_IDENTITY", "HISTORY")) {
+                var args = JSON.toJson(Map.of("kind", kind, "query", ""));
+                var error = assertThrows(IOException.class, () -> read.appendToolResult(new ArrayList<>(), "id", args, ""));
+                assertTrue(error.getMessage().contains("kind 或 query"));
+            }
+            assertEquals(1, audit.events("group").size());
         } finally {
             server.stop(0);
         }

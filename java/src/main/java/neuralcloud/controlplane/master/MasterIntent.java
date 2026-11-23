@@ -35,7 +35,7 @@ public record MasterIntent(String assessment, String replyIntent, List<EvidenceR
                                     "type",
                                     "string",
                                     "description",
-                                    "给下游的完整可传达事实，写明具体答案与不确定性。群通知中用于回答的原文片段用「」标出。"),
+                                    "给 Chat Worker 的交流目的和获准传达的具体事实、时间与不确定性。日常交流写明对象和目的，由角色自行措辞。群通知的原文片段用「」标出。"),
                     "evidence",
                             Map.of(
                                     "type",
