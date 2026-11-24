@@ -33,6 +33,7 @@ import static org.junit.Assert.assertTrue;
 
 public class ConsoleConversationTest {
     @Test
+    @SuppressWarnings("unchecked")
     public void routesBeforeGeneratingEveryReplyWithTheSamePersona() throws Exception {
         var route = new AtomicReference<>("CONVERSATION");
         var report = new AtomicReference<String>();
@@ -49,7 +50,9 @@ public class ConsoleConversationTest {
             public void validUntil(java.time.Instant expiry) { throw new AssertionError("unexpected timed evidence"); }
             public java.time.Instant validUntil() { return java.time.Instant.MAX; }
 
-            public java.util.Map<String, Long> sharedSources() { return java.util.Map.of(); }
+            // 此路由用例没有记忆来源，空映射也适用于按读取目的绑定的引用。
+            @SuppressWarnings("rawtypes")
+            public java.util.Map sharedSources() { return java.util.Map.of(); }
             public int request() { return 1; }
 
             public Scope scope() { return new Scope("console", "test", "test-run"); }
