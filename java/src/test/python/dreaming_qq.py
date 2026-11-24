@@ -6,6 +6,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from websockets.exceptions import ConnectionClosed
 from websockets.sync.server import serve
 
 from dreaming import DreamTrial, SCOPE, context, ref, tool_call
@@ -47,6 +48,33 @@ class QqDreamTrial(DreamTrial):
         self.onebot_config = dict(endpoint=f"ws://127.0.0.1:{self.bot.socket.getsockname()[1]}/",
                                   accountId=ACCOUNT, allowedUserId=PEER, accessTokenEnv="TRIAL_KEY")
         self.console["openQqConfig"] = self.config("onebot", **self.onebot_config, groupPoliciesFile=policies)
+
+    def onebot(self, ws):
+        """私聊会核对成员身份；按群名单返回 OneBot 11 的成员资料，并以 echo 关联请求。"""
+        assert ws.request.headers["Authorization"] == "Bearer " + self.token
+        try:
+            for frame in ws:
+                cmd = json.loads(frame)
+                action, params = cmd["action"], cmd.get("params", {})
+                status, code = "ok", 0
+                if action == "get_login_info":
+                    data = dict(user_id=ACCOUNT, nickname="试验机器人")
+                elif action == "get_group_list":
+                    self.checkpoint("roster")
+                    data = [dict(group_id=g, group_name=str(g), member_count=3, max_member_count=20) for g in self.roster]
+                    self.ws = ws
+                elif action == "get_group_member_info" and params["group_id"] in self.roster and params["user_id"] == PEER:
+                    data = dict(group_id=params["group_id"], user_id=PEER, nickname="牧晴", card="", sex="unknown",
+                                age=0, area="", join_time=1, last_sent_time=1, level="1", role="member",
+                                unfriendly=False, title="", title_expire_time=0, card_changeable=True)
+                elif action == "send_private_msg" and params["user_id"] == PEER:
+                    self.sent.append(cmd)
+                    data = {"message_id": 90000 + len(self.sent)}
+                else:
+                    status, code, data = "failed", 100, None
+                ws.send(json.dumps(dict(status=status, retcode=code, echo=cmd["echo"], data=data)))
+        except ConnectionClosed:
+            pass  # 断线用例主动关闭这一条连接，恢复时会重新核验名单。
 
     def route(self, path, body, headers):
         if path == "/v2/dreaming/batch":
