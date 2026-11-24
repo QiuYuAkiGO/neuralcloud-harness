@@ -393,16 +393,16 @@ public class DirectMemoryCallTest {
         }
     }
 
-    private static Object tool(String name, String arguments) {
+    static Object tool(String name, String arguments) {
         return Map.of("tool_calls", List.of(Map.of("id", "lookup-id", "type", "function",
                 "function", Map.of("name", name, "arguments", arguments))));
     }
 
-    private static JsonObject body(HttpExchange exchange) throws IOException {
+    static JsonObject body(HttpExchange exchange) throws IOException {
         return JsonParser.parseString(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)).getAsJsonObject();
     }
 
-    private static void respond(HttpExchange exchange, String body) throws IOException {
+    static void respond(HttpExchange exchange, String body) throws IOException {
         try (exchange) {
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, bytes.length);

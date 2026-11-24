@@ -86,7 +86,7 @@ conflict 字段说明哪几项主体目标相冲突、为何需要取舍。上�
 只有 SUBJECT_CONFLICT 提交非空 conflict，其余类别省略此字段。
 REPLY：普通交流、向你问候、询问你自己的身份或喜好，或从前面已给出的对话就能回答。前文帮助解析指代。用户在回忆具体经历、旧约定或要求引用时，按本轮可用的范围查证。
 CLARIFY：本轮明显在追问，但结合对话仍无法确定指代对象，需要向用户问清楚。
-查询历史发言的类别填写具体 query，其余类别的 query 填空字符串。
+查询历史发言的类别填写具体 query。REPLY、CLARIFY、ACTION 和 SUBJECT_CONFLICT 的 query 填空字符串。
 """;
     // 开放指代中的通用类别不是已知事实。只检查提问中明确问到的占位词，不影响“人像摄影”等实际话题。
     private static final Pattern OPEN_TARGET = Pattern.compile("(?<![「“『\"])(?:(?:哪些|哪几个|哪一个|哪个|哪几位|哪一位|哪位)(人名|人物|人|地方|地点|事情|东西)|谁|哪里|什么时候)");
@@ -95,6 +95,10 @@ CLARIFY：本轮明显在追问，但结合对话仍无法确定指代对象，�
 
 SELF_IDENTITY：当前发言者询问自己或双方的身份、已确认称呼，或问你是否认得发言者本人，query 填空字符串。
 用户在追问同一个问题时沿用问题类型。比如上一轮问“你还记得我是谁吗”，本轮说“要不再想想”，选 SELF_IDENTITY。
+""";
+    private static final String IDENTITY_INSTRUCTION = """
+
+IDENTITY：用户要查某个 QQ 账号、某个完整称呼属于谁，或要列出已确认的账号与称呼。query 填该账号或完整称呼，列举时填空串。称呼归属以查到的 QQ 账号为准。
 """;
     private static final String SELF_HISTORY_INSTRUCTION =
             """
@@ -140,10 +144,10 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
 
     /**
      * 有记忆模式下的轮次规划类别：
-     * {@code REPLY} 直接回复；{@code HISTORY} 查同会话历史或工具回执；{@code SELF_IDENTITY} 查已确认称呼；
+     * {@code REPLY} 直接回复；{@code HISTORY} 查可引用历史或工具回执；{@code SELF_IDENTITY} 查本人称呼；{@code IDENTITY} 查账号与称呼；
      * {@code SELF_HISTORY} 跨会话查 QQ 本人原话；{@code ACTION} 交 Router 判定现场动作；{@code CLARIFY} 指代不明须追问澄清。
      */
-    public enum TurnKind { REPLY, HISTORY, SELF_IDENTITY, SELF_HISTORY, ACTION, CLARIFY, SUBJECT_CONFLICT }
+    public enum TurnKind { REPLY, HISTORY, SELF_IDENTITY, SELF_HISTORY, IDENTITY, ACTION, CLARIFY, SUBJECT_CONFLICT }
 
     /** 单轮规划产出：保存输入上下文、类别、检索词、已合并证据更新的前缀对话历史，以及提示词缓存统计 {@code usage}。 */
     public record Turn(Context context, TurnKind kind, String query, String conflict, List<DialogueMessage> dialogue,
@@ -321,7 +325,8 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
     /** 已有直接对话入口保留称呼查询，可由调用方另行开放本人跨会话原话。 */
     public Turn planTurn(String text, List<DialogueMessage> dialogue, boolean selfHistoryAvailable, List<String> updates)
             throws IOException {
-        var kinds = selfHistoryAvailable ? List.of(QueryKind.values()) : List.of(QueryKind.HISTORY, QueryKind.SELF_IDENTITY);
+        var kinds = selfHistoryAvailable ? List.of(QueryKind.HISTORY, QueryKind.SELF_IDENTITY, QueryKind.SELF_HISTORY)
+                : List.of(QueryKind.HISTORY, QueryKind.SELF_IDENTITY);
         return planTurn(text, dialogue, kinds, updates);
     }
 
@@ -357,7 +362,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
                     new DialogueMessage(
                             DialogueMessage.Speaker.USER,
                             "记忆服务提供的证据更新：\n" + String.join("\n", updates)));
-        // 渠道和记忆服务共同决定可用范围。模型只选择类别和线索，不能提交账号。
+        // 目录的账号只是检索对象。当前受众和发件人始终由渠道绑定。
         var choices = EnumSet.of(TurnKind.SUBJECT_CONFLICT);
         if (!routed.equals(Optional.of(Route.ACTION_REQUEST))) {
             choices.addAll(List.of(TurnKind.REPLY, TurnKind.CLARIFY));
@@ -367,6 +372,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         String prompt = rolePrompt + TURN_INSTRUCTION
                 + (choices.contains(TurnKind.ACTION) ? "\nACTION：需要现场操作且没有待决的重大主体取舍，按原文交给执行层。\n" : "")
                 + (queryKinds.contains(QueryKind.SELF_IDENTITY) ? SELF_IDENTITY_INSTRUCTION : "")
+                + (queryKinds.contains(QueryKind.IDENTITY) ? IDENTITY_INSTRUCTION : "")
                 + (queryKinds.contains(QueryKind.SELF_HISTORY) ? SELF_HISTORY_INSTRUCTION : "");
         prompt = historyInstruction(prompt, history);
         projection.check().verify();
@@ -434,12 +440,10 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
                     && plan.get("query") instanceof JsonPrimitive value && value.isString()) {
                 var choice = TurnKind.valueOf(kind.getAsString());
                 String query = value.getAsString();
-                boolean historicalQuery =
-                        choice == TurnKind.HISTORY || choice == TurnKind.SELF_HISTORY;
                 boolean referral = choice == TurnKind.SUBJECT_CONFLICT;
                 String conflict = plan.get("conflict") instanceof JsonPrimitive field && field.isString()
                         ? field.getAsString().strip() : "";
-                if (choices.contains(choice) && MemoryCall.validQuery(historicalQuery, query)
+                if (choices.contains(choice) && MemoryCall.validQuery(choice.name(), query)
                         && (referral ? plan.size() == 3 && !conflict.isEmpty() && conflict.length() <= 1024
                                      : plan.size() == 2)) {
                     return new Turn(context, choice, query, conflict, List.copyOf(history), result.usage(), check);

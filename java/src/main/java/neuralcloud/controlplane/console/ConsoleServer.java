@@ -144,7 +144,17 @@ public final class ConsoleServer implements AutoCloseable {
 
         Scope scope();
 
-        Map<String, Long> sharedSources();
+        /** 同一记录可以同时提供原文和身份称呼，最终交付须按各自的查询用途重新取证。 */
+        record MemoryTarget(String kind, String recordId) {}
+
+        Map<MemoryTarget, Long> sharedSources();
+
+        /** 目录称呼和原文可以属于同一修订。写回时保留更严格的目录用途，供 Memory 追踪派生正文。 */
+        default Map<String, Object> sourceRef(String id, long revision) {
+            if (sharedSources().containsKey(new MemoryTarget("IDENTITY", id)))
+                return Map.of("record_id", id, "revision", revision, "purpose", "IDENTITY");
+            return Map.of("record_id", id, "revision", revision);
+        }
 
         void validUntil(java.time.Instant expiry);
 
@@ -154,11 +164,12 @@ public final class ConsoleServer implements AutoCloseable {
         default Map<String, Object> delivery(Map<String, Object> data) {
             if (sharedSources().isEmpty() && projectedHistory().isEmpty()) return data;
             var receipt = new LinkedHashMap<>(data);
-            if (!sharedSources().isEmpty()) receipt.put(
-                    "source_refs",
-                    sharedSources().entrySet().stream()
-                            .map(e -> Map.of("record_id", e.getKey(), "revision", e.getValue()))
-                            .toList());
+            if (!sharedSources().isEmpty()) {
+                var versions = new LinkedHashMap<String, Long>();
+                sharedSources().forEach((target, revision) -> versions.merge(target.recordId(), revision, Math::min));
+                receipt.put("source_refs", versions.entrySet().stream()
+                        .map(e -> sourceRef(e.getKey(), e.getValue())).toList());
+            }
             projectedHistory().ifPresent(history -> {
                 var refs = new LinkedHashMap<>(history.sources());
                 ChatHistory.mergeRefs(refs, localEvidence());
@@ -219,7 +230,7 @@ public final class ConsoleServer implements AutoCloseable {
 
         private static Trace bound(AuditLog audit, Scope scope, int request) {
             return new Trace() {
-                private final Map<String, Long> shared = new LinkedHashMap<>();
+                private final Map<MemoryTarget, Long> shared = new LinkedHashMap<>();
                 private java.time.Instant expiry = java.time.Instant.MAX;
                 private DialogueHistory projected;
                 private MemoryCall historyReader;
@@ -260,7 +271,7 @@ public final class ConsoleServer implements AutoCloseable {
                     return expiry;
                 }
 
-                public Map<String, Long> sharedSources() {
+                public Map<MemoryTarget, Long> sharedSources() {
                     return shared;
                 }
 
