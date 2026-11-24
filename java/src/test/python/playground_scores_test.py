@@ -1,12 +1,16 @@
-"""Playground 评分出口的黑盒验收。数据由测试构造，只调用两个公开汇总函数。
+"""Playground 评分、回填和实录汇总的黑盒验收，全部输入由测试构造。
 
 在仓库根目录执行 python -m unittest discover -s java/src/test/python -p playground_scores_test.py -v
 """
 
+import hashlib
+import json
 import math
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from playground.benchmark import metric_report
+from playground.benchmark import accept_scores, metric_report
 from playground.scoring import summarize
 
 
@@ -51,6 +55,61 @@ class CharacterEvalReportTest(unittest.TestCase):
         for label, rows in inputs.items():
             with self.subTest(label=label), self.assertRaises(ValueError):
                 metric_report(rows, expected_ids=expected, full=True)
+
+
+class CharacterEvalImportTest(unittest.TestCase):
+    """离线评分须与此批的生成字节、权重版本和全部题目指标一一对应。"""
+
+    weights = "e953da5f57b86db7adca3a2714b4c3720f5b96a2"
+
+    def setUp(self):
+        directory = TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.job = Path(directory.name)
+        self.generation = self.job / "results" / "generation.jsonl"
+        self.generation.parent.mkdir()
+        record = {"id": 11, "role": "虚构角色", "novel_name": "验收", "context": "提问者：几点？",
+                  "model_output": "我记得是上午。"}
+        payload = (json.dumps([record], ensure_ascii=False) + "\n").encode("utf-8")
+        self.generation.write_bytes(payload)
+        self.digest = hashlib.sha256(payload).hexdigest()
+        manifest = {"generationHash": self.digest, "weightsRevision": self.weights,
+                    "expectedIds": {"11": ["Accuracy", "Behavior"]}, "full": False}
+        (self.job / "job.json").write_text(json.dumps(manifest), encoding="utf-8")
+        self.rows = [scored_row(11, "Accuracy", 3.5), scored_row(11, "Behavior", 4.25)]
+        self.report = self.job / "report.json"
+
+    def test_complete_offline_scores_are_saved(self):
+        result = accept_scores(self.job, self.rows, self.digest, self.weights)
+        self.assertEqual(("sample", "complete"), (result["kind"], result["status"]))
+        for metric, mean in [("Accuracy", 3.5), ("Behavior", 4.25)]:
+            self.assertEqual((1, mean), (result["metrics"][metric]["count"],
+                                         result["metrics"][metric]["mean"]))
+        saved = json.loads(self.report.read_text(encoding="utf-8"))
+        for key in ("kind", "status", "metrics"):
+            self.assertEqual(result[key], saved[key])
+
+    def test_rejected_import_preserves_previous_report(self):
+        previous = b'{"kind":"sample","status":"awaiting_scores"}\n'
+        self.report.write_bytes(previous)
+        wrong_hash = "0" * 64
+        wrong_version = "0" * 40
+        failures = [
+            ("缺少指定指标", self.rows[:1], self.digest, self.weights),
+            ("误入另一题", self.rows + [scored_row(12, "Behavior", 2)], self.digest, self.weights),
+            ("调用方错批", self.rows, wrong_hash, self.weights),
+            ("权重版本有误", self.rows, self.digest, wrong_version),
+        ]
+        for label, rows, digest, version in failures:
+            with self.subTest(label=label):
+                with self.assertRaises(ValueError):
+                    accept_scores(self.job, rows, digest, version)
+                self.assertEqual(previous, self.report.read_bytes())
+        # 调用方与任务清单仍然相符；单独检验实际生成文件已经变更的情况。
+        self.generation.write_bytes(b"[]\n")
+        with self.assertRaises(ValueError):
+            accept_scores(self.job, self.rows, self.digest, self.weights)
+        self.assertEqual(previous, self.report.read_bytes())
 
 
 def observation(identifier, kind, addressing, policy, expected, decision,
