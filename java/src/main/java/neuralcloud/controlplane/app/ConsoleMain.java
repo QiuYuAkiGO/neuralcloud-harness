@@ -550,7 +550,7 @@ public final class ConsoleMain {
      * 1. 先落盘入站用户发言（{@code rememberInbound}）——若持久写入失败则立即中止，避免模型基于未落盘事实作答；
      * 2. 拉取本轮增量更新/热目录卡片（{@code startTurn}），交由 Chat Worker 进行轮次规划（{@code planTurn}）；
      * 3. 根据规划结果分流：直接回复/澄清（{@code REPLY/CLARIFY}）、交 Router 分流执行现场动作（{@code ACTION}）、
-     *    或携带按需记忆工具查询后再生成角色回复（{@code HISTORY/SELF_IDENTITY/SELF_HISTORY}）。
+     *    或携带按需记忆工具查询后再生成角色回复（{@code HISTORY/SELF_IDENTITY/SELF_HISTORY/IDENTITY}）。
      */
     static ConsoleServer.Exchange conversation(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task,
                                                 Optional<MemoryAccess> memory) {
@@ -599,7 +599,7 @@ public final class ConsoleMain {
             case REPLY, CLARIFY -> new Reply("chat_worker_reply",
                     Map.of("text", chat.replyToTurn(turn, List.of()).orElseThrow()), planned);
             case ACTION -> action.run(planned);
-            case HISTORY, SELF_IDENTITY, SELF_HISTORY -> {
+            case HISTORY, SELF_IDENTITY, SELF_HISTORY, IDENTITY -> {
                 var recall = store.reads().bind(trace, Caller.CHAT_WORKER, planned);
                 String answer = chat.replyWithMemory(turn, recall).orElseThrow();
                 yield new Reply("chat_worker_reply", Map.of("text", answer), recall.eventId());
