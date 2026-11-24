@@ -3,6 +3,7 @@ package neuralcloud.controlplane.app;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import neuralcloud.controlplane.app.ChatCompactionFixture.Call;
@@ -44,6 +45,7 @@ public class ChatCompactionPlanningTest {
     private static final String NOTE = "用户正在灯塔丘和石竹湾之间选择，尚未决定。";
     private static final String HISTORY = "{\"kind\":\"HISTORY\",\"query\":\"春游 集合时间\"}";
     private static final String EVIDENCE = "春游集合时间是六点一刻。";
+    private static final String CLARIFICATION = "你说的是哪两个地点？给我一点线索好吗？";
     private final ApiFormat format;
     public ChatCompactionPlanningTest(ApiFormat format) { this.format = format; }
 
@@ -68,6 +70,32 @@ public class ChatCompactionPlanningTest {
             var plan = f.calls("plan_turn").getFirst();
             assertTrue(saw(plan, NOTE));
             assertFalse(kinds(plan).contains("HISTORY"));
+            assertTrue(f.calls("reply").isEmpty());
+            assertTrue(f.audit.events(CHAIN).stream().noneMatch(e -> e.type().equals("console_response_written")));
+        }
+    }
+
+    /** 无查询能力时，规划请求须把 query 声明为必填且只可为空。合法的澄清选择应实际交付。 */
+    @Test public void aClarificationWithAnEmptyQueryIsDeclaredAndDelivered() throws Exception {
+        try (var f = new ChatCompactionFixture(folder.newFolder().toPath(), format, "contextCompression=OFF\n")) {
+            f.plan = call -> "{\"kind\":\"CLARIFY\",\"query\":\"\"}";
+            f.reply = call -> CLARIFICATION;
+            assertEquals(CLARIFICATION, f.turn(CHAIN, QUESTION));
+            var plan = f.calls("plan_turn").getFirst();
+            assertTrue(kinds(plan).contains("CLARIFY"));
+            assertFalse(kinds(plan).contains("HISTORY"));
+            var schema = planSchema(plan);
+            assertTrue(schema.getAsJsonArray("required").contains(new JsonPrimitive("query")));
+            var query = schema.getAsJsonObject("properties").getAsJsonObject("query");
+            assertTrue("无查询权限时 query 必须只允许空串，实收 " + query, emptyStringOnly(query));
+        }
+    }
+
+    /** 将澄清理由塞进 query 是无效规划。正式适配器在生成和渠道确认前拒绝它。 */
+    @Test public void aClarificationWithItsExplanationInQueryIsRejected() throws Exception {
+        try (var f = new ChatCompactionFixture(folder.newFolder().toPath(), format, "contextCompression=OFF\n")) {
+            f.plan = call -> "{\"kind\":\"CLARIFY\",\"query\":\"需要请对方先说明是哪两个候选地点\"}";
+            assertThrows(IOException.class, () -> f.turn(CHAIN, QUESTION));
             assertTrue(f.calls("reply").isEmpty());
             assertTrue(f.audit.events(CHAIN).stream().noneMatch(e -> e.type().equals("console_response_written")));
         }
@@ -103,6 +131,8 @@ public class ChatCompactionPlanningTest {
             var plan = f.calls("plan_turn").getFirst();
             assertTrue(saw(plan, NOTE));
             assertTrue(kinds(plan).contains("HISTORY"));
+            var query = planSchema(plan).getAsJsonObject("properties").getAsJsonObject("query");
+            assertTrue("有 HISTORY 权限时 query 应允许实际检索线索 " + query, allowsText(query, "春游 集合时间"));
             assertEquals("春游 集合时间", lookup.get());
         } finally {
             server.stop(0);
@@ -123,15 +153,33 @@ public class ChatCompactionPlanningTest {
     }
 
     private static List<String> kinds(Call call) {
-        var body = call.body();
-        JsonObject schema;
-        if (body.has("tools")) schema = body.getAsJsonArray("tools").get(0).getAsJsonObject().getAsJsonObject("function").getAsJsonObject("parameters");
-        else {
-            var generation = body.getAsJsonObject("generationConfig");
-            schema = generation.getAsJsonObject(generation.has("responseSchema") ? "responseSchema" : "responseJsonSchema");
-        }
-        return schema.getAsJsonObject("properties").getAsJsonObject("kind").getAsJsonArray("enum").asList()
+        return planSchema(call).getAsJsonObject("properties").getAsJsonObject("kind").getAsJsonArray("enum").asList()
                 .stream().map(value -> value.getAsString()).toList();
+    }
+
+    private static JsonObject planSchema(Call call) {
+        var body = call.body();
+        if (body.has("tools")) return body.getAsJsonArray("tools").get(0).getAsJsonObject().getAsJsonObject("function").getAsJsonObject("parameters");
+        var generation = body.getAsJsonObject("generationConfig");
+        return generation.getAsJsonObject(generation.has("responseSchema") ? "responseSchema" : "responseJsonSchema");
+    }
+
+    /** 两端均可用单值列表声明。允许表达相同字符串约束的 const 或零长度上限。 */
+    private static boolean emptyStringOnly(JsonObject query) {
+        var empty = new JsonPrimitive("");
+        return allowsText(query, "") && (empty.equals(query.get("const"))
+                || (query.has("enum") && query.getAsJsonArray("enum").asList().equals(List.of(empty)))
+                || (query.has("type") && query.has("maxLength") && query.get("maxLength").getAsInt() == 0));
+    }
+
+    private static boolean allowsText(JsonObject query, String text) {
+        var value = new JsonPrimitive(text);
+        int length = text.codePointCount(0, text.length());
+        return (!query.has("type") || "string".equalsIgnoreCase(query.get("type").getAsString()))
+                && (!query.has("const") || value.equals(query.get("const")))
+                && (!query.has("enum") || query.getAsJsonArray("enum").contains(value))
+                && (!query.has("minLength") || query.get("minLength").getAsInt() <= length)
+                && (!query.has("maxLength") || query.get("maxLength").getAsInt() >= length);
     }
 
     /** 比较协议类别名的肯定指引。允许系统明确告知某项不可用，不要求新提示采用固定句式。 */
