@@ -6,6 +6,7 @@ import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import neuralcloud.controlplane.console.AuditLog;
+import neuralcloud.controlplane.console.ConsoleServer;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
 import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.master.MasterRuntime;
@@ -33,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -42,6 +44,110 @@ import static org.junit.Assert.assertTrue;
 public class DirectMemoryCallTest {
     @Rule public TemporaryFolder folder = new TemporaryFolder();
     private static final Gson JSON = new Gson();
+    private static final String SHARED_FACT = "验票地点是槐树厅";
+
+    /** 共享持续开放时，同版原文仍可引用，下一轮首个模型输入不应报告依据失效。 */
+    @Test
+    public void stillVisibleSharedMemoryDoesNotInvalidateTheNextTurn() throws Exception {
+        var nextTurn = nextTurnWithSharedMemory(true);
+        assertFalse(nextTurn.getFirst().contains("原依据已失效"));
+    }
+
+    /** 只恢复受众隔离时，下一轮首个输入须通知失效，整轮模型输入都不能再使用上轮原文。 */
+    @Test
+    public void restoredIsolationInvalidatesSharedMemoryBeforeTheNextModelInput() throws Exception {
+        var nextTurn = nextTurnWithSharedMemory(false);
+        assertTrue("首个模型输入应提示原依据失效", nextTurn.getFirst().contains("原依据已失效"));
+        assertFalse("本轮模型输入含其他会话的旧原文", nextTurn.stream().anyMatch(input -> input.contains(SHARED_FACT)));
+    }
+
+    /** 两轮共用同一常驻 Memory 快照。第一轮通过正式工具交付其他会话的普通发言，然后只调整受众判定。 */
+    private List<String> nextTurnWithSharedMemory(boolean stillVisible) throws Exception {
+        String stream = "95fe56c7-0e74-4509-896d-e78ae6d5b42a";
+        String id = "a".repeat(64);
+        var ref = Map.of("record_id", id, "revision", 1);
+        var item = Map.ofEntries(Map.entry("ref", ref), Map.entry("source_refs", List.of(ref)),
+                Map.entry("status", "ONLINE"), Map.entry("kind", "observation"), Map.entry("basis", "direct"),
+                Map.entry("view", "L2"), Map.entry("text", SHARED_FACT), Map.entry("occurred_at", "2026-11-18T09:00:00Z"),
+                Map.entry("source_venue", "c2c:onebot:10001:10002"), Map.entry("citation_scope", "console:reader"),
+                Map.entry("grant_dependent", true));
+        var visible = new AtomicBoolean(true);
+        var prompts = new CopyOnWriteArrayList<String>();
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v2/health", exchange -> respond(exchange, JSON.toJson(Map.of("api_major", 2,
+                "status", "TEXT_READY", "character_id", "misty", "stream_id", stream, "head_seq", 1,
+                "capabilities", List.of("durable_ingest", "read_refs", "scoped_recall", "changes", "self_identity",
+                        "self_history", "assertions", "candidates", "corrections", "audience_reads", "audience_cards")))));
+        server.createContext("/v2/changes", exchange -> {
+            // 原文在首轮前已入账，次轮没有记录或授权事件可供消费者据此触发重读。
+            boolean fromStart = List.of(exchange.getRequestURI().getQuery().split("&")).contains("after=0");
+            var changes = fromStart ? List.of(Map.of("seq", 1, "op", "INGEST", "record_id", id, "revision", 1)) : List.of();
+            respond(exchange, JSON.toJson(Map.of("stream_id", stream, "through", 1, "next_after", 1, "items", changes)));
+        });
+        server.createContext("/v2/recall", exchange -> {
+            boolean allowed = visible.get() && forSharingAudience(body(exchange));
+            respond(exchange, JSON.toJson(Map.of("stream_id", stream, "read_seq", 1, "items", allowed ? List.of(item) : List.of(),
+                    "assessment", Map.of("state", allowed ? "DIRECT" : "NOT_FOUND", "sufficient", allowed, "absence_confirmed", false))));
+        });
+        server.createContext("/v2/read", exchange -> {
+            var request = body(exchange);
+            boolean allowed = visible.get() && forSharingAudience(request);
+            var items = new ArrayList<Map<String, ?>>();
+            for (var value : request.getAsJsonArray("targets")) {
+                var target = value.getAsJsonObject();
+                String requested = target.get("record_id").getAsString();
+                boolean matches = id.equals(requested) && (!target.has("revision") || target.get("revision").getAsLong() == 1);
+                items.add(allowed && matches ? item : Map.of("record_id", requested, "status", "NOT_FOUND"));
+            }
+            respond(exchange, JSON.toJson(Map.of("stream_id", stream, "read_seq", 1, "items", items)));
+        });
+        server.createContext("/model", exchange -> {
+            String input = body(exchange).getAsJsonArray("messages").toString();
+            boolean lookup = prompts.isEmpty();
+            prompts.add(input);
+            Object answer = lookup ? tool("memory_call", "{\"kind\":\"HISTORY\",\"query\":\"验票\"}")
+                    : Map.of("content", input.contains(SHARED_FACT) ? SHARED_FACT : "收到");
+            respond(exchange, JSON.toJson(Map.of("model", "master", "choices", List.of(Map.of(
+                    "finish_reason", lookup ? "tool_calls" : "stop", "message", answer)))));
+        });
+        server.start();
+        var directory = folder.getRoot().toPath();
+        try (var http = HttpClient.newHttpClient(); var audit = AuditLog.open(directory);
+             var epochs = new MasterEpochs(directory.resolve("epochs.sqlite"), MasterEpochs.Profile.DEFAULT);
+             var journal = new MemoryJournal(directory.resolve("journal.sqlite"))) {
+            var base = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
+            var resident = new ResidentV2(http, base, "misty", "fixture", true, journal, null);
+            resident.verify(false);
+            var access = new ConsoleMain.MemoryAccess(new ConversationMemory(audit, resident),
+                    new RouterMemoryWriter(audit, resident), Optional.empty());
+            var timeout = Duration.ofSeconds(3);
+            var master = new Master(http, new Master.Settings(base.resolve("/model"), "master", HttpClient.Version.HTTP_1_1,
+                    timeout, timeout, "探测", 8, 0, false));
+            var entry = ConsoleMain.masterConversation(new MasterRuntime(master, epochs, 256, 0), Optional.of(access));
+            sendReaderTurn(entry, audit, "请查一下验票地点。");
+            assertTrue("上轮工具须将可引用原文送入模型", prompts.getLast().contains(SHARED_FACT));
+            int firstNextInput = prompts.size();
+            visible.set(stillVisible);
+            sendReaderTurn(entry, audit, "继续。");
+            return List.copyOf(prompts.subList(firstNextInput, prompts.size()));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    /** 回环 Memory 只向以该角色和目标会话请求 CITE 的消费者提供跨会话引文。 */
+    private static boolean forSharingAudience(JsonObject request) {
+        var context = request.getAsJsonObject("context");
+        return "misty".equals(context.get("character_id").getAsString())
+                && "console:reader".equals(context.get("conversation_id").getAsString())
+                && request.has("use") && "CITE".equals(request.get("use").getAsString());
+    }
+
+    /** 像控制台一样给每次入站分配事件标识，交由同一处理器刷新模型输入。 */
+    private static void sendReaderTurn(ConsoleServer.Exchange entry, AuditLog audit, String question) throws Exception {
+        int request = audit.write("reader", null, "master", "operator_message", Map.of("text", question));
+        entry.send(question, Trace.forChain(audit, "console", "reader", request));
+    }
 
     @Test
     public void masterAndTaskReadDirectlyAndUseTheAuditedResultInTheirNextModelCall() throws Exception {
@@ -287,16 +393,16 @@ public class DirectMemoryCallTest {
         }
     }
 
-    private static Object tool(String name, String arguments) {
+    static Object tool(String name, String arguments) {
         return Map.of("tool_calls", List.of(Map.of("id", "lookup-id", "type", "function",
                 "function", Map.of("name", name, "arguments", arguments))));
     }
 
-    private static JsonObject body(HttpExchange exchange) throws IOException {
+    static JsonObject body(HttpExchange exchange) throws IOException {
         return JsonParser.parseString(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8)).getAsJsonObject();
     }
 
-    private static void respond(HttpExchange exchange, String body) throws IOException {
+    static void respond(HttpExchange exchange, String body) throws IOException {
         try (exchange) {
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, bytes.length);

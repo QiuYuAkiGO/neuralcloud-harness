@@ -73,6 +73,7 @@ public final class ConversationMemory {
                 case HISTORY -> recall(trace, event, query);
                 case SELF_IDENTITY -> identity(trace, event);
                 case SELF_HISTORY -> selfHistory(trace, event, query);
+                case IDENTITY -> throw new IOException("身份目录需要 Memory v2 的 identity_lookup 能力");
             };
         var snap = v.lookup(trace.scope(), role, kind, query, receivedAt(trace));
         var messages = new ArrayList<String>();
@@ -113,8 +114,8 @@ public final class ConversationMemory {
         return new Recall(List.copyOf(messages), count, logged, List.copyOf(rows));
     }
 
-    /** 记忆工具支持的三种只读查询语义：当前会话历史、当前用户身份、当前 QQ 本人跨会话发言。 */
-    public enum QueryKind { HISTORY, SELF_IDENTITY, SELF_HISTORY }
+    /** IDENTITY 查指定账号的确认资料；SELF_IDENTITY 与 SELF_HISTORY 通过渠道绑定发件人。 */
+    public enum QueryKind { HISTORY, SELF_IDENTITY, SELF_HISTORY, IDENTITY }
 
     /** 仅在启用 scoped 分域记忆且当前请求来自已认证 QQ 私聊时，才开放本人跨会话历史检索。 */
     public boolean canSearchSelfHistory(Trace.Scope scope) {
