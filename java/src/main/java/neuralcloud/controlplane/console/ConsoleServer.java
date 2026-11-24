@@ -145,7 +145,26 @@ public final class ConsoleServer implements AutoCloseable {
         Scope scope();
 
         /** 同一记录可以同时提供原文和身份称呼，最终交付须按各自的查询用途重新取证。 */
-        record MemoryTarget(String kind, String recordId) {}
+        record MemoryTarget(String kind, String recordId) {
+            /** HISTORY 的既有索引键为十六进制 ID。用途限定的同一修订另外登记，二者分别复核。 */
+            public String historyKey() { return kind.equals("HISTORY") ? recordId : kind + ":" + recordId; }
+
+            public static MemoryTarget fromKey(String key) {
+                int colon = key.indexOf(':');
+                return colon < 0 ? new MemoryTarget("HISTORY", key)
+                        : new MemoryTarget(key.substring(0, colon), key.substring(colon + 1));
+            }
+
+            public static MemoryTarget fromRef(JsonObject ref) {
+                return new MemoryTarget(ref.has("purpose") ? ref.get("purpose").getAsString() : "HISTORY",
+                        ref.get("record_id").getAsString());
+            }
+
+            Map<String, Object> receipt(long revision) {
+                return kind.equals("HISTORY") ? Map.of("record_id", recordId, "revision", revision)
+                        : Map.of("record_id", recordId, "revision", revision, "purpose", kind);
+            }
+        }
 
         Map<MemoryTarget, Long> sharedSources();
 
@@ -160,7 +179,7 @@ public final class ConsoleServer implements AutoCloseable {
 
         java.time.Instant validUntil();
 
-        /** 为渠道送达回执载荷补充本轮经过复核的跨会话引用清单 {@code source_refs}（若未引用共享来源则原样返回）。 */
+        /** 渠道送达后按用途保存共享引用和本地历史依据，供原受众后续回放时逐项复核。 */
         default Map<String, Object> delivery(Map<String, Object> data) {
             if (sharedSources().isEmpty() && projectedHistory().isEmpty()) return data;
             var receipt = new LinkedHashMap<>(data);
@@ -174,7 +193,7 @@ public final class ConsoleServer implements AutoCloseable {
                 var refs = new LinkedHashMap<>(history.sources());
                 ChatHistory.mergeRefs(refs, localEvidence());
                 receipt.put("history_refs", refs.entrySet().stream()
-                        .map(e -> Map.of("record_id", e.getKey(), "revision", e.getValue())).toList());
+                        .map(e -> MemoryTarget.fromKey(e.getKey()).receipt(e.getValue())).toList());
             });
             return receipt;
         }

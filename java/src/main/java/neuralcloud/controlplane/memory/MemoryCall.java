@@ -317,10 +317,12 @@ public final class MemoryCall {
             var item = read.item();
             if (!"ONLINE".equals(ResidentV2.string(item, "status")) || !permanentHistorySource(item)) continue;
             var own = item.getAsJsonObject("ref");
-            trace.rememberLocalEvidence(read.id(), ResidentV2.integer(own, "revision", 1));
+            long revision = ResidentV2.integer(own, "revision", 1);
+            trace.rememberLocalEvidence(read.id(), revision);
+            trace.rememberLocalEvidence(new Trace.MemoryTarget(read.kind(), read.id()).historyKey(), revision);
             for (var source : item.getAsJsonArray("source_refs")) {
                 var origin = source.getAsJsonObject();
-                trace.rememberLocalEvidence(ResidentV2.string(origin, "record_id"), ResidentV2.integer(origin, "revision", 1));
+                trace.rememberLocalEvidence(Trace.MemoryTarget.fromRef(origin).historyKey(), ResidentV2.integer(origin, "revision", 1));
             }
         }
         var shared = evidence.stream().filter(read -> {
@@ -366,34 +368,29 @@ public final class MemoryCall {
     /** 修订号只在原账本内有效，换流后需从该流可核验的历史重新建立提要。 */
     public String historyStream() { return memory.v2() == null ? "" : memory.v2().stream(); }
 
-    /** 用现有 CITE 批读核对本会话可持续引用的版本。返回的正文只留在 Memory 边界。 */
+    /** 按原查询用途批读可持续引用的版本，并核对它们依赖的来源。调用方只取得版本。 */
     public Map<String, Long> historyVersions(java.util.Collection<String> requested) throws IOException {
         var v = memory.v2();
         if (v == null || requested.isEmpty()) return Map.of();
-        var ids = List.copyOf(requested);
+        var targets = new java.util.LinkedHashSet<Trace.MemoryTarget>();
+        for (var key : requested) targets.add(Trace.MemoryTarget.fromKey(key));
         var versions = new LinkedHashMap<String, Long>();
-        var upstream = new LinkedHashMap<String, List<EvidenceRef>>();
+        var upstream = new LinkedHashMap<String, Map<String, Long>>();
         try {
-            for (int i = 0; i < ids.size(); i += 128) {
-                var batch = ids.subList(i, Math.min(ids.size(), i + 128));
-                var now = v.readItems(trace.scope(), caller.name(), "HISTORY", batch);
-                if (!v.stream().equals(now.stream()) || now.items().size() != batch.size())
-                    throw new IOException("历史来源的 Memory 流或批量回执不匹配");
-                for (int n = 0; n < batch.size(); n++) {
-                    var item = now.items().get(n);
-                    var ref = item.getAsJsonObject("ref");
-                    String id = ResidentV2.string(ref == null ? item : ref, "record_id");
-                    if (!id.equals(batch.get(n))) throw new IOException("历史来源的记录编号不匹配");
-                    if ("ONLINE".equals(ResidentV2.string(item, "status")) && permanentHistorySource(item)) {
-                        versions.put(id, ResidentV2.integer(ref, "revision", 1));
-                        var origins = new ArrayList<EvidenceRef>();
-                        for (var source : item.getAsJsonArray("source_refs")) {
-                            var origin = source.getAsJsonObject();
-                            origins.add(new EvidenceRef(ResidentV2.string(origin, "record_id"), ResidentV2.integer(origin, "revision", 1)));
-                        }
-                        upstream.put(id, origins);
-                    }
+            // 与渠道最终审核共用按原用途分批的读取。仅 HISTORY 可读不能恢复已撤回的专用用途。
+            for (var row : v.reread(trace.scope(), caller.name(), targets).entrySet()) {
+                var now = row.getValue();
+                if (!v.stream().equals(now.stream())) throw new IOException("历史来源的 Memory 流已变更");
+                var item = now.item();
+                if (!"ONLINE".equals(ResidentV2.string(item, "status")) || !permanentHistorySource(item)) continue;
+                String key = row.getKey().historyKey();
+                versions.put(key, ResidentV2.integer(item.getAsJsonObject("ref"), "revision", 1));
+                var origins = new LinkedHashMap<String, Long>();
+                for (var source : item.getAsJsonArray("source_refs")) {
+                    var origin = source.getAsJsonObject();
+                    origins.put(Trace.MemoryTarget.fromRef(origin).historyKey(), ResidentV2.integer(origin, "revision", 1));
                 }
+                upstream.put(key, origins);
             }
         } catch (InterruptedException error) {
             Thread.currentThread().interrupt();
@@ -401,7 +398,7 @@ public final class MemoryCall {
         }
         var checked = new LinkedHashMap<>(versions);
         for (var row : upstream.entrySet())
-            if (row.getValue().stream().anyMatch(ref -> !java.util.Objects.equals(versions.get(ref.recordId()), ref.revision())))
+            if (!versions.entrySet().containsAll(row.getValue().entrySet()))
                 checked.remove(row.getKey());
         return checked;
     }

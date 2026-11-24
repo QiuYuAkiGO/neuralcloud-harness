@@ -158,11 +158,15 @@ final class ChatHistory {
     private static boolean bindRecall(JsonObject recall, Scope scope, Map<String, Long> refs) {
         if (!(recall.get("bindings") instanceof JsonArray bindings)) return false;
         for (var raw : bindings) {
-            var item = raw.getAsJsonObject().getAsJsonObject("item");
+            var binding = raw.getAsJsonObject();
+            var item = binding.getAsJsonObject("item");
             if (!scope.conversationId().equals(item.get("citation_scope").getAsString())
                     || !neuralcloud.controlplane.memory.MemoryCall.permanentHistorySource(item)
                     || !(item.get("source_refs") instanceof JsonArray sources)) return false;
-            addRef(refs, item.getAsJsonObject("ref"));
+            var own = item.getAsJsonObject("ref");
+            addRef(refs, own);
+            var purpose = new ConsoleServer.Trace.MemoryTarget(binding.get("kind").getAsString(), own.get("record_id").getAsString());
+            refs.merge(purpose.historyKey(), own.get("revision").getAsLong(), (a, b) -> a.equals(b) ? a : -1L);
             addRefs(refs, sources);
         }
         return true;
@@ -174,7 +178,7 @@ final class ChatHistory {
 
     private static void addRef(Map<String, Long> refs, JsonObject ref) {
         long revision = ref.get("revision").getAsLong();
-        refs.merge(ref.get("record_id").getAsString(), revision, (a, b) -> a.equals(b) ? a : -1L);
+        refs.merge(ConsoleServer.Trace.MemoryTarget.fromRef(ref).historyKey(), revision, (a, b) -> a.equals(b) ? a : -1L);
     }
 
     /** 同一依据的两个不同修订无法同时通过复核，保留冲突直至受众边界过滤。 */

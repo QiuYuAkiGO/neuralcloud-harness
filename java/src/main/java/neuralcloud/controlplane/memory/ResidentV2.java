@@ -918,10 +918,10 @@ public final class ResidentV2 extends ResidentMemory {
         return false;
     }
 
-    private record CurrentItem(String stream, long seq, JsonObject item) {}
+    record CurrentItem(String stream, long seq, JsonObject item) {}
 
     /** 同一受众的历史可能登记过多次。每种查询目的按 /v2/read 的 128 条上限批量回读，保留各批的真实水位。 */
-    private Map<Trace.MemoryTarget, CurrentItem> reread(Trace.Scope scope, String role, Set<Trace.MemoryTarget> affected)
+    Map<Trace.MemoryTarget, CurrentItem> reread(Trace.Scope scope, String role, Set<Trace.MemoryTarget> affected)
             throws IOException, InterruptedException {
         var byKind = new LinkedHashMap<String, List<String>>();
         for (var target : affected)
