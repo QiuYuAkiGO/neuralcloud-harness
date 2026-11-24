@@ -204,6 +204,24 @@ public class ChatCompactionSemanticsTest {
         }
     }
 
+    @Test public void explicitCancellationByTheRequesterClosesThePendingPoint() throws Exception {
+        userDecision("取消这个请求，不用再查这台服务器的运行状态了。", true);
+    }
+
+    @Test public void askingNotToCancelCannotCloseThePendingPoint() throws Exception {
+        userDecision("不要取消这个请求，我仍然需要这台服务器的运行状态。", false);
+    }
+
+    /** 先保留原请求为未决。模型在两例都引用当事人的新原话结项，宿主按这条话的意思决定是否接受。 */
+    private void userDecision(String words, boolean cancelled) throws Exception {
+        try (var f = fixture()) {
+            f.inbound(CHAIN, ACTION);
+            establishOpen(f);
+            f.inbound(CHAIN, words);
+            attemptClosure(f, words, cancelled);
+        }
+    }
+
     /** 渠道先发出本轮答复，再记载成功写出。回执关联的业务结果由正式处理器写下。 */
     private static void deliver(ChatCompactionFixture f, ConsoleServer.Reply out) throws IOException {
         int reply = f.audit.write(CHAIN, out.causedBy(), "chat-worker", out.type(), out.data());
