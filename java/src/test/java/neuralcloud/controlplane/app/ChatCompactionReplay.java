@@ -2,7 +2,9 @@ package neuralcloud.controlplane.app;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -42,14 +44,17 @@ public final class ChatCompactionReplay {
     private static final String TRIGGER = "我已经把这些页面整理好了，你先回一句收到吧。";
     private static final String REFERENCE = "那两个候选我还拿不定主意。把地名并排写给我，再提醒我原本打算等什么。";
     private static final String ORIGINAL = "夏至的小旅行还没定。我想在青岚渡和白芦湾中选一处，等潮汐表出来再决定。先替我留着这两个候选。";
+    private static final List<String> PHASES = List.of("short", "trigger", "reference");
     private static final String HELP = """
             ChatCompactionReplay <Chat Worker properties> <新的输出目录> [historyBudgetUnits] [重复次数]
             缺省预算 48000，每侧每次各执行三轮。模型和 Router 调用均使用所选服务和该配置指定的环境密钥。
             report.json 给出延迟、供应商用量、压缩诊断和远距指代结果，每侧 wire.jsonl 保存请求与原始 usage。
             """;
 
-    private record Turn(int sample, String side, String phase, long elapsedMs, String answer, Boolean recallsBothPlaces,
-                        Boolean recallsTide, int attempts, List<JsonObject> calls, List<JsonObject> diagnostics) {}
+    private enum Status { DELIVERED, FAILED, SKIPPED_DEPENDENCY, ARM_UNAVAILABLE }
+
+    private record Turn(int sample, String side, String phase, Status status, String error, Long elapsedMs, String answer,
+                        Boolean recallsBothPlaces, Boolean recallsTide, int attempts, List<JsonObject> calls, List<JsonObject> diagnostics) {}
 
     public static void main(String[] args) throws Exception {
         if (args.length == 1 && "--help".equals(args[0])) { System.out.print(HELP); return; }
@@ -65,13 +70,27 @@ public final class ChatCompactionReplay {
         var directory = Files.createDirectory(Path.of(args[1]).toAbsolutePath());
         var profile = original.readProperties();
         var turns = new ArrayList<Turn>();
+        var armIssues = new ArrayList<Map<String, Object>>();
         Exception failure = null;
         try {
             for (int sample = 1; sample <= samples; sample++) {
                 // 供应商缓存可能跨请求复用，多次回放交替先运行的档位。
                 var order = sample % 2 == 1 ? List.of("OFF", "ROLLING") : List.of("ROLLING", "OFF");
-                for (String side : order) runSide(directory, profile, key, budget, sample, side, turns);
+                for (String side : order) {
+                    int firstTurn = turns.size();
+                    try {
+                        runSide(directory, profile, key, budget, sample, side, turns);
+                    } catch (IOException | IllegalArgumentException error) {
+                        // 建库、读配置或收尾失败只影响这一侧。保留已返回的轮次，为其余预定样本记下缺口。
+                        armIssues.add(Map.of("sample", sample, "side", side, "error", error.toString()));
+                        var observed = turns.subList(firstTurn, turns.size()).stream().map(Turn::phase).toList();
+                        for (String phase : PHASES) if (!observed.contains(phase))
+                            turns.add(unrun(sample, side, phase, Status.ARM_UNAVAILABLE, error.toString()));
+                    }
+                }
             }
+            if (!armIssues.isEmpty() || turns.stream().anyMatch(t -> t.status() != Status.DELIVERED))
+                throw new IOException("回放存在失败或缺失的轮次，请查看 report.json 中的逐轮状态和配对缺口");
         } catch (Exception error) {
             failure = error;
             throw error;
@@ -81,20 +100,32 @@ public final class ChatCompactionReplay {
             report.put("model", baseline.model());
             report.put("budget", budget);
             report.put("requestedSamples", samples);
-            report.put("completedTurns", turns.stream().filter(t -> t.answer() != null).count());
+            report.put("completedTurns", turns.stream().filter(t -> t.status() == Status.DELIVERED).count());
             report.put("runFailure", failure == null ? null : failure.toString());
+            report.put("armIssues", armIssues);
             report.put("shortQuestion", SHORT);
             report.put("triggerQuestion", TRIGGER);
             report.put("referenceQuestion", REFERENCE);
             report.put("referenceExpected", List.of("青岚渡", "白芦湾", "潮汐"));
             report.put("arms", Map.of("OFF", stats(turns, "OFF"), "ROLLING", stats(turns, "ROLLING")));
             var paired = new ArrayList<Long>();
-            for (var trigger : turns) {
-                if (trigger.side().equals("ROLLING") && trigger.answer() != null && trigger.attempts() > 0)
-                    turns.stream().filter(t -> t.sample() == trigger.sample() && t.side().equals("OFF") && t.answer() != null
-                            && t.phase().equals(trigger.phase())).findFirst().ifPresent(t -> paired.add(trigger.elapsedMs() - t.elapsedMs()));
+            var gaps = new ArrayList<Map<String, Object>>();
+            for (int sample = 1; sample <= samples; sample++) {
+                for (String phase : PHASES) {
+                    var off = observed(turns, sample, "OFF", phase);
+                    var rolling = observed(turns, sample, "ROLLING", phase);
+                    if (off.isPresent() && off.get().status() == Status.DELIVERED
+                            && rolling.isPresent() && rolling.get().status() == Status.DELIVERED) {
+                        if (rolling.get().attempts() > 0) paired.add(rolling.get().elapsedMs() - off.get().elapsedMs());
+                    } else {
+                        gaps.add(Map.of("sample", sample, "phase", phase,
+                                "OFF", off.map(t -> t.status().name()).orElse("NOT_RUN"),
+                                "ROLLING", rolling.map(t -> t.status().name()).orElse("NOT_RUN")));
+                    }
+                }
             }
             report.put("pairedTriggerAddedMs", percentiles(paired));
+            report.put("pairGaps", gaps);
             report.put("turns", turns);
             var path = directory.resolve("report.json");
             Files.writeString(path, JSON.toJson(report));
@@ -102,9 +133,17 @@ public final class ChatCompactionReplay {
         }
     }
 
+    private static Optional<Turn> observed(List<Turn> turns, int sample, String side, String phase) {
+        return turns.stream().filter(t -> t.sample() == sample && t.side().equals(side) && t.phase().equals(phase)).findFirst();
+    }
+
+    private static Turn unrun(int sample, String side, String phase, Status status, String error) {
+        return new Turn(sample, side, phase, status, error, null, null, null, null, 0, List.of(), List.of());
+    }
+
     /** 档位只改变两个压缩属性。角色、模型、只读参与偏好及供应商传输配置来自同一份正式配置。 */
     private static void runSide(Path output, Properties original, String key, int budget, int sample, String side,
-                                List<Turn> turns) throws Exception {
+                                List<Turn> turns) throws IOException, InterruptedException {
         Path directory = Files.createDirectory(output.resolve("sample-" + sample + "-" + side));
         var profile = new Properties();
         profile.putAll(original);
@@ -130,7 +169,11 @@ public final class ChatCompactionReplay {
             turn(sample, side, "short", "short", SHORT, entry, audit, relay, turns);
             audit.write("coast", null, "chat-worker", "operator_message", Map.of("text", ORIGINAL));
             int nextPage = addPages(audit, 1, 3 * budget / 4 + 128);
-            turn(sample, side, "trigger", "coast", TRIGGER, entry, audit, relay, turns);
+            // 续聊使用本侧首个长轮的实际交付和快照，因此该轮失败时记录依赖缺口。
+            if (!turn(sample, side, "trigger", "coast", TRIGGER, entry, audit, relay, turns)) {
+                turns.add(unrun(sample, side, "reference", Status.SKIPPED_DEPENDENCY, "本侧 trigger 轮未交付"));
+                return;
+            }
             addPages(audit, nextPage, 3 * budget / 8 + 512);
             turn(sample, side, "reference", "coast", REFERENCE, entry, audit, relay, turns);
         }
@@ -154,13 +197,14 @@ public final class ChatCompactionReplay {
     }
 
     /** 耗时从当前入站算到渠道确认。语义字段仅按原问所需的地名和等待事项做字面计数，并保留全文供评阅。 */
-    private static void turn(int sample, String side, String phase, String chain, String question, ConsoleServer.Exchange entry,
-                             AuditLog audit, Relay relay, List<Turn> turns) throws Exception {
+    private static boolean turn(int sample, String side, String phase, String chain, String question, ConsoleServer.Exchange entry,
+                                AuditLog audit, Relay relay, List<Turn> turns) throws IOException, InterruptedException {
         int before = relay.calls.size();
         long start = System.nanoTime();
         int request = audit.write(chain, null, "chat-worker", "operator_message", Map.of("text", question));
         var trace = Trace.forChain(audit, "console", chain, request);
         String delivered = null;
+        String failure = null;
         try {
             var response = entry.send(question, trace);
             int draft = trace.write(response.causedBy(), "chat-worker", response.type(), response.data());
@@ -168,6 +212,11 @@ public final class ChatCompactionReplay {
                 throw new IOException("本轮未生成聊天答复，见 " + side + "/" + phase + " 的审计，返回 " + response.type());
             trace.write(draft, "console", "console_response_written", trace.delivery(Map.of()));
             delivered = (String) response.data().get("text");
+        } catch (IOException | IllegalArgumentException error) {
+            failure = error.toString();
+        } catch (InterruptedException stopped) {
+            failure = stopped.toString();
+            throw stopped;
         } finally {
             long elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
             var calls = List.copyOf(relay.calls.subList(before, relay.calls.size()));
@@ -175,10 +224,11 @@ public final class ChatCompactionReplay {
                             && event.type().equals("chat_context_compaction")).map(event -> event.data().getAsJsonObject()).toList();
             boolean reference = "reference".equals(phase) && delivered != null;
             int attempts = (int) calls.stream().filter(call -> call.get("operation").getAsString().equals("submit_chat_summary")).count();
-            turns.add(new Turn(sample, side, phase, elapsed, delivered,
+            turns.add(new Turn(sample, side, phase, delivered == null ? Status.FAILED : Status.DELIVERED, failure, elapsed, delivered,
                     reference ? delivered.contains("青岚渡") && delivered.contains("白芦湾") : null,
                     reference ? delivered.contains("潮汐") : null, attempts, calls, diagnostics));
         }
+        return delivered != null;
     }
 
     /** 汇总分别使用各请求的真实计数字段；供应商漏报的量保持缺失，并给出影响的调用数。 */
@@ -188,7 +238,8 @@ public final class ChatCompactionReplay {
         var result = new LinkedHashMap<String, Object>();
         result.put("calls", calls.size());
         result.put("summaryCalls", turns.stream().mapToInt(Turn::attempts).sum());
-        result.put("failedTurns", turns.stream().filter(t -> t.answer() == null).count());
+        result.put("failedTurns", turns.stream().filter(t -> t.status() == Status.FAILED).count());
+        result.put("unrunTurns", turns.stream().filter(t -> t.elapsedMs() == null).count());
         result.put("normalMs", percentiles(turns.stream().filter(t -> t.answer() != null && t.attempts() == 0).map(Turn::elapsedMs).toList()));
         result.put("triggerMs", percentiles(turns.stream().filter(t -> t.answer() != null && t.attempts() > 0).map(Turn::elapsedMs).toList()));
         for (String field : List.of("inputTokens", "cachedInputTokens", "outputTokens")) {
@@ -251,14 +302,26 @@ public final class ChatCompactionReplay {
                 }
                 byte[] content;
                 int status;
+                var wireRecord = new JsonObject();
+                wireRecord.add("request", request);
+                wireRecord.add("result", call);
                 try {
                     var response = upstream.send(network.build(), HttpResponse.BodyHandlers.ofByteArray());
                     status = response.statusCode();
                     content = response.body();
                     if (status >= 200 && status < 300) {
-                        var body = JsonParser.parseString(new String(content, StandardCharsets.UTF_8)).getAsJsonObject();
-                        if (body.has("model")) call.add("responseModel", body.get("model"));
-                        if (body.has("usage") && body.get("usage").isJsonObject()) copyUsage(body.getAsJsonObject("usage"), call);
+                        try {
+                            var parsed = JsonParser.parseString(new String(content, StandardCharsets.UTF_8));
+                            if (parsed.isJsonObject()) {
+                                var body = parsed.getAsJsonObject();
+                                if (body.has("model")) call.add("responseModel", body.get("model"));
+                                if (body.has("usage") && body.get("usage").isJsonObject()) copyUsage(body.getAsJsonObject("usage"), call);
+                                if (request.has("tools")) wireRecord.add("providerChoices", toolChoices(body));
+                            }
+                        } catch (JsonParseException error) {
+                            // 采样不改变供应商回包，正式适配器仍会收到原字节并按模型契约处理。
+                            call.addProperty("responseParseError", error.toString());
+                        }
                     }
                 } catch (IOException | InterruptedException error) {
                     if (error instanceof InterruptedException) Thread.currentThread().interrupt();
@@ -269,12 +332,41 @@ public final class ChatCompactionReplay {
                 call.addProperty("elapsedMs", TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
                 call.addProperty("httpStatus", status);
                 calls.add(call);
-                wire.write(JSON.toJson(Map.of("request", request, "result", call)));
+                wire.write(JSON.toJson(wireRecord));
                 wire.newLine();
                 wire.flush();
                 exchange.sendResponseHeaders(status, content.length);
                 exchange.getResponseBody().write(content);
             }
+        }
+
+        /** 只在本次合成样本的 wire 文件留存受限工具的原始返回；保留错误字段类型供重查。 */
+        private static JsonArray toolChoices(JsonObject body) {
+            var choices = new JsonArray();
+            if (!body.has("choices") || !body.get("choices").isJsonArray()) return choices;
+            for (var candidate : body.getAsJsonArray("choices")) {
+                var sample = new JsonObject();
+                choices.add(sample);
+                if (!candidate.isJsonObject()) continue;
+                var choice = candidate.getAsJsonObject();
+                sample.add("finish_reason", choice.get("finish_reason"));
+                if (!choice.has("message") || !choice.get("message").isJsonObject()) continue;
+                var message = choice.getAsJsonObject("message");
+                if (!message.has("tool_calls") || !message.get("tool_calls").isJsonArray()) continue;
+                var functions = new JsonArray();
+                sample.add("tool_calls", functions);
+                for (var item : message.getAsJsonArray("tool_calls")) {
+                    var returned = new JsonObject();
+                    functions.add(returned);
+                    if (!item.isJsonObject()) continue;
+                    var fn = item.getAsJsonObject().get("function");
+                    if (fn != null && fn.isJsonObject()) {
+                        returned.add("name", fn.getAsJsonObject().get("name"));
+                        returned.add("arguments", fn.getAsJsonObject().get("arguments"));
+                    }
+                }
+            }
+            return choices;
         }
 
         private static String sha256(byte[] bytes) {
