@@ -2,11 +2,14 @@ package neuralcloud.controlplane.memory;
 
 import neuralcloud.controlplane.console.AuditLog;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
+import neuralcloud.controlplane.worker.DialogueMessage;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -58,6 +61,83 @@ public final class ConversationMemory {
         return memory instanceof ResidentV2 v ? v : null;
     }
 
+    /** 启动握手结束后，只有已协商 HISTORY/CITE 的读取端才能参与自动查证。 */
+    public boolean supportsAutomaticRecall() {
+        return v2() != null && v2().supportsAudienceReads();
+    }
+
+    /** 消息保持各自的说话者。另行保留实际进入窗口的版本，供后续模型调用和发送前复核。 */
+    public record Dialogue(List<DialogueMessage> messages, Map<Trace.MemoryTarget, Long> versions) {}
+
+    private static boolean replayable(com.google.gson.JsonObject item) throws IOException {
+        return "ONLINE".equals(ResidentV2.string(item, "status"))
+                && (!item.has("evidence_active") || item.get("evidence_active").getAsBoolean());
+    }
+
+    /** 撤回可能发生在第一次规划之后。只要已送入模型的历史发生变化，本轮旧稿就不能继续生成或送达。 */
+    void verifyDialogue(Trace.Scope scope, Map<Trace.MemoryTarget, Long> versions)
+            throws IOException, InterruptedException {
+        var v = v2();
+        var current = v.reread(scope, "CHAT_WORKER", versions.keySet());
+        for (var entry : current.entrySet()) {
+            var item = entry.getValue().item();
+            if (!v.stream().equals(entry.getValue().stream()) || !replayable(item)
+                    || ResidentV2.integer(item.getAsJsonObject("ref"), "revision", 1) != versions.get(entry.getKey()))
+                throw new IOException("本轮使用的对话历史已更正或不可引用，需要重新查证");
+        }
+    }
+
+    /** 近期对话按当前受众批量回读。未取得回执的写入只按原幂等键对账，旧版或失效的正文不得重新拼入。 */
+    public Dialogue dialogue(Trace trace) throws IOException, InterruptedException {
+        var v = v2();
+        if (v == null) return new Dialogue(trace.dialogue(), Map.of());
+        var scope = trace.scope();
+        var rows = audit.historyBefore(scope.channel(), scope.chain(), trace.request(), true).reversed();
+        var result = new ArrayList<DialogueMessage>();
+        var versions = new LinkedHashMap<Trace.MemoryTarget, Long>();
+        int remaining = AuditLog.DIALOGUE_CHAR_BUDGET;
+        history:
+        for (int first = 0; first < rows.size(); first += 128) {
+            var batch = new ArrayList<>(rows.subList(first, Math.min(first + 128, rows.size())));
+            var targets = new LinkedHashSet<Trace.MemoryTarget>();
+            for (int i = 0; i < batch.size(); i++) {
+                var row = batch.get(i);
+                if (row.writeRequested() && row.recordId() == null) {
+                    var receipt = v.observationReceipt(row.eventKey());
+                    if (receipt.isEmpty()) continue;
+                    var data = receipt.get();
+                    row = new AuditLog.HistoryEntry(row.eventKey(), row.message(), true,
+                            ResidentV2.string(data, "record_id"), ResidentV2.integer(data, "revision", 1));
+                    batch.set(i, row);
+                }
+                if (row.recordId() != null) targets.add(new Trace.MemoryTarget("HISTORY", row.recordId()));
+            }
+            var current = v.reread(scope, "CHAT_WORKER", targets);
+            for (var row : batch) {
+                var message = row.message();
+                Trace.MemoryTarget target = null;
+                long revision = 0;
+                if (row.writeRequested()) {
+                    if (row.recordId() == null) continue;
+                    target = new Trace.MemoryTarget("HISTORY", row.recordId());
+                    var item = current.get(target).item();
+                    if (!replayable(item)) continue;
+                    revision = ResidentV2.integer(item.getAsJsonObject("ref"), "revision", 1);
+                    // 同版渠道正文可完整重放；更正过的记录只能使用当前版本的正文。
+                    if (revision != row.revision()) {
+                        String text = v.replacementText(scope, item);
+                        message = new DialogueMessage(message.speaker(), text);
+                    }
+                }
+                if (message.text().length() > remaining) break history;
+                result.add(message);
+                if (target != null) versions.put(target, revision);
+                remaining -= message.text().length();
+            }
+        }
+        return new Dialogue(List.copyOf(result.reversed()), Map.copyOf(versions));
+    }
+
     /**
      * 统一执行记忆查询并记录 {@code memory_recall} 审计事件。
      * v1 直接分派到 {@link #recall} / {@link #identity} / {@link #selfHistory}；
@@ -65,7 +145,7 @@ public final class ConversationMemory {
      * 并在服务端评估为 {@code CONFLICT} 或 {@code INCOMPLETE} 时在结果头部插入明确的风险提示。
      */
     Recall retrieve(Trace trace, int event, QueryKind kind, String query, String role, String input,
-                    boolean numberEvidence)
+                    boolean numberEvidence, int byteBudget)
             throws IOException, InterruptedException {
         ResidentV2 v = v2();
         if (v == null)
@@ -78,13 +158,23 @@ public final class ConversationMemory {
         var snap = v.lookup(trace.scope(), role, kind, query, receivedAt(trace));
         var messages = new ArrayList<String>();
         var rows = new ArrayList<MemoryJournal.Read>();
+        String qualification = switch (snap.assessment()) {
+            case "CONFLICT" -> "当前证据存在冲突。";
+            case "INCOMPLETE" -> "目前依据不足以确认执行结果。";
+            default -> "";
+        };
+        if (!qualification.isEmpty()) messages.add(qualification);
+        int bytes = qualification.getBytes(StandardCharsets.UTF_8).length;
         // 仅保留当前仍在线的条目生成证据绑定与自然语言呈现，避免把已撤回或离线记录交给模型。
         for (var item : snap.items()) {
             if (!"ONLINE".equals(ResidentV2.string(item, "status"))) continue;
-            rows.add(ResidentV2.binding(trace.scope(), role, kind.name(), item, snap, input));
-            // 序号只属于实际交给模型的记录。后面插入的冲突、空结果等说明不会占用或移动序号。
             String sentence = ResidentV2.render(item, kind.name());
-            messages.add(numberEvidence ? "【证据 " + rows.size() + "】" + sentence : sentence);
+            if (numberEvidence) sentence = "【证据 " + (rows.size() + 1) + "】" + sentence;
+            int size = sentence.getBytes(StandardCharsets.UTF_8).length + (messages.isEmpty() ? 0 : 1);
+            if (size > byteBudget - bytes) continue;
+            bytes += size;
+            messages.add(sentence);
+            rows.add(ResidentV2.binding(trace.scope(), role, kind.name(), item, snap, input));
         }
         int count = rows.size();
         // recent 模式下的 HISTORY 查询本质上是回读当前会话近期对话，并非按话题检索，因此命中计数归零。
@@ -92,9 +182,6 @@ public final class ConversationMemory {
             messages.addFirst("本次只回读了当前会话的近期对话，共 " + count + " 条。");
             count = 0;
         }
-        // 当记忆服务识别到多源证据冲突或缺乏足够回执时，在文本最前提醒模型谨慎判断。
-        if (snap.assessment().equals("CONFLICT")) messages.addFirst("当前证据存在冲突。");
-        if (snap.assessment().equals("INCOMPLETE")) messages.addFirst("目前依据不足以确认执行结果。");
         int logged =
                 trace.write(
                         event,

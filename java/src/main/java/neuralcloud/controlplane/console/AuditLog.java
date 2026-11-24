@@ -33,7 +33,7 @@ import java.util.UUID;
  */
 public final class AuditLog implements AutoCloseable {
     /** 构造多轮续聊前缀对话时保留的最大历史正文总字符预算（从最近轮次向前裁剪）。 */
-    private static final int DIALOGUE_CHAR_BUDGET = 48_000;
+    public static final int DIALOGUE_CHAR_BUDGET = 48_000;
     private static final Gson JSON = new GsonBuilder().disableHtmlEscaping().setStrictness(Strictness.STRICT).create();
     private static final DateTimeFormatter FILE_TIME = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmssSSS'Z'")
             .withZone(ZoneOffset.UTC);
@@ -166,56 +166,69 @@ public final class AuditLog implements AutoCloseable {
                 && scope.runId().equals(event.runId()) && scope.chain().equals(event.chain())).findFirst().orElseThrow();
     }
 
-    /**
-     * 从审计链重建本轮请求（{@code request}）之前可用于续聊的纯文本多轮对话列表：
-     * 1. 严格截断在当前运行的 {@code request} 之前，不把本轮正在处理的消息混入历史；
-     * 2. 遇到 {@code memory_context_reset}（记忆证据发生修订/更正）时清空先前内存对话，强迫后续基于新证据重建上下文；
-     * 3. 角色回复只回放经当前渠道明确确认写出的条目（{@code console_response_written} 或 {@code qq_delivery}），
-     *    且排除带有 {@code source_refs} 的跨会话转授权回复（防止历史渠道回执绕过撤权永久重放）；
-     * 4. 最后按 {@value #DIALOGUE_CHAR_BUDGET} 字符上限从末尾保留最近若干轮。
-     */
-    public synchronized List<DialogueMessage> dialogueBefore(String channel, String chain, int request) {
-        var dialogue = new ArrayList<DialogueMessage>();
+    /** 保存原始说话者和写入幂等键，直到读取方在实际受众下核验该条记录。 */
+    public record HistoryEntry(String eventKey, DialogueMessage message, boolean writeRequested,
+                               String recordId, long revision) {}
+
+    /** 原渠道投影仍供无 v2 的入口使用。v2 从同一组渠道事件出发，逐条核验后再做预算裁剪。 */
+    public List<DialogueMessage> dialogueBefore(String channel, String chain, int request) {
+        var rows = historyBefore(channel, chain, request, false).stream().map(HistoryEntry::message).toList();
+        int remaining = DIALOGUE_CHAR_BUDGET, start = rows.size();
+        while (start > 0 && rows.get(start - 1).text().length() <= remaining)
+            remaining -= rows.get(--start).text().length();
+        return rows.subList(start, rows.size());
+    }
+
+    /** 以原运行和来源事件关联写入意图及持久回执。QQ 以实际送达为来源，网页以响应写出为来源。 */
+    public synchronized List<HistoryEntry> historyBefore(String channel, String chain, int request, boolean verifyVersions) {
+        var rows = new LinkedHashMap<String, HistoryEntry>();
         var byRun = new HashMap<String, HashMap<Integer, Event>>();
         boolean qq = "openqq".equals(channel);
         for (Event event : events) {
-            if (!chain.equals(event.chain())) {
+            if (!chain.equals(event.chain())) continue;
+            if (runId.equals(event.runId()) && event.eventId() >= request) break;
+            if (!verifyVersions && "memory_context_reset".equals(event.type())) rows.clear();
+            var causal = byRun.computeIfAbsent(event.runId(), ignored -> new HashMap<>());
+            causal.put(event.eventId(), event);
+            var parent = causal.get(event.causedBy());
+            String key = event.runId() + ":" + event.eventId();
+            if (verifyVersions && ("router_memory_write".equals(event.type()) || "memory_durable".equals(event.type()))) {
+                boolean receipt = "memory_durable".equals(event.type());
+                var writing = receipt ? parent : event;
+                if (writing != null && "router_memory_write".equals(writing.type())
+                        && writing.data().getAsJsonObject().has("sourceEventId")) {
+                    String source = event.runId() + ":" + writing.data().getAsJsonObject().get("sourceEventId").getAsInt();
+                    var row = rows.get(source);
+                    if (row != null) {
+                        var data = event.data().getAsJsonObject();
+                        rows.put(source, new HistoryEntry(source, row.message(), true,
+                                receipt ? data.get("recordId").getAsString() : null,
+                                receipt && data.has("revision") ? data.get("revision").getAsLong() : 0));
+                    }
+                }
                 continue;
             }
-            if (runId.equals(event.runId()) && event.eventId() >= request) {
-                break;
-            }
-            if ("memory_context_reset".equals(event.type())) dialogue.clear();
-            var causalEvents = byRun.computeIfAbsent(event.runId(), ignored -> new HashMap<>());
-            causalEvents.put(event.eventId(), event);
             if (qq ? "qq_message".equals(event.type()) && "openqq".equals(event.node())
                     : "operator_message".equals(event.type())
                             && ("chat-worker".equals(event.node()) || "conversation".equals(event.node()))) {
-                dialogue.add(new DialogueMessage(Speaker.USER, event.data().getAsJsonObject().get("text").getAsString()));
+                rows.put(key, new HistoryEntry(key, new DialogueMessage(Speaker.USER,
+                        event.data().getAsJsonObject().get("text").getAsString()), false, null, 0));
                 continue;
             }
-            // 只回放经当前渠道确认写出的角色正文，消息 ID 只在同一个 runId 内回溯。
-            var parent = causalEvents.get(event.causedBy());
             if (qq && "qq_delivery".equals(event.type()) && "openqq".equals(event.node()) && parent != null
                     && "qq_send_requested".equals(parent.type()) && "openqq".equals(parent.node())) {
-                parent = causalEvents.get(parent.causedBy());
+                parent = causal.get(parent.causedBy());
             } else if (qq || !"console_response_written".equals(event.type()) || !"console".equals(event.node())) {
                 continue;
             }
-            // 转授权回复只从 Memory 按当前受众重读；历史渠道回执不能永久授权重放正文。
-            if (parent != null
-                    && "chat_worker_reply".equals(parent.type())
-                    && "chat-worker".equals(parent.node())
+            // 带授权来源的旧回复只有重新查证后才能引用，直接按渠道原文回放会绕开来源授权。
+            if (parent != null && "chat_worker_reply".equals(parent.type()) && "chat-worker".equals(parent.node())
                     && !event.data().getAsJsonObject().has("source_refs")) {
-                dialogue.add(new DialogueMessage(Speaker.MISTY, parent.data().getAsJsonObject().get("text").getAsString()));
+                rows.put(key, new HistoryEntry(key, new DialogueMessage(Speaker.MISTY,
+                        parent.data().getAsJsonObject().get("text").getAsString()), false, null, 0));
             }
         }
-        int remaining = DIALOGUE_CHAR_BUDGET;
-        int start = dialogue.size();
-        while (start > 0 && dialogue.get(start - 1).text().length() <= remaining) {
-            remaining -= dialogue.get(--start).text().length();
-        }
-        return List.copyOf(dialogue.subList(start, dialogue.size()));
+        return List.copyOf(rows.values());
     }
 
     @Override
