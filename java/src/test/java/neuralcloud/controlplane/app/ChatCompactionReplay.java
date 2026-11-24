@@ -29,6 +29,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -44,20 +45,33 @@ public final class ChatCompactionReplay {
     private static final String TRIGGER = "我已经把这些页面整理好了，你先回一句收到吧。";
     private static final String REFERENCE = "那两个候选我还拿不定主意。把地名并排写给我，再提醒我原本打算等什么。";
     private static final String ORIGINAL = "夏至的小旅行还没定。我想在青岚渡和白芦湾中选一处，等潮汐表出来再决定。先替我留着这两个候选。";
+    private record Reference(String dataset, String source, String question, String first, String second, List<String> waitTerms) {}
+    private static final Reference COAST = new Reference("synthetic-coastal-notebook-v1", ORIGINAL, REFERENCE,
+            "青岚渡", "白芦湾", List.of("潮汐"));
+    private static final Reference HOLDOUT = new Reference("synthetic-herbarium-holdout-v1",
+            "秋天的写生活动还没选好场地。我在槐纹坞和棠釉埠之间犹豫，要等索道检修报告出来再定。两个地点都先留着。",
+            "上次那两个备选地点，我们先把名字并排写下来吧。要等什么出来，我才能定？",
+            "槐纹坞", "棠釉埠", List.of("索道", "检修", "报告"));
     private static final List<String> PHASES = List.of("short", "trigger", "reference");
     private static final String HELP = """
-            ChatCompactionReplay <Chat Worker properties> <新的输出目录> [historyBudgetUnits] [重复次数]
+            ChatCompactionReplay [--holdout] <Chat Worker properties> <新的输出目录> [historyBudgetUnits] [重复次数]
             缺省预算 48000，每侧每次各执行三轮。模型和 Router 调用均使用所选服务和该配置指定的环境密钥。
+            --holdout 从同一合成长历史的固定截点开始，每侧只问一次远距问题。预先登记数据见 holdout-case.json。
             report.json 给出延迟、供应商用量、压缩诊断和远距指代结果，每侧 wire.jsonl 保存请求与原始 usage。
             """;
 
     private enum Status { DELIVERED, FAILED, SKIPPED_DEPENDENCY, ARM_UNAVAILABLE }
 
     private record Turn(int sample, String side, String phase, Status status, String error, Long elapsedMs, String answer,
-                        Boolean recallsBothPlaces, Boolean recallsTide, int attempts, List<JsonObject> calls, List<JsonObject> diagnostics) {}
+                        Boolean recallsBothPlaces, Boolean recallsTide, Boolean recallsWaitCondition, int attempts,
+                        List<JsonObject> calls, List<JsonObject> diagnostics) {}
 
     public static void main(String[] args) throws Exception {
         if (args.length == 1 && "--help".equals(args[0])) { System.out.print(HELP); return; }
+        boolean holdout = args.length > 0 && "--holdout".equals(args[0]);
+        if (holdout) args = Arrays.copyOfRange(args, 1, args.length);
+        var scenario = holdout ? HOLDOUT : COAST;
+        var phases = holdout ? List.of("reference") : PHASES;
         if (args.length < 2 || args.length > 4) throw new IllegalArgumentException(HELP);
         var original = ConfigSource.file(Path.of(args[0]));
         var baseline = ChatWorkerConfig.load(original);
@@ -68,6 +82,7 @@ public final class ChatCompactionReplay {
         if (samples < 1) throw new IllegalArgumentException("重复次数须为正数");
         String key = baseline.apiKey();
         var directory = Files.createDirectory(Path.of(args[1]).toAbsolutePath());
+        var fixedHistory = holdout ? holdoutHistory(directory) : List.<String>of();
         var profile = original.readProperties();
         var turns = new ArrayList<Turn>();
         var armIssues = new ArrayList<Map<String, Object>>();
@@ -79,12 +94,12 @@ public final class ChatCompactionReplay {
                 for (String side : order) {
                     int firstTurn = turns.size();
                     try {
-                        runSide(directory, profile, key, budget, sample, side, turns);
+                        runSide(directory, profile, key, budget, sample, side, turns, scenario, fixedHistory);
                     } catch (IOException | IllegalArgumentException error) {
                         // 建库、读配置或收尾失败只影响这一侧。保留已返回的轮次，为其余预定样本记下缺口。
                         armIssues.add(Map.of("sample", sample, "side", side, "error", error.toString()));
                         var observed = turns.subList(firstTurn, turns.size()).stream().map(Turn::phase).toList();
-                        for (String phase : PHASES) if (!observed.contains(phase))
+                        for (String phase : phases) if (!observed.contains(phase))
                             turns.add(unrun(sample, side, phase, Status.ARM_UNAVAILABLE, error.toString()));
                     }
                 }
@@ -96,22 +111,24 @@ public final class ChatCompactionReplay {
             throw error;
         } finally {
             var report = new LinkedHashMap<String, Object>();
-            report.put("dataset", "synthetic-coastal-notebook-v1");
+            report.put("dataset", scenario.dataset());
             report.put("model", baseline.model());
             report.put("budget", budget);
             report.put("requestedSamples", samples);
             report.put("completedTurns", turns.stream().filter(t -> t.status() == Status.DELIVERED).count());
             report.put("runFailure", failure == null ? null : failure.toString());
             report.put("armIssues", armIssues);
-            report.put("shortQuestion", SHORT);
-            report.put("triggerQuestion", TRIGGER);
-            report.put("referenceQuestion", REFERENCE);
-            report.put("referenceExpected", List.of("青岚渡", "白芦湾", "潮汐"));
+            if (!holdout) {
+                report.put("shortQuestion", SHORT);
+                report.put("triggerQuestion", TRIGGER);
+            }
+            report.put("referenceQuestion", scenario.question());
+            report.put("referenceExpected", List.of(scenario.first(), scenario.second(), String.join("", scenario.waitTerms())));
             report.put("arms", Map.of("OFF", stats(turns, "OFF"), "ROLLING", stats(turns, "ROLLING")));
             var paired = new ArrayList<Long>();
             var gaps = new ArrayList<Map<String, Object>>();
             for (int sample = 1; sample <= samples; sample++) {
-                for (String phase : PHASES) {
+                for (String phase : phases) {
                     var off = observed(turns, sample, "OFF", phase);
                     var rolling = observed(turns, sample, "ROLLING", phase);
                     if (off.isPresent() && off.get().status() == Status.DELIVERED
@@ -138,12 +155,30 @@ public final class ChatCompactionReplay {
     }
 
     private static Turn unrun(int sample, String side, String phase, Status status, String error) {
-        return new Turn(sample, side, phase, status, error, null, null, null, null, 0, List.of(), List.of());
+        return new Turn(sample, side, phase, status, error, null, null, null, null, null, 0, List.of(), List.of());
+    }
+
+    /** 在第一次模型请求前写出首条线索、截点指纹和逐字评分约定。两侧使用同一不可变输入序列。 */
+    private static List<String> holdoutHistory(Path directory) throws IOException {
+        var messages = new ArrayList<String>();
+        messages.add(HOLDOUT.source());
+        int tailUnits = 0;
+        for (int page = 1; tailUnits < 50_000; page++) {
+            String record = "这是植物标本簿第" + page + "页。"
+                    + "叶片已经压干，叶脉和边缘的形状也抄进了方格纸。纸带换成新的，编号逐个核过，这页已归档。".repeat(8);
+            messages.add(record);
+            tailUnits += record.length();
+        }
+        Files.writeString(directory.resolve("holdout-case.json"), JSON.toJson(Map.of(
+                "reference", HOLDOUT, "messages", messages.size(), "historyUnits", HOLDOUT.source().length() + tailUnits,
+                "tailUnitsAfterClue", tailUnits, "historySha256", Relay.sha256(JSON.toJson(messages).getBytes(StandardCharsets.UTF_8)),
+                "scoring", "两处地名逐字命中，等待条件的各词须全部命中。参照答复全文复核。")));
+        return List.copyOf(messages);
     }
 
     /** 档位只改变两个压缩属性。角色、模型、只读参与偏好及供应商传输配置来自同一份正式配置。 */
     private static void runSide(Path output, Properties original, String key, int budget, int sample, String side,
-                                List<Turn> turns) throws IOException, InterruptedException {
+                                List<Turn> turns, Reference scenario, List<String> fixedHistory) throws IOException, InterruptedException {
         Path directory = Files.createDirectory(output.resolve("sample-" + sample + "-" + side));
         var profile = new Properties();
         profile.putAll(original);
@@ -157,7 +192,7 @@ public final class ChatCompactionReplay {
         try (var writer = Files.newBufferedWriter(properties)) { profile.store(writer, "synthetic replay"); }
         var settings = ChatWorkerConfig.load(ConfigSource.file(properties));
         try (var upstream = settings.newClient();
-             var relay = new Relay(settings, upstream, directory.resolve("wire.jsonl"));
+             var relay = new Relay(settings, upstream, directory.resolve("wire.jsonl"), scenario);
              var loopback = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
              var audit = AuditLog.open(directory.resolve("audit"))) {
             var transport = new ChatCompactionFixture.LoopbackTransport(loopback, relay.endpoint());
@@ -166,6 +201,11 @@ public final class ChatCompactionReplay {
                     settings.requestTimeout(), "测试", 8, 0, settings.enableThinking(), key, settings.thinkingFormat(), settings.proxy());
             var router = new Router<>(new Master(transport, routing), ConfigSource.bundled("router-role-prompt.txt").readText(), Route.class);
             var entry = ConsoleMain.conversation(chat, router, Optional.empty(), Optional.empty());
+            if (!fixedHistory.isEmpty()) {
+                for (String text : fixedHistory) audit.write("holdout", null, "chat-worker", "operator_message", Map.of("text", text));
+                turn(sample, side, "reference", "holdout", scenario.question(), entry, audit, relay, turns);
+                return;
+            }
             turn(sample, side, "short", "short", SHORT, entry, audit, relay, turns);
             audit.write("coast", null, "chat-worker", "operator_message", Map.of("text", ORIGINAL));
             int nextPage = addPages(audit, 1, 3 * budget / 4 + 128);
@@ -225,8 +265,9 @@ public final class ChatCompactionReplay {
             boolean reference = "reference".equals(phase) && delivered != null;
             int attempts = (int) calls.stream().filter(call -> call.get("operation").getAsString().equals("submit_chat_summary")).count();
             turns.add(new Turn(sample, side, phase, delivered == null ? Status.FAILED : Status.DELIVERED, failure, elapsed, delivered,
-                    reference ? delivered.contains("青岚渡") && delivered.contains("白芦湾") : null,
-                    reference ? delivered.contains("潮汐") : null, attempts, calls, diagnostics));
+                    reference ? delivered.contains(relay.scenario.first()) && delivered.contains(relay.scenario.second()) : null,
+                    reference && relay.scenario.equals(COAST) ? delivered.contains("潮汐") : null,
+                    reference ? relay.scenario.waitTerms().stream().allMatch(delivered::contains) : null, attempts, calls, diagnostics));
         }
         return delivered != null;
     }
@@ -264,10 +305,12 @@ public final class ChatCompactionReplay {
         private final HttpClient upstream;
         private final HttpServer server;
         private final BufferedWriter wire;
+        private final Reference scenario;
 
-        Relay(ChatWorkerConfig.Settings settings, HttpClient upstream, Path file) throws IOException {
+        Relay(ChatWorkerConfig.Settings settings, HttpClient upstream, Path file, Reference scenario) throws IOException {
             this.settings = settings;
             this.upstream = upstream;
+            this.scenario = scenario;
             wire = Files.newBufferedWriter(file);
             server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             server.createContext("/chat/completions", this::forward);
@@ -292,13 +335,29 @@ public final class ChatCompactionReplay {
                 call.addProperty("requestBytes", bytes.length);
                 call.addProperty("requestSha256", sha256(bytes));
                 String operation = call.get("operation").getAsString();
+                var captured = new ChatCompactionFixture.Call(operation, request);
+                if (scenario.equals(HOLDOUT)) {
+                    var received = captured.messages();
+                    var terms = new ArrayList<>(List.of(scenario.first(), scenario.second()));
+                    terms.addAll(scenario.waitTerms());
+                    var clues = new LinkedHashMap<String, Boolean>();
+                    var dataClues = new LinkedHashMap<String, Boolean>();
+                    // 系统规则也可能有“报告”这样的普通词，同步标出输入数据中真实出现的线索。
+                    for (String term : terms) {
+                        clues.put(term, received.stream().anyMatch(m -> m.text().contains(term)));
+                        dataClues.put(term, received.stream().anyMatch(m -> !m.role().equals("system") && m.text().contains(term)));
+                    }
+                    call.add("inputClues", JSON.toJsonTree(clues));
+                    call.add("inputDataClues", JSON.toJsonTree(dataClues));
+                    call.addProperty("inputContainsOriginalStatement", received.stream().anyMatch(m -> m.text().contains(scenario.source())));
+                }
                 if ("plan_turn".equals(operation) || "reply".equals(operation)) {
-                    var messages = new ChatCompactionFixture.Call(operation, request).messages();
+                    var messages = captured.messages();
                     var history = messages.subList(1, messages.size() - 1);
                     call.addProperty("historyUnits", history.stream().mapToInt(m -> m.text().length()).sum());
                     call.addProperty("historyMessages", history.size());
-                    call.addProperty("historyNamesBothPlaces", history.stream().anyMatch(m -> m.text().contains("青岚渡"))
-                            && history.stream().anyMatch(m -> m.text().contains("白芦湾")));
+                    call.addProperty("historyNamesBothPlaces", history.stream().anyMatch(m -> m.text().contains(scenario.first()))
+                            && history.stream().anyMatch(m -> m.text().contains(scenario.second())));
                 }
                 byte[] content;
                 int status;
