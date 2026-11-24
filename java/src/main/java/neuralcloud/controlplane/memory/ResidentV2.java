@@ -894,11 +894,39 @@ public final class ResidentV2 extends ResidentMemory {
         return false;
     }
 
+    private record CurrentItem(String stream, long seq, JsonObject item) {}
+
+    /** 同一受众的历史可能登记过多次。每种查询目的按 /v2/read 的 128 条上限批量回读，保留各批的真实水位。 */
+    private Map<List<String>, CurrentItem> reread(Trace.Scope scope, String role, Set<MemoryJournal.Read> affected)
+            throws IOException, InterruptedException {
+        var byKind = new LinkedHashMap<String, Set<String>>();
+        for (var read : affected)
+            byKind.computeIfAbsent(read.kind(), ignored -> new LinkedHashSet<>()).add(read.id());
+        var current = new HashMap<List<String>, CurrentItem>();
+        for (var group : byKind.entrySet()) {
+            var ids = List.copyOf(group.getValue());
+            for (int start = 0; start < ids.size(); start += 128) {
+                var batch = ids.subList(start, Math.min(start + 128, ids.size()));
+                var now = readItems(scope, role, group.getKey(), batch);
+                var received = new HashSet<String>();
+                for (var item : now.items()) {
+                    String id = item.has("ref") ? string(item.getAsJsonObject("ref"), "record_id")
+                            : string(item, "record_id");
+                    received.add(id);
+                    current.put(List.of(group.getKey(), id), new CurrentItem(now.stream(), now.seq(), item));
+                }
+                if (now.items().size() != batch.size() || !received.containsAll(batch))
+                    throw new IOException("Memory v2 回读结果与请求的记录不匹配");
+            }
+        }
+        return current;
+    }
+
     /**
      * 每轮开始前对当前角色在本会话已监视的证据执行增量变更检测：
-     * 1. 先查 {@code v2/health} 获取最新流与头序号 {@code high}；带有效期的条目即使账本水位未动也强制加入待检集合（因为墙钟时间可能已过有效期）；
+     * 1. 先查 {@code v2/health} 获取最新流与头序号 {@code high}，再将跨会话和时效依据加入待检集合；
      * 2. 从所有同流监视项的最小 {@code seq} 起分页拉取 {@code v2/changes}，定位自身或上游 {@code source_refs} 发生变更的监视项；
-     * 3. 逐条重读受影响条目：若内容/状态改变则生成“记忆更正”提示；若原先活跃的时态断言翻转为非活跃（例如安排被替代或到期），
+     * 3. 分批重读受影响条目：若内容/状态改变则生成“记忆更正”提示；若原先活跃的时态断言翻转为非活跃（例如安排被替代或到期），
      *    还会按同一 {@code (subject_id, predicate)} 自动召回当前替代安排一并注入模型。
      */
     Refresh refresh(Trace.Scope scope, String role) throws IOException, InterruptedException {
@@ -910,8 +938,10 @@ public final class ResidentV2 extends ResidentMemory {
         long cursor = high;
         var affected = new LinkedHashSet<MemoryJournal.Read>();
         for (var r : registered) {
-            // 业务时间可能越过有效期，此时账本水位可以完全不动，因此带时效/断言的条目必须每轮重检。
-            if (r.item().has("evidence_valid_until") || r.item().has("assertion")) affected.add(r);
+            // 切换会话隔离和跨过有效期都不会写入变更流。这些依据必须在本轮首个模型输入前按接收会话重读。
+            if (r.item().has("evidence_valid_until") || r.item().has("assertion")
+                    || r.item().has("grant_dependent") && r.item().get("grant_dependent").getAsBoolean())
+                affected.add(r);
             if (!r.stream().equals(currentStream) || r.seq() > high) affected.add(r);
             else cursor = Math.min(cursor, r.seq());
         }
@@ -940,13 +970,16 @@ public final class ResidentV2 extends ResidentMemory {
         var messages = new LinkedHashSet<String>();
         var updates = new ArrayList<MemoryJournal.Read>();
         var evidence = new LinkedHashMap<List<String>, MemoryJournal.Read>();
+        var current = reread(scope, role, affected);
         for (var r : registered) {
             JsonObject item = r.item();
+            String seenStream = currentStream;
             long seen = high;
-            if (affected.contains(r)) {
-                var now = readItems(scope, role, r.kind(), List.of(r.id()));
+            var now = current.get(List.of(r.kind(), r.id()));
+            if (now != null) {
+                seenStream = now.stream();
                 seen = now.seq();
-                var latest = now.items().getFirst();
+                var latest = now.item();
                 if (!sameEvidence(latest, item)) {
                     messages.add("记忆更正：" + render(latest, r.kind()));
                     evidence.put(
@@ -992,7 +1025,7 @@ public final class ResidentV2 extends ResidentMemory {
                 }
                 item = latest;
             }
-            if (seen != r.seq() || !r.stream().equals(currentStream)
+            if (seen != r.seq() || !r.stream().equals(seenStream)
                     || !sameEvidence(r.item(), item))
                 updates.add(
                         new MemoryJournal.Read(
@@ -1000,7 +1033,7 @@ public final class ResidentV2 extends ResidentMemory {
                                 scope.conversationId(),
                                 r.kind(),
                                 r.id(),
-                                currentStream,
+                                seenStream,
                                 seen,
                                 item,
                                 r.input()));

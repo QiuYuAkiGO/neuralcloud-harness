@@ -453,7 +453,8 @@ public final class MemoryCall {
         var sentences = recalled.messages();
         if (sentences.isEmpty()) {
             sentences = List.of(switch (kind) {
-                case HISTORY -> "当前会话中未查到符合条件的历史记录。";
+                case HISTORY -> memory.v2() == null ? "当前会话中未查到符合条件的历史记录。"
+                        : "未查到当前会话可引用的相关历史记录。";
                 case SELF_IDENTITY -> "没有查到当前发信用户经确认的称呼。";
                 case SELF_HISTORY -> "在能核实为当前账号本人发出的 QQ 历史消息中，未查到符合条件的发言。";
             });
