@@ -81,6 +81,37 @@ public class DreamingModelTest {
         }
     }
 
+    /** 同一批包含新人物和既有事项；修订正文以“我”开头时逐字保留。 */
+    @Test public void acceptsFirstPersonRevisionVerbatim() throws Exception {
+        try (var provider = new Provider()) {
+            var settings = settings("GEMINI", provider.base() + GEMINI);
+            settings.setProperty("apiKeyEnv", credentialEnv());
+            var revised = topic();
+            revised.addProperty("text", "我暂时记下，读书会已经改到了周三。");
+            var expected = changes(person(), revised);
+            provider.reply = gemini("STOP", expected.toString());
+            try (var model = DreamingModel.open(settings)) {
+                assertEquals(expected.get("changes"), model.organize(batch()));
+            }
+        }
+    }
+
+    /** 即使新人物正文合规，第三人称修订或“我”前有空格仍使整个结果失效。 */
+    @Test public void rejectsWholeBatchWhenRevisionDoesNotStartWithFirstPerson() throws Exception {
+        try (var provider = new Provider()) {
+            var settings = settings("GEMINI", provider.base() + GEMINI);
+            settings.setProperty("apiKeyEnv", credentialEnv());
+            try (var model = DreamingModel.open(settings)) {
+                for (String text : List.of("读书会已经改到了周三。", " 我暂时记下，读书会已经改到了周三。")) {
+                    var revised = topic();
+                    revised.addProperty("text", text);
+                    var proposal = changes(person(), revised);
+                    reject(model, provider, gemini("STOP", proposal.toString()), text);
+                }
+            }
+        }
+    }
+
     /** 本地兼容端点可以免鉴权；强制选择的唯一函数允许报告已经看过、没有变化。 */
     @Test public void localOpenAiRequiresTheSingleToolAndAcceptsAnEmptyChangeSet() throws Exception {
         try (var provider = new Provider()) {
