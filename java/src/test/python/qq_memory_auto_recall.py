@@ -28,6 +28,7 @@ class RecallTrial(Trial):
     def __init__(self, args):
         self.packets_seen = []
         self.business_route = "CONVERSATION"
+        self.answers = {FACT: f"{CREATOR}是我的唯一创造者。"}
         super().__init__(args)
 
     def route(self, path, body):
@@ -47,12 +48,11 @@ class RecallTrial(Trial):
         assert not names, names
         messages = json.dumps(body["messages"], ensure_ascii=False)
         self.packets_seen.append(("draft", body["messages"], None))
-        if FACT in messages:
-            text = f"{CREATOR}是我的唯一创造者。"
-        elif WRONG_NAME.search(messages.replace(" ", "")):
-            text = f"我叫{SENDER_NAME}。"
-        else:
-            text = "我目前没有查到能确认这件事的记录。"
+        # 合成答复只有在模型本次看见对应的确认原文时才返回，正文的传递由正式服务完成。
+        text = next((answer for evidence, answer in self.answers.items() if evidence in messages), None)
+        if text is None:
+            text = (f"我叫{SENDER_NAME}。" if WRONG_NAME.search(messages.replace(" ", ""))
+                    else "我目前没有查到能确认这件事的记录。")
         return 200, {"model": "trial", "choices": [{"finish_reason": "stop", "message": {"content": text}}]}
 
     def onebot(self, ws):
@@ -181,6 +181,68 @@ class AutoRecallCases(unittest.TestCase):
         self.assertNotIn(CREATOR, reply)
         self.assertNotRegex(reply.replace(" ", ""), WRONG_NAME)
         self.assertTrue(any(term in reply for term in ("没有", "没查到", "未", "无法", "不能确认", "不确定")), reply)
+
+    def test_prefaced_followup_recovers_the_last_substantive_private_question(self):
+        """正例。先问师徒关系，再发一句纯追问；第三轮出现铺垫后仍须找回第一轮主题。"""
+        t = self.trial
+        topic = "蓝棠工坊里白桐的带教老师是谁？"
+        followup = "刚才那边应该已经恢复了，要不再想想？"
+        fact = "经运营确认，蓝棠工坊的雁回七号是白桐的带教老师。"
+        answer = "白桐的带教老师是雁回七号。"
+        t.answers[fact] = answer
+        t.harness()
+        t.ask_private(topic, 83001)
+        t.ask_private("再查一下记忆。", 83002)
+        # 资料在前两次回复送达之后才进入账本，重放先前问答无法提供本次期待的名字。
+        receipt = t.seed("workshop-mentor", PRIVATE, fact)
+        expected = {key: receipt[key] for key in ("record_id", "revision")}
+        observed, reply = t.ask_private(followup, 83003)
+        reads, first_plan = self.before_plan(observed, followup)
+        matches = [request["query"] for request, result in reads for item in result["items"]
+                   if item.get("ref") == expected and item.get("text") == fact]
+        self.assertTrue(any(any(clue in query for clue in ("蓝棠", "白桐", "带教", "师徒", "老师"))
+                            for query in matches),
+                        f"查证应恢复有效原问并收到运营确认的精确版本，实际查询为 {[r['query'] for r, _ in reads]}")
+        self.assertIn(fact, first_plan)
+        self.assertIn("雁回七号", reply)
+
+    def test_prefaced_followup_respects_the_venue_and_new_topic_or_action(self):
+        """反例。新私聊无权从网页借用主题；同句明确点出的新材料或新动作优先于本地旧话题。"""
+        t = self.trial
+        other = "紫苏天文台"
+        fact = "青瓦展柜的交接编号是芦笙四七号。"
+        t.answers[fact] = "交接编号是芦笙四七号。"
+        receipt = t.seed("cabinet-handover", PRIVATE, fact)
+        expected = {key: receipt[key] for key in ("record_id", "revision")}
+        t.harness()
+        # 让另一个会话实际发过唯一的主题词，其后首次投递到 QQ 的省略追问不能借用这个词。
+        status, result = call(t.hp, "/api/nodes/conversation/messages",
+                              {"chain": "separate-topic", "text": f"{other}的值班名单里有哪些人？"})
+        self.assertEqual(status, 200, result)
+        observed, _ = t.ask_private("服务好像恢复了，要不再想想？", 84001)
+        first = next(i for i, (kind, _, _) in enumerate(observed) if kind == "plan")
+        self.assertFalse(any(any(clue in req["query"] for clue in (other, "值班", "名单"))
+                             for kind, req, _ in observed[:first] if kind == "/v2/recall"))
+        self.assertNotIn(other, json.dumps(observed[first][1], ensure_ascii=False))
+
+        t.ask_private("银砂画室的画师是谁？", 84002)
+        switched = "刚才应该已经恢复了，要不再想想，青瓦展柜的交接编号是多少？"
+        observed, reply = t.ask_private(switched, 84003)
+        reads, first_plan = self.before_plan(observed, switched)
+        self.assertTrue(any(item.get("ref") == expected and item.get("text") == fact
+                            for _, result in reads for item in result["items"]))
+        self.assertIn(fact, first_plan)
+        self.assertIn("芦笙四七号", reply)
+
+        action = "现在应该可以了，再想想，帮我检查这台服务器的当前状态。"
+        t.business_route = "ACTION_REQUEST"
+        observed, _ = t.ask_private(action, 84004)
+        first = next(i for i, (kind, _, _) in enumerate(observed) if kind == "plan")
+        queries = [req["query"] for kind, req, _ in observed[:first]
+                   if kind == "/v2/recall" and req["kind"] == "HISTORY"]
+        self.assertTrue(all(any(clue in query for clue in ("服务器", "主机", "状态", "运行")) for query in queries),
+                        f"新动作发起的主题查询应保留现场对象：{queries}")
+        self.assertIn(action, json.dumps(observed[first][1], ensure_ascii=False))
 
 
 if __name__ == "__main__":
