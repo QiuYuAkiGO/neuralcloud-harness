@@ -340,8 +340,11 @@ def run(t):
         t.reject({k: v for k, v in t.settings(gemini=True).items() if k != "apiKeyEnv"}, t.console, "apiKeyEnv")
     t.start_dreaming()
     t.wait_for(lambda: sum(b["through"] == b["after"] for b in t.batches) >= 2, "连续两次空批次")
-    t.epochs["before"] = t.epoch_counts()
     assert not t.model_calls and not t.commits and not t.files()
+    # 正式 Master 独占 Epoch 审计库。两次核对均先等 JVM 退出，再由 SQLite 读取已提交的主库与 WAL。
+    t.stop_harness()
+    t.epochs["before"] = t.epoch_counts()
+    t.start_dreaming()
 
     # 挡住一个正式 Router 前台请求，期间写入两条可见原文和一条名称近似的隔离会话原文。
     busy = t.arm("foreground")
@@ -422,6 +425,7 @@ def run(t):
     assert all(ref(corrected) not in p["source_refs"] for p in final) and old_topic in final
     assert fixed_person["text"] not in "".join(t.files().values()) and len(t.model_calls) == before_models
     assert all(ref(private) not in p["source_refs"] for stage in t.stages.values() for p in stage["profiles"])
+    t.stop_harness()
     t.epochs["after"] = t.epoch_counts()
     assert not t.master_calls and t.epochs["after"] == t.epochs["before"] and t.epochs["before"]["members"] == 0
     assert not t.failures, t.failures
