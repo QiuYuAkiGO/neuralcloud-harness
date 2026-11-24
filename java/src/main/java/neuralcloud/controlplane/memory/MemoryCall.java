@@ -285,6 +285,8 @@ public final class MemoryCall {
                             Map.of(
                                     "materials",
                                     refresh.messages(),
+                                    "sessionId",
+                                    trace.scope().sessionId(),
                                     "input_id",
                                     inputId + "-refresh"));
         }
@@ -311,6 +313,16 @@ public final class MemoryCall {
      */
     private void verifyDeliverySources(List<MemoryJournal.Read> evidence)
             throws IOException, InterruptedException {
+        if (caller == Caller.CHAT_WORKER) for (var read : evidence) {
+            var item = read.item();
+            if (!"ONLINE".equals(ResidentV2.string(item, "status")) || !permanentHistorySource(item)) continue;
+            var own = item.getAsJsonObject("ref");
+            trace.rememberLocalEvidence(read.id(), ResidentV2.integer(own, "revision", 1));
+            for (var source : item.getAsJsonArray("source_refs")) {
+                var origin = source.getAsJsonObject();
+                trace.rememberLocalEvidence(ResidentV2.string(origin, "record_id"), ResidentV2.integer(origin, "revision", 1));
+            }
+        }
         var shared = evidence.stream().filter(read -> {
             var item = read.item();
             return item.has("evidence_valid_until")
@@ -349,6 +361,58 @@ public final class MemoryCall {
             for (var r : refresh.evidence())
                 if ("ONLINE".equals(ResidentV2.string(r.item(), "status"))) current.add(r);
         memory.v2().verifyEvidence(trace.scope(), caller.name(), current);
+    }
+
+    /** 修订号只在原账本内有效，换流后需从该流可核验的历史重新建立提要。 */
+    public String historyStream() { return memory.v2() == null ? "" : memory.v2().stream(); }
+
+    /** 用现有 CITE 批读核对本会话可持续引用的版本。返回的正文只留在 Memory 边界。 */
+    public Map<String, Long> historyVersions(java.util.Collection<String> requested) throws IOException {
+        var v = memory.v2();
+        if (v == null || requested.isEmpty()) return Map.of();
+        var ids = List.copyOf(requested);
+        var versions = new LinkedHashMap<String, Long>();
+        var upstream = new LinkedHashMap<String, List<EvidenceRef>>();
+        try {
+            for (int i = 0; i < ids.size(); i += 128) {
+                var batch = ids.subList(i, Math.min(ids.size(), i + 128));
+                var now = v.readItems(trace.scope(), caller.name(), "HISTORY", batch);
+                if (!v.stream().equals(now.stream()) || now.items().size() != batch.size())
+                    throw new IOException("历史来源的 Memory 流或批量回执不匹配");
+                for (int n = 0; n < batch.size(); n++) {
+                    var item = now.items().get(n);
+                    var ref = item.getAsJsonObject("ref");
+                    String id = ResidentV2.string(ref == null ? item : ref, "record_id");
+                    if (!id.equals(batch.get(n))) throw new IOException("历史来源的记录编号不匹配");
+                    if ("ONLINE".equals(ResidentV2.string(item, "status")) && permanentHistorySource(item)) {
+                        versions.put(id, ResidentV2.integer(ref, "revision", 1));
+                        var origins = new ArrayList<EvidenceRef>();
+                        for (var source : item.getAsJsonArray("source_refs")) {
+                            var origin = source.getAsJsonObject();
+                            origins.add(new EvidenceRef(ResidentV2.string(origin, "record_id"), ResidentV2.integer(origin, "revision", 1)));
+                        }
+                        upstream.put(id, origins);
+                    }
+                }
+            }
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IOException("历史来源复核被中断", error);
+        }
+        var checked = new LinkedHashMap<>(versions);
+        for (var row : upstream.entrySet())
+            if (row.getValue().stream().anyMatch(ref -> !java.util.Objects.equals(versions.get(ref.recordId()), ref.revision())))
+                checked.remove(row.getKey());
+        return checked;
+    }
+
+    /** 临时授权、带截止时间的资料和已失效的断言均不能用于会话历史转述。 */
+    public static boolean permanentHistorySource(JsonObject item) {
+        return !(item.has("grant_dependent") && item.get("grant_dependent").getAsBoolean())
+                && !item.has("evidence_valid_until")
+                && !(item.has("assertion") && item.getAsJsonObject("assertion").has("valid_until"))
+                && !(item.has("assertion_active") && !item.get("assertion_active").getAsBoolean())
+                && !(item.has("evidence_active") && !item.get("evidence_active").getAsBoolean());
     }
 
     MemoryCall(ConversationMemory memory, Trace trace, Caller caller, int parent, boolean numberEvidence) {

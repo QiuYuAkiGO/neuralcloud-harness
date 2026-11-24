@@ -55,7 +55,11 @@ public final class AuditLog implements AutoCloseable {
 
     private final String runId;
     private final List<Event> events;
+    private record ResetAt(int position, String key) {}
+    private final java.util.Map<String, ResetAt> chainResets = new HashMap<>();
+    private final java.util.Map<String, ResetAt> sessionResets = new HashMap<>();
     private final BufferedWriter writer;
+    final RollingChatContext rolling;
     private int eventId;
 
     private AuditLog(Path directory, String runId, List<Event> events, BufferedWriter writer) {
@@ -63,6 +67,8 @@ public final class AuditLog implements AutoCloseable {
         this.runId = runId;
         this.events = events;
         this.writer = writer;
+        this.rolling = new RollingChatContext(this);
+        for (int i = 0; i < events.size(); i++) indexReset(events.get(i), i);
     }
 
     /** 打开审计目录：加载并严格校验全部历史 {@code .jsonl} 文件，再为本次进程运行创建新的独占追加文件。 */
@@ -121,6 +127,7 @@ public final class AuditLog implements AutoCloseable {
         writer.newLine();
         writer.flush();
         events.add(event);
+        indexReset(event, events.size() - 1);
         return event.eventId();
     }
 
@@ -160,6 +167,23 @@ public final class AuditLog implements AutoCloseable {
         return events.stream().filter(event -> event.chain().equals(chain)).toList();
     }
 
+    /** 重建和追加共用同一位置索引，普通模型调用的交付复核不必反复从头扫描 JSONL。 */
+    private void indexReset(Event event, int position) {
+        if (!event.type().equals("memory_context_reset")) return;
+        var mark = new ResetAt(position, ChatHistory.key(event));
+        var data = event.data().getAsJsonObject();
+        if (data.has("sessionId")) sessionResets.put(data.get("sessionId").getAsString(), mark);
+        else chainResets.put(event.chain(), mark);
+    }
+
+    /** 冻结和提交之间只比较最近一次重置的位置，普通新入站不会阻止提交。 */
+    synchronized String latestReset(ConsoleServer.Trace.Scope scope) {
+        var legacy = chainResets.get(scope.chain());
+        var scoped = sessionResets.get(scope.sessionId());
+        if (legacy == null) return scoped == null ? "" : scoped.key();
+        return scoped == null || legacy.position() > scoped.position() ? legacy.key() : scoped.key();
+    }
+
     // 回读原始渠道事件时同时匹配运行和会话，重启后 eventId 会重新编号。
     public synchronized Event event(ConsoleServer.Trace.Scope scope, int id) {
         return events.reversed().stream().filter(event -> event.eventId() == id
@@ -175,6 +199,7 @@ public final class AuditLog implements AutoCloseable {
      * 4. 最后按 {@value #DIALOGUE_CHAR_BUDGET} 字符上限从末尾保留最近若干轮。
      */
     public synchronized List<DialogueMessage> dialogueBefore(String channel, String chain, int request) {
+        var scope = new ConsoleServer.Trace.Scope(channel, chain, runId);
         var dialogue = new ArrayList<DialogueMessage>();
         var byRun = new HashMap<String, HashMap<Integer, Event>>();
         boolean qq = "openqq".equals(channel);
@@ -185,30 +210,15 @@ public final class AuditLog implements AutoCloseable {
             if (runId.equals(event.runId()) && event.eventId() >= request) {
                 break;
             }
-            if ("memory_context_reset".equals(event.type())) dialogue.clear();
+            if (ChatHistory.resetFor(event, scope)) dialogue.clear();
             var causalEvents = byRun.computeIfAbsent(event.runId(), ignored -> new HashMap<>());
             causalEvents.put(event.eventId(), event);
-            if (qq ? "qq_message".equals(event.type()) && "openqq".equals(event.node())
-                    : "operator_message".equals(event.type())
-                            && ("chat-worker".equals(event.node()) || "conversation".equals(event.node()))) {
-                dialogue.add(new DialogueMessage(Speaker.USER, event.data().getAsJsonObject().get("text").getAsString()));
-                continue;
-            }
-            // 只回放经当前渠道确认写出的角色正文，消息 ID 只在同一个 runId 内回溯。
-            var parent = causalEvents.get(event.causedBy());
-            if (qq && "qq_delivery".equals(event.type()) && "openqq".equals(event.node()) && parent != null
-                    && "qq_send_requested".equals(parent.type()) && "openqq".equals(parent.node())) {
-                parent = causalEvents.get(parent.causedBy());
-            } else if (qq || !"console_response_written".equals(event.type()) || !"console".equals(event.node())) {
-                continue;
-            }
-            // 转授权回复只从 Memory 按当前受众重读；历史渠道回执不能永久授权重放正文。
-            if (parent != null
-                    && "chat_worker_reply".equals(parent.type())
-                    && "chat-worker".equals(parent.node())
-                    && !event.data().getAsJsonObject().has("source_refs")) {
-                dialogue.add(new DialogueMessage(Speaker.MISTY, parent.data().getAsJsonObject().get("text").getAsString()));
-            }
+            var source = ChatHistory.visible(event, causalEvents, qq);
+            // OFF 没有版本复核步骤，先前滚动档位中依赖可变证据的派生答复不能绕过撤权。
+            if (source != null && source != event && event.data().getAsJsonObject().has("history_refs")
+                    && !event.data().getAsJsonObject().getAsJsonArray("history_refs").isEmpty()) continue;
+            if (source != null) dialogue.add(new DialogueMessage(source == event ? Speaker.USER : Speaker.MISTY,
+                    source.data().getAsJsonObject().get("text").getAsString()));
         }
         int remaining = DIALOGUE_CHAR_BUDGET;
         int start = dialogue.size();
@@ -220,6 +230,6 @@ public final class AuditLog implements AutoCloseable {
 
     @Override
     public synchronized void close() throws IOException {
-        writer.close();
+        try (rolling) { writer.close(); }
     }
 }

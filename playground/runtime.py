@@ -77,15 +77,19 @@ def seed_audit(home, chain, prefix):
 
         for msg in prefix:
             when = msg["time"]
+            # 历史截点已选定当前受众可见的直接记录，子运行仍须用其原版本重新取得引用资格。
+            provenance = {"snapshot_refs": [{"record_id": msg["id"], "revision": msg["revision"]}]}
             if msg["kind"] == "observation":
-                payload = {"text":msg["text"]}
+                payload = {"text":msg["text"], **provenance}
+                if msg.get("sender") is not None:
+                    payload["senderId"] = msg["sender"]
                 if msg["messageId"] and str(msg["messageId"]).isdecimal():
                     payload["messageId"] = int(msg["messageId"])
                 append("openqq","qq_message",payload,when)
             else:
                 parent = append("chat-worker","chat_worker_reply",{"text":msg["text"]},when)
                 sending = append("openqq","qq_send_requested",{},when,parent)
-                append("openqq","qq_delivery",{},when,sending)
+                append("openqq","qq_delivery",provenance,when,sending)
 
 
 def copy_db(source, destination):

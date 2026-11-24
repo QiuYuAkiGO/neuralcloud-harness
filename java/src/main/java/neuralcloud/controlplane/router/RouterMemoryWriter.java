@@ -232,8 +232,10 @@ public final class RouterMemoryWriter {
             trace.write(writing, "memory", "memory_write_failed", Map.of("kind", kind.name(), "detail", error.toString()));
             throw error;
         }
-        return trace.write(writing, "memory", "memory_durable", Map.of("sessionId", scope.sessionId(), "kind", kind.name(),
+        var durable = new java.util.LinkedHashMap<String, Object>(Map.of("sessionId", scope.sessionId(), "kind", kind.name(),
                 "characterId", memory.character(), "recordId", receipt.recordId(), "revision", receipt.revision(),
                 "sequence", receipt.sequence()));
+        if (memory instanceof ResidentV2 v2) durable.put("stream_id", v2.stream());
+        return trace.write(writing, "memory", "memory_durable", durable);
     }
 }

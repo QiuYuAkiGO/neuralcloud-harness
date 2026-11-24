@@ -139,15 +139,17 @@ public final class OpenQqChannel implements AutoCloseable {
                                                                     .get("authorMessageId"))))) {
                 return 0;
             }
+            var payload = new java.util.LinkedHashMap<String, Object>();
+            payload.put("text", incoming.text());
+            payload.put("messageId", incoming.messageId());
+            if (incoming.groupId() != 0) payload.put("senderId", incoming.senderId());
+            if (!incoming.imageKeys().isEmpty()) payload.put("imageCount", incoming.imageKeys().size());
             return audit.write(
                     chain,
                     null,
                     "openqq",
                     decision ? "qq_author_command" : "qq_message",
-                    incoming.imageKeys().isEmpty()
-                            ? Map.of("text", incoming.text(), "messageId", incoming.messageId())
-                            : Map.of("text", incoming.text(), "messageId", incoming.messageId(),
-                                    "imageCount", incoming.imageKeys().size()));
+                    payload);
         }
     }
 
@@ -245,6 +247,8 @@ public final class OpenQqChannel implements AutoCloseable {
                 if (result.isEmpty()) return;
                 reply = result.get();
                 if (writes.isPresent()) writes.get().verifyDelivery(trace);
+                // 与既有共享来源一起做发件前审核。此时还没有发送意图或 OneBot 帧。
+                trace.verifyHistory();
             }
         } catch (IOException error) {
             int failed =
@@ -294,9 +298,16 @@ public final class OpenQqChannel implements AutoCloseable {
                                     .qq()
                                     .map(Trace.QqPrivate::memberGroups)
                                     .orElse(List.of());
-            if (!evidenceGroups.isEmpty()
-                    && !session.memberships(socket, incoming.senderId())
-                            .containsAll(evidenceGroups)) throw new PolicyChanged();
+            if (!evidenceGroups.isEmpty()) {
+                if (!session.memberships(socket, incoming.senderId()).containsAll(evidenceGroups)) throw new PolicyChanged();
+                // 群成员资格查询经过额外网络往返。此时帧仍未发出，期间的依据变化属于发送取消。
+                try { trace.verifyHistory(); }
+                catch (IOException changed) {
+                    trace.write(sending, "openqq", "qq_send_cancelled", Map.of("reason", changed.getMessage()));
+                    changed.printStackTrace(System.err);
+                    return;
+                }
+            }
             receipt =
                     session.call(
                             socket,

@@ -427,7 +427,9 @@ public final class ConsoleMain {
                         : new ReplySelector.Context(
                                 ReplySelector.Addressing.AMBIENT,
                                 seen.text(),
-                                trace.dialogue().stream().map(m -> m.text()).toList());
+                                (chat.historyBudget() == 0 ? trace.dialogue() : trace.participationHistory(
+                                        store.reads().bind(trace, Caller.CHAT_WORKER, seen.event())))
+                                        .stream().map(m -> m.text()).toList());
         var decision = chat.selectReply(context);
         int selected =
                 trace.write(
@@ -589,7 +591,7 @@ public final class ConsoleMain {
             throws IOException, InterruptedException {
         var read = store.reads().bind(trace, Caller.CHAT_WORKER, seen.event());
         var updates = read.startTurn();
-        var turn = chat.planTurn(seen.text(), updates.isEmpty() ? trace.dialogue() : List.of(),
+        var turn = chat.planTurn(seen.text(), trace.project(chat, read, !updates.isEmpty()),
                 read.queryKinds(), updates, route);
         read.refreshed();
         int planned = trace.write(read.eventId(), "chat-worker", "chat_worker_turn_plan",
@@ -629,9 +631,10 @@ public final class ConsoleMain {
         int routed = trace.write(submitted, "router", "router_route", Map.of("route", conversation.route().name()));
         if (memory.isEmpty() && conversation.route() != Route.UNSUPPORTED) {
             // 缺少版本核验时不能由前台代替主体作出承诺，未上报的动作继续原有授权流程。
-            var turn = chat.planTurn(conversation.route() == Route.ACTION_REQUEST ? text : observedText, trace.dialogue(),
+            var turn = chat.planTurn(conversation.route() == Route.ACTION_REQUEST ? text : observedText, trace.project(chat, null, false),
                     List.of(), List.of(), Optional.of(conversation.route()));
-            routed = trace.write(routed, "chat-worker", "chat_worker_turn_plan", Map.of("kind", turn.kind().name()));
+            routed = trace.write(routed, "chat-worker", "chat_worker_turn_plan",
+                    Map.of("kind", turn.kind().name(), "dialogueMessages", turn.dialogue().size(), "usage", turn.usage()));
             if (turn.kind() == ChatWorker.TurnKind.SUBJECT_CONFLICT)
                 throw new IOException("此入口未配置带版本核验的 Master 终审");
             if (turn.kind() != ChatWorker.TurnKind.ACTION)

@@ -38,6 +38,7 @@ final class ChatWorkerConfig {
         Duration connectTimeout = Duration.ofSeconds(MasterConfig.positiveInteger(properties, "connectTimeoutSeconds"));
         Duration requestTimeout = Duration.ofSeconds(MasterConfig.positiveInteger(properties, "requestTimeoutSeconds"));
         int maxOutputTokens = MasterConfig.positiveInteger(properties, "maxOutputTokens");
+        int historyBudget = historyBudget(properties);
         String preferences = new ConfigSource(MasterConfig.required(properties, "replyPreferences")).readText();
         if (preferences.isBlank()) {
             throw new IllegalArgumentException("replyPreferences 须指向非空的只读偏好摘要");
@@ -53,7 +54,7 @@ final class ChatWorkerConfig {
                 throw new IllegalArgumentException("Chat Worker thinkingLevel 须为 MINIMAL、LOW、MEDIUM 或 HIGH");
             }
             settings = new Settings(format, endpoint, null, keyEnvironment, httpVersion, proxy,
-                    connectTimeout, requestTimeout, maxOutputTokens, level, false, null, preferences);
+                    connectTimeout, requestTimeout, maxOutputTokens, level, false, null, preferences, historyBudget);
         } else {
             URI endpoint = MasterConfig.chatEndpoint(MasterConfig.required(properties, "endpoint"), "Chat Worker");
             String model = MasterConfig.required(properties, "model");
@@ -63,12 +64,28 @@ final class ChatWorkerConfig {
             Master.ThinkingFormat thinkingFormat = MasterConfig.optionalThinkingFormat(
                     properties, Master.ThinkingFormat.CHAT_TEMPLATE_KWARGS);
             settings = new Settings(format, endpoint, model, keyEnvironment, httpVersion, proxy,
-                    connectTimeout, requestTimeout, maxOutputTokens, null, enableThinking, thinkingFormat, preferences);
+                    connectTimeout, requestTimeout, maxOutputTokens, null, enableThinking, thinkingFormat, preferences, historyBudget);
         }
         if (!properties.isEmpty()) {
             throw new IllegalArgumentException("Chat Worker 存在未知配置项 " + properties.stringPropertyNames());
         }
         return settings;
+    }
+
+    /** 预算单位为 UTF-16。零仅在内部表示 OFF，显式预算只能用于 ROLLING。 */
+    private static int historyBudget(Properties properties) {
+        String mode = MasterConfig.optional(properties, "contextCompression");
+        if (mode == null || mode.equals("OFF")) {
+            if (properties.containsKey("historyBudgetUnits"))
+                throw new IllegalArgumentException("historyBudgetUnits 仅适用于 contextCompression=ROLLING");
+            return 0;
+        }
+        if (!mode.equals("ROLLING")) throw new IllegalArgumentException("contextCompression 须为 OFF 或 ROLLING");
+        int budget = properties.containsKey("historyBudgetUnits")
+                ? MasterConfig.positiveInteger(properties, "historyBudgetUnits") : 48_000;
+        if (budget < 4_096 || budget > 48_000)
+            throw new IllegalArgumentException("historyBudgetUnits 须在 4096 至 48000 之间");
+        return budget;
     }
 
     /** 解析协议类型，未配置 {@code apiFormat} 时默认兼容原有 Gemini 配置。 */
@@ -109,7 +126,7 @@ final class ChatWorkerConfig {
     record Settings(ApiFormat apiFormat, URI endpoint, String model, String keyEnvironment,
                     HttpClient.Version httpVersion, InetSocketAddress proxy, Duration connectTimeout,
                     Duration requestTimeout, int maxOutputTokens, String thinkingLevel, boolean enableThinking,
-                    Master.ThinkingFormat thinkingFormat, String replyPreferences) {
+                    Master.ThinkingFormat thinkingFormat, String replyPreferences, int historyBudget) {
         /** 构造供 Chat Worker 使用的 HTTP 客户端；配置代理时走显式 HTTP 代理，未配置时直连端点。 */
         HttpClient newClient() {
             var builder = HttpClient.newBuilder().version(httpVersion).connectTimeout(connectTimeout);
@@ -138,12 +155,8 @@ final class ChatWorkerConfig {
 
         /** 根据已校验的协议类型创建对应的 {@link ChatWorker} 实例，并注入角色提示词与偏好摘要。 */
         ChatWorker create(HttpClient client, String apiKey, String rolePrompt) {
-            if (apiFormat == ApiFormat.GEMINI) {
-                return new ChatWorker(client, endpoint, requestTimeout, maxOutputTokens, thinkingLevel, apiKey,
-                        rolePrompt, replyPreferences);
-            }
-            return ChatWorker.openAiChat(client, endpoint, httpVersion, model, apiKey, requestTimeout, maxOutputTokens,
-                    enableThinking, thinkingFormat, rolePrompt, replyPreferences);
+            return new ChatWorker(apiFormat, client, endpoint, httpVersion, model, requestTimeout, maxOutputTokens,
+                    thinkingLevel, enableThinking, thinkingFormat, apiKey, rolePrompt, replyPreferences, historyBudget);
         }
     }
 }

@@ -13,6 +13,9 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import neuralcloud.controlplane.router.RouterMemoryWriter;
 import neuralcloud.controlplane.worker.DialogueMessage;
+import neuralcloud.controlplane.worker.DialogueHistory;
+import neuralcloud.controlplane.worker.ChatWorker;
+import neuralcloud.controlplane.memory.MemoryCall;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -149,17 +152,41 @@ public final class ConsoleServer implements AutoCloseable {
 
         /** 为渠道送达回执载荷补充本轮经过复核的跨会话引用清单 {@code source_refs}（若未引用共享来源则原样返回）。 */
         default Map<String, Object> delivery(Map<String, Object> data) {
-            if (sharedSources().isEmpty()) return data;
+            if (sharedSources().isEmpty() && projectedHistory().isEmpty()) return data;
             var receipt = new LinkedHashMap<>(data);
-            receipt.put(
+            if (!sharedSources().isEmpty()) receipt.put(
                     "source_refs",
                     sharedSources().entrySet().stream()
                             .map(e -> Map.of("record_id", e.getKey(), "revision", e.getValue()))
                             .toList());
+            projectedHistory().ifPresent(history -> {
+                var refs = new LinkedHashMap<>(history.sources());
+                ChatHistory.mergeRefs(refs, localEvidence());
+                receipt.put("history_refs", refs.entrySet().stream()
+                        .map(e -> Map.of("record_id", e.getKey(), "revision", e.getValue())).toList());
+            });
             return receipt;
         }
 
         List<DialogueMessage> dialogue();
+
+        /** 旧调用方保留原文入口。启用滚动档位必须绑定真实审计范围和本轮请求。 */
+        default DialogueHistory project(ChatWorker chat, MemoryCall memory, boolean corrected) throws IOException {
+            if (chat.historyBudget() != 0) throw new IOException("滚动历史需要绑定当前会话审计");
+            return DialogueHistory.plain(corrected ? List.of() : dialogue());
+        }
+
+        default Optional<DialogueHistory> projectedHistory() { return Optional.empty(); }
+
+        /** 登记本轮检索或更正实际消费的本地版本，供最终渠道及以后的滚动历史核验。 */
+        default void rememberLocalEvidence(String id, long revision) {}
+        default Map<String, Long> localEvidence() { return Map.of(); }
+
+        default void verifyHistory() throws IOException {
+            if (projectedHistory().isPresent()) projectedHistory().get().check().verify();
+        }
+
+        default List<DialogueMessage> participationHistory(MemoryCall memory) throws IOException { return dialogue(); }
 
         int write(Integer causedBy, String node, String type, Object data) throws IOException;
 
@@ -194,6 +221,36 @@ public final class ConsoleServer implements AutoCloseable {
             return new Trace() {
                 private final Map<String, Long> shared = new LinkedHashMap<>();
                 private java.time.Instant expiry = java.time.Instant.MAX;
+                private DialogueHistory projected;
+                private MemoryCall historyReader;
+                private final Map<String, Long> evidence = new LinkedHashMap<>();
+
+                @Override public void rememberLocalEvidence(String id, long revision) {
+                    evidence.merge(id, revision, (a, b) -> a.equals(b) ? a : -1L);
+                }
+                @Override public Map<String, Long> localEvidence() { return evidence; }
+
+                @Override public void verifyHistory() throws IOException {
+                    Trace.super.verifyHistory();
+                    if (projected != null && !evidence.isEmpty() && !historyReader.historyVersions(evidence.keySet())
+                            .entrySet().containsAll(evidence.entrySet())) throw new IOException("本轮本地引用权或版本已变更");
+                }
+
+                @Override public DialogueHistory project(ChatWorker chat, MemoryCall memory, boolean corrected) throws IOException {
+                    if (chat.historyBudget() == 0) return Trace.super.project(chat, memory, corrected);
+                    historyReader = memory;
+                    // startTurn 已落盘的 reset 即使在 request 之后，也会立即隔离旧历史。
+                    projected = audit.rolling.prepare(this, chat, memory);
+                    return projected;
+                }
+
+                @Override public Optional<DialogueHistory> projectedHistory() { return Optional.ofNullable(projected); }
+
+                @Override public List<DialogueMessage> participationHistory(MemoryCall memory) throws IOException {
+                    var recent = audit.rolling.recent(this, memory);
+                    recent.check().verify();
+                    return recent.messages();
+                }
 
                 public void validUntil(java.time.Instant bound) {
                     if (bound.isBefore(expiry)) expiry = bound;
@@ -465,6 +522,7 @@ public final class ConsoleServer implements AutoCloseable {
         try {
             reply = node.exchange().send(message.text(), trace);
             if (writes.isPresent()) writes.get().verifyDelivery(trace);
+            trace.verifyHistory();
         } catch (IOException | InterruptedException error) {
             return failure(node, message.chain(), request, started, error, monitor::recordCall);
         }
@@ -477,7 +535,7 @@ public final class ConsoleServer implements AutoCloseable {
         int event = audit.write(message.chain(), parent, author, reply.type(), data);
         monitor.recordCall(node.id(), new NodeMonitor.Outcome(Instant.now().toString(), true, latency, ""));
         var response = json(200, Map.of("eventId", event, "type", reply.type(), "data", data));
-        if ("chat_worker_reply".equals(reply.type()) && writes.isPresent()) {
+        if ("chat_worker_reply".equals(reply.type()) && (writes.isPresent() || trace.projectedHistory().isPresent())) {
             // HTTP 正文成功写出才记为渠道回执，服务端无法证明浏览器已渲染。
             return new Response(
                     response.status(),
@@ -490,9 +548,7 @@ public final class ConsoleServer implements AutoCloseable {
                                         "console",
                                         "console_response_written",
                                         trace.delivery(Map.of()));
-                        writes.orElseThrow()
-                                .rememberDelivered(
-                                        trace, written, (String) reply.data().get("text"));
+                        if (writes.isPresent()) writes.get().rememberDelivered(trace, written, (String) reply.data().get("text"));
                     });
         }
         return response;

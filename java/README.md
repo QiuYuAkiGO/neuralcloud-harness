@@ -91,6 +91,23 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 
 **会话记忆。** `memoryConfig` 可接独立的常驻记忆服务，指向含 `endpoint`、`characterId` 和 `accessTokenEnv` 的配置文件。启用记忆时，Master 配置使用支持原生工具调用的 `/v1/chat/completions`。Chat Worker、任务 Worker 和 Master 均可直接发起只读的 `memory_call`，模型只提交 `kind` 和 `query`。Router 负责写入。Chat Worker 收到消息后，Router 先取得用户发言的持久回执。QQ 确认送达或控制台写出 HTTP 正文后，Router 才提交角色回复入库。两次写入均沿用原始渠道事件作为幂等键。网页和 OpenQQ 分别使用 `console:` 和 `openqq:` 会话命名空间。
 
+**Chat Worker 会话历史压缩。** 模型档位缺省使用 `contextCompression=OFF`。需要在隔离实例启用时，在 Chat Worker 的模型 properties 中设置以下字段并重启实例。
+
+```properties
+contextCompression=ROLLING
+historyBudgetUnits=48000
+```
+
+预算可省略，有效值为 4096 至 48000 个 UTF-16 单元。按默认预算，已提交提要与待处理旧原文合计达到 36000 时，每个参与轮次最多整理一次，目标为 4000 单元以内的带标签提要及 20000 单元的最近完整原文。本轮问题完整传递。网页对话、QQ 私聊和允许回复的群聊共用此规则。群聊先以原文判定是否参与。
+
+会话提要保存在主体审计目录的 `chat-context.sqlite`。查看 `chat_context_compaction` 可核对成功提交、候选拒收、请求失败、修订、覆盖位置、分片偏移、缺口、耗时和实际 token 用量。恢复时依据原审计事件和当前 Memory 受众重新核验。回退时设为 `OFF`，同时移除 `historyBudgetUnits` 后重启。生产启用须经评审并核定目标模型的延迟和成本。[实施与验收方案](../docs/proposals/chat-worker-context-compaction-20261124.md)
+
+**隔离验收。** 在仓库根目录完成 Maven `verify` 后，运行 `python java/src/test/python/chat_compaction_channels.py <Harness-JAR> <Memory-v2-JAR> <新目录>` 复核参与策略、隔离、撤权和更正。使用相同参数运行 `chat_compaction_delivery.py` 可检验最后一次模型调用、QQ 私聊发送和丢失回执。Windows 上可用以下入口对一个已配置的 OpenAI 兼容模型运行合成 A/B。输出目录需全新，结果和各次调用的用量写入该目录。
+
+```powershell
+java -cp 'java/target/test-classes;java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar' neuralcloud.controlplane.app.ChatCompactionReplay '<模型档位.properties>' '<新目录>' 48000 1
+```
+
 **生产记忆。** 使用生产 Misty 服务时，在记忆配置中设 `recallMode=scoped`（省略时为 `recent`）。OpenQQ 私聊沿用生产的 `c2c:onebot:<账号>:<用户>` 会话标识，写入携带实际消息 ID 和发言者的 v2 事件。历史查询检索本轮之前对接收会话可见的记录。查询本人身份时，记忆接口使用 OpenQQ 入站事件绑定的发件人账号，只返回记忆服务提供的已确认称呼。既有测试库的回执保留在原审计链，生产读取只使用生产回执。
 
 **Java Memory v2。** 在 `memoryConfig` 指定的文件中设置 `apiVersion=2`、`recallMode=scoped` 和回环 `endpoint=http://127.0.0.1:端口/`。`characterId` 和 `accessTokenEnv` 与 Memory 服务配置对应，省略 `apiVersion` 时继续选择 v1。控制台在角色、协议和所需能力核验成功后开放，审计目录中的 `memory-v2-<角色>.sqlite` 持久保存写入待办、模型输入的证据版本和消费位置。
