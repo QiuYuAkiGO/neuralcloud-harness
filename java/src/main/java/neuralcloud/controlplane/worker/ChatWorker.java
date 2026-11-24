@@ -95,6 +95,7 @@ CLARIFY：本轮明显在追问，但结合对话仍无法确定指代对象，�
 """;
     private static final String LOCAL_HISTORY_INSTRUCTION = """
 本轮只提供本次会话的材料。材料已明确给出的话题、候选、约束或未决事项，用 REPLY 转述。需要逐字引用、核实身份或确认执行结果而材料不足时，用 CLARIFY 向用户问清。
+选择澄清时提交 {"kind":"CLARIFY","query":""}。向用户提问的正文由下一步生成。
 """;
     // 开放指代中的通用类别不是已知事实。只检查提问中明确问到的占位词，不影响“人像摄影”等实际话题。
     private static final Pattern OPEN_TARGET = Pattern.compile("(?<![「“『\"])(?:(?:哪些|哪几个|哪一个|哪个|哪几位|哪一位|哪位)(人名|人物|人|地方|地点|事情|东西)|谁|哪里|什么时候)");
@@ -424,10 +425,16 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
     /** 两类推理端点都只开放本轮允许的处理类别。 */
     private Generation inferTurn(String prompt, List<DialogueMessage> history, String text, EnumSet<TurnKind> choices)
             throws IOException {
+        // 仅历史检索和身份目录接受非空线索。无此能力时把空串约束同时交给供应商和宿主。
+        boolean acceptsKeywords = choices.contains(TurnKind.HISTORY) || choices.contains(TurnKind.SELF_HISTORY)
+                || choices.contains(TurnKind.IDENTITY);
+        String stringType = apiFormat == ApiFormat.GEMINI ? "STRING" : "string";
+        var querySchema = acceptsKeywords ? Map.of("type", stringType)
+                : Map.of("type", stringType, "enum", List.of(""), "description", "本轮 query 的值固定为空字符串。");
         if (apiFormat == ApiFormat.GEMINI) {
             var schema = Map.of("type", "OBJECT", "required", List.of("kind", "query"),
                     "properties", Map.of("kind", Map.of("type", "STRING", "enum", choices),
-                            "query", Map.of("type", "STRING"), "conflict", Map.of("type", "STRING")));
+                            "query", querySchema, "conflict", Map.of("type", "STRING")));
             var config = Map.of("maxOutputTokens", maxOutputTokens,
                     "thinkingConfig", Map.of("thinkingLevel", thinkingLevel, "includeThoughts", false),
                     "responseMimeType", "application/json", "responseSchema", schema);
@@ -440,7 +447,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
                     "required", List.of("kind", "query"),
                     "properties", Map.of(
                             "kind", Map.of("type", "string", "enum", choiceNames),
-                            "query", Map.of("type", "string"), "conflict", Map.of("type", "string")));
+                            "query", querySchema, "conflict", Map.of("type", "string")));
             return callOpenAiTool(prompt, history, text, "plan_turn",
                     "提交本轮处理类别与查询线索", parameters);
         }
