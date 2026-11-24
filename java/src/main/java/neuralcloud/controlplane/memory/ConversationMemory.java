@@ -95,10 +95,12 @@ public final class ConversationMemory {
         var rows = audit.historyBefore(scope.channel(), scope.chain(), trace.request(), true).reversed();
         var result = new ArrayList<DialogueMessage>();
         var versions = new LinkedHashMap<Trace.MemoryTarget, Long>();
+        var covered = new LinkedHashSet<MemoryCall.EvidenceRef>();
         int remaining = AuditLog.DIALOGUE_CHAR_BUDGET;
         history:
         for (int first = 0; first < rows.size(); first += 128) {
             var batch = new ArrayList<>(rows.subList(first, Math.min(first + 128, rows.size())));
+            if (!v.supportsAudienceReads()) batch.removeIf(AuditLog.HistoryEntry::sourced);
             var targets = new LinkedHashSet<Trace.MemoryTarget>();
             for (int i = 0; i < batch.size(); i++) {
                 var row = batch.get(i);
@@ -106,7 +108,7 @@ public final class ConversationMemory {
                     var receipt = v.observationReceipt(row.eventKey());
                     if (receipt.isEmpty()) continue;
                     var data = receipt.get();
-                    row = new AuditLog.HistoryEntry(row.eventKey(), row.message(), true,
+                    row = row.withReceipt(
                             ResidentV2.string(data, "record_id"), ResidentV2.integer(data, "revision", 1));
                     batch.set(i, row);
                 }
@@ -115,16 +117,17 @@ public final class ConversationMemory {
             var current = v.reread(scope, "CHAT_WORKER", targets);
             for (var row : batch) {
                 var message = row.message();
-                Trace.MemoryTarget target = null;
+                if (row.writeRequested() && row.recordId() == null) continue;
+                var target = row.recordId() == null ? null : new Trace.MemoryTarget("HISTORY", row.recordId());
+                var item = target == null ? null : current.get(target).item();
                 long revision = 0;
-                if (row.writeRequested()) {
-                    if (row.recordId() == null) continue;
-                    target = new Trace.MemoryTarget("HISTORY", row.recordId());
-                    var item = current.get(target).item();
+                if (item != null) {
                     if (!replayable(item)) continue;
                     revision = ResidentV2.integer(item.getAsJsonObject("ref"), "revision", 1);
-                    // 同版渠道正文可完整重放；更正过的记录只能使用当前版本的正文。
-                    if (revision != row.revision()) {
+                    // 有来源的送达只采用当前受众获准的自述正文。未绑定来源的旧写入不能证明引用权。
+                    if (row.sourced() && (!"self_expression".equals(ResidentV2.string(item, "kind"))
+                            || item.getAsJsonArray("source_refs").contains(item.get("ref")))) continue;
+                    if (row.sourced() || revision != row.revision()) {
                         String text = v.replacementText(scope, item);
                         message = new DialogueMessage(message.speaker(), text);
                     }
@@ -132,6 +135,14 @@ public final class ConversationMemory {
                 if (message.text().length() > remaining) break history;
                 result.add(message);
                 if (target != null) versions.put(target, revision);
+                if (row.sourced()) {
+                    // 回执引用上一条自述，使撤权和更正也约束新回复。新自述已依赖的旧版本无需再次列为直接来源。
+                    if (!covered.contains(new MemoryCall.EvidenceRef(row.recordId(), revision)))
+                        trace.sharedSources().merge(target, revision, Math::min);
+                    if (revision == row.revision()) covered.addAll(row.directSources());
+                    if (item.has("evidence_valid_until"))
+                        trace.validUntil(Instant.parse(ResidentV2.string(item, "evidence_valid_until")));
+                }
                 remaining -= message.text().length();
             }
         }

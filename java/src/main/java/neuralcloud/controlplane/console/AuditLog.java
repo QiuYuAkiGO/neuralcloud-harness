@@ -5,6 +5,7 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
 import com.google.gson.Strictness;
+import neuralcloud.controlplane.memory.MemoryCall.EvidenceRef;
 import neuralcloud.controlplane.worker.DialogueMessage;
 import neuralcloud.controlplane.worker.DialogueMessage.Speaker;
 
@@ -168,7 +169,14 @@ public final class AuditLog implements AutoCloseable {
 
     /** 保存原始说话者和写入幂等键，直到读取方在实际受众下核验该条记录。 */
     public record HistoryEntry(String eventKey, DialogueMessage message, boolean writeRequested,
-                               String recordId, long revision) {}
+                               String recordId, long revision, List<EvidenceRef> directSources) {
+        public boolean sourced() { return !directSources.isEmpty(); }
+
+        /** 审计回执和幂等对账走同一入口，保留渠道见证的说话者及直接来源。 */
+        public HistoryEntry withReceipt(String id, long version) {
+            return new HistoryEntry(eventKey, message, true, id, version, directSources);
+        }
+    }
 
     /** 原渠道投影仍供无 v2 的入口使用。v2 从同一组渠道事件出发，逐条核验后再做预算裁剪。 */
     public List<DialogueMessage> dialogueBefore(String channel, String chain, int request) {
@@ -201,7 +209,7 @@ public final class AuditLog implements AutoCloseable {
                     var row = rows.get(source);
                     if (row != null) {
                         var data = event.data().getAsJsonObject();
-                        rows.put(source, new HistoryEntry(source, row.message(), true,
+                        rows.put(source, row.withReceipt(
                                 receipt ? data.get("recordId").getAsString() : null,
                                 receipt && data.has("revision") ? data.get("revision").getAsLong() : 0));
                     }
@@ -212,7 +220,7 @@ public final class AuditLog implements AutoCloseable {
                     : "operator_message".equals(event.type())
                             && ("chat-worker".equals(event.node()) || "conversation".equals(event.node()))) {
                 rows.put(key, new HistoryEntry(key, new DialogueMessage(Speaker.USER,
-                        event.data().getAsJsonObject().get("text").getAsString()), false, null, 0));
+                        event.data().getAsJsonObject().get("text").getAsString()), false, null, 0, List.of()));
                 continue;
             }
             if (qq && "qq_delivery".equals(event.type()) && "openqq".equals(event.node()) && parent != null
@@ -221,11 +229,18 @@ public final class AuditLog implements AutoCloseable {
             } else if (qq || !"console_response_written".equals(event.type()) || !"console".equals(event.node())) {
                 continue;
             }
-            // 带授权来源的旧回复只有重新查证后才能引用，直接按渠道原文回放会绕开来源授权。
-            if (parent != null && "chat_worker_reply".equals(parent.type()) && "chat-worker".equals(parent.node())
-                    && !event.data().getAsJsonObject().has("source_refs")) {
+            if (parent != null && "chat_worker_reply".equals(parent.type()) && "chat-worker".equals(parent.node())) {
+                var data = event.data().getAsJsonObject();
+                List<EvidenceRef> sources = List.of();
+                if (data.has("source_refs")) {
+                    // 只有能按本轮受众复核的读取方可以接收此候选；已送达本身不能授予引用权。
+                    if (!verifyVersions) continue;
+                    sources = data.getAsJsonArray("source_refs").asList().stream()
+                            .map(ref -> JSON.fromJson(ref, EvidenceRef.class)).toList();
+                    if (sources.isEmpty()) throw new IllegalStateException("送达事件的 source_refs 须含来源版本");
+                }
                 rows.put(key, new HistoryEntry(key, new DialogueMessage(Speaker.MISTY,
-                        parent.data().getAsJsonObject().get("text").getAsString()), false, null, 0));
+                        parent.data().getAsJsonObject().get("text").getAsString()), !sources.isEmpty(), null, 0, sources));
             }
         }
         return List.copyOf(rows.values());
