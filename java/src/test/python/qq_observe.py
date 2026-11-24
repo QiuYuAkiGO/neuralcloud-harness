@@ -91,6 +91,8 @@ class Trial:
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(raw)))
+                # 每次响应后会关闭套接字。显式通知 JVM，以免关闭前到达的下一次 POST 被复用到旧连接。
+                self.send_header("Connection", "close")
                 try:
                     self.end_headers()
                     self.wfile.write(raw)

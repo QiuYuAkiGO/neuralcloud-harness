@@ -71,7 +71,7 @@ class DeliveryTrial(ChannelTrial):
             for i in range(len(rows) - 1, -1, -1):
                 if rows[i]["type"] == "qq_message" and str(rows[i]["data"]["messageId"]) == str(number):
                     turn = rows[i:]
-                    if any(e["type"] in ("qq_delivery", "qq_delivery_unknown")
+                    if any(e["type"] in ("qq_delivery", "qq_delivery_unknown", "qq_send_cancelled")
                            or e["type"].endswith("_failed") for e in turn):
                         return turn
                     break
