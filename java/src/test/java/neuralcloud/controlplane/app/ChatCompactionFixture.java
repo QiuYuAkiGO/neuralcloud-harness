@@ -112,7 +112,7 @@ final class ChatCompactionFixture implements AutoCloseable {
         http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
         try {
             var settings = config(directory, format, local, timeoutSeconds, properties);
-            var transport = format == ApiFormat.GEMINI ? new GeminiLoopback(http, local.resolve("/generate")) : http;
+            var transport = format == ApiFormat.GEMINI ? new LoopbackTransport(http, local.resolve("/generate")) : http;
             chat = settings.create(transport, settings.apiKey(key -> "fixture-key"), PERSONA);
             var timeout = Duration.ofSeconds(timeoutSeconds);
             var model = new Master(http, new Master.Settings(local.resolve("/router/chat/completions"), "trial",
@@ -213,7 +213,7 @@ final class ChatCompactionFixture implements AutoCloseable {
         ProviderError(int status) { this.status = status; }
     }
 
-    private static String operation(JsonObject body) {
+    static String operation(JsonObject body) {
         if (body.has("messages")) {
             if (!body.has("tools")) return "reply";
             return body.getAsJsonArray("tools").get(0).getAsJsonObject()
@@ -264,11 +264,11 @@ final class ChatCompactionFixture implements AutoCloseable {
         audit.close();
     }
 
-    /** Gemini 配置要求 HTTPS。复用原请求的头、正文、超时及处理器，仅把传输目的地指向本地供应商。 */
-    private static final class GeminiLoopback extends HttpClient {
+    /** 复用原请求的头、正文、超时及处理器，仅把传输目的地指向本地供应商或采样中继。 */
+    static final class LoopbackTransport extends HttpClient {
         private final HttpClient client;
         private final URI endpoint;
-        GeminiLoopback(HttpClient client, URI endpoint) { this.client = client; this.endpoint = endpoint; }
+        LoopbackTransport(HttpClient client, URI endpoint) { this.client = client; this.endpoint = endpoint; }
 
         private HttpRequest local(HttpRequest request) {
             return HttpRequest.newBuilder(request, (name, value) -> true).uri(endpoint).version(Version.HTTP_1_1).build();
