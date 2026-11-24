@@ -30,6 +30,7 @@ public final class QqGroups {
     private Map<Long, Room> rooms = Map.of();
     private boolean connected;
     private boolean epochsPending;
+    private Runnable scopeChanged = () -> {};
     private String refreshed;
 
     /** 策略文件按账号绑定，已存在但无法解析的配置会阻止启动。 */
@@ -114,6 +115,7 @@ public final class QqGroups {
         rooms = next;
         connected = true;
         refreshed = Instant.now().toString();
+        scopeChanged.run();
         if (observation != null) observation.wake();
     }
 
@@ -128,6 +130,7 @@ public final class QqGroups {
     /** 断线保留最后可见名单供面板查阅，渠道停止受理该连接的群事件。 */
     synchronized void disconnected() {
         connected = false;
+        scopeChanged.run();
         if (observation != null) observation.wake();
     }
 
@@ -156,6 +159,14 @@ public final class QqGroups {
     synchronized List<Long> observed() {
         return rooms.keySet().stream().filter(id -> current(id).policy() != Mode.OFF).toList();
     }
+
+    /** 尚未核验完整名单或临时断线时暂停领取，避免将未知集合当作撤销所有授权。 */
+    public synchronized Optional<List<Long>> dreamingGroups() {
+        return connected ? Optional.of(observed()) : Optional.empty();
+    }
+
+    /** 只通知整理线程重新读取已核验的接收范围，渠道线程无需等待模型或回执。 */
+    public synchronized void onScopeChange(Runnable listener) { scopeChanged = listener; }
 
     /** 比较面板所见版本后原子写入新策略；保存失败时继续使用此前已持久化的版本。 */
     public synchronized Policy change(long group, Policy cmd) throws IOException {
@@ -190,6 +201,7 @@ public final class QqGroups {
                     StandardCopyOption.ATOMIC_MOVE,
                     StandardCopyOption.REPLACE_EXISTING);
             policies = Map.copyOf(next);
+            scopeChanged.run();
             epochsPending = observation != null;
             finishPolicyChange();
         } finally {

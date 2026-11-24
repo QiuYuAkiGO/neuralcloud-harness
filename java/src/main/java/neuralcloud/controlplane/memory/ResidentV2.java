@@ -22,7 +22,7 @@ import java.util.*;
  * 5. 基于 {@code v2/changes} 变更流的按条目增量刷新（{@link #refresh}）以及执行/渠道交付前的证据有效性复核（{@link #verifyEvidence} / {@link #verifyDelivery}）。
  */
 public final class ResidentV2 extends ResidentMemory {
-    private static final String SOURCE = "neuralcloud-java";
+    static final String SOURCE = "neuralcloud-java";
     private static final Gson JSON = new GsonBuilder().disableHtmlEscaping().create();
     /** 本地持久日志，保存待发送写命令队列、已交付给模型的不可变证据与变更监视游标。 */
     private final MemoryJournal journal;
@@ -36,6 +36,28 @@ public final class ResidentV2 extends ResidentMemory {
     private String stream;
     /** 是否在 {@code scoped} 模式下协商通过了 {@code audience_reads} 能力（决定是否携带 {@code use=CITE}）。 */
     private boolean audienceReads;
+    private boolean dreaming;
+
+    /** 只在启动握手协商过独立整理协议时开放内部取证入口。 */
+    public Optional<DreamingMemory> dreaming() {
+        return dreaming ? Optional.of(new DreamingMemory(this)) : Optional.empty();
+    }
+
+    /** Router 在策略锁内发起提交，在锁外确认。只有明确的版本或来源冲突才释放旧命令。 */
+    public PendingReceipt sendDreaming(JsonObject command) {
+        var pending = postAsync("v2/dreaming/commit", command);
+        return () -> {
+            try {
+                return decode(pending.get());
+            } catch (ServiceError e) {
+                if (e.status == 409 && Set.of("DREAM_BATCH_CHANGED", "REVISION_CONFLICT", "SOURCE_CHANGED").contains(e.code))
+                    throw new SourceChanged(e);
+                throw e;
+            } catch (java.util.concurrent.ExecutionException e) {
+                throw new IOException("Dreaming 提交回执未确认", e.getCause());
+            }
+        };
+    }
 
     /** 同一策略版本固定流和启用水位；配置发布前读到的 head 不包含随后受理的群原文。 */
     public ObserveQueue observationQueue() {
@@ -183,6 +205,7 @@ public final class ResidentV2 extends ResidentMemory {
         if (!(health.get("capabilities") instanceof JsonArray caps))
             throw new IOException("Memory v2 缺少能力列表");
         audienceReads = scopedRecall() && caps.contains(new JsonPrimitive("audience_reads"));
+        dreaming = audienceReads && caps.contains(new JsonPrimitive("dreaming"));
         var required =
                 new HashSet<>(
                         List.of(

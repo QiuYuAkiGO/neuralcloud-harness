@@ -15,6 +15,8 @@ import neuralcloud.controlplane.memory.MemoryCall.Caller;
 import neuralcloud.controlplane.memory.ResidentMemory;
 import neuralcloud.controlplane.memory.ResidentV2;
 import neuralcloud.controlplane.memory.MemoryJournal;
+import neuralcloud.controlplane.dreaming.DreamingModel;
+import neuralcloud.controlplane.dreaming.DreamingScheduler;
 import neuralcloud.controlplane.memory.ObserveEvidence;
 import neuralcloud.controlplane.memory.ObserveQueue;
 import neuralcloud.controlplane.orchestration.Orchestrator;
@@ -101,6 +103,7 @@ public final class ConsoleMain {
         Optional<TaskWorkerConfig> taskSettings;
         Optional<OpenQqConfig.Settings> openQqSettings;
         Optional<MemoryConfig> memorySettings;
+        Optional<DreamingModel> dreaming;
         // 第一阶段：加载并校验全部配置与跨模块前置条件，任一配置非法直接退出，不创建任何网络或磁盘资源。
         try {
             settings = ConsoleConfig.load(config);
@@ -133,6 +136,10 @@ public final class ConsoleMain {
             if (memorySettings.isPresent() && !masterSettings.usesChat()) {
                 throw new IllegalArgumentException("配置会话记忆时，Master 需要支持 memory_call 的 /v1/chat/completions 端点");
             }
+            if (settings.dreamingConfig().isPresent() && memorySettings.filter(m -> m.apiVersion() == 2 && m.scopedRecall()).isEmpty())
+                throw new IllegalArgumentException("dreamingConfig 需要 memoryConfig 启用 v2 scoped");
+            dreaming = settings.dreamingConfig().isPresent()
+                    ? Optional.of(DreamingModel.open(settings.dreamingConfig().get().readProperties())) : Optional.empty();
         } catch (IOException | IllegalArgumentException error) {
             System.err.println("配置阶段失败：" + error.getMessage());
             return 2;
@@ -140,6 +147,7 @@ public final class ConsoleMain {
 
         // 第二阶段：依次打开持久化、记忆、推理客户端、监控、HTTP 控制台与 OpenQQ，并通过栈记录确保逆序清理。
         Deque<AutoCloseable> opened = new ArrayDeque<>();
+        dreaming.ifPresent(opened::push);
         try {
             var audit = AuditLog.open(settings.auditDirectory());
             opened.push(audit);
@@ -226,6 +234,18 @@ public final class ConsoleMain {
                 opened.push(scheduler);
                 scheduler.start();
             } else groups = Optional.empty();
+            // Memory 握手通过后启动独立整理器。前台活动计数是它与群观察唯一共享的调度状态。
+            if (dreaming.isPresent()) {
+                var model = dreaming.get();
+                var store = memory.orElseThrow();
+                var reader = store.writes().dreamingReads().orElseThrow(() -> new IOException("Memory v2 缺少 dreaming 能力"));
+                var scheduler = new DreamingScheduler(reader, store.writes(), model, foreground,
+                        () -> dreamingScopes(model, openQqSettings, groups), groups.<Object>map(g -> g).orElse(foreground), audit);
+                groups.ifPresent(g -> g.onScopeChange(scheduler::wake));
+                foreground.onActivity(scheduler::wake);
+                opened.push(scheduler);
+                scheduler.start();
+            }
             var server =
                     ConsoleServer.start(settings.listen(), audit, monitor, nodes, writes, groups);
             opened.push(server);
@@ -275,6 +295,23 @@ public final class ConsoleMain {
         var address = settings.listen();
         System.out.println("控制台已就绪：http://" + address.getHostString() + ":" + address.getPort() + "/");
         return 0;
+    }
+
+    /** 私聊与群范围由渠道配置和已核验名单签入，模型只能在收到的材料中选取依据。 */
+    private static Optional<java.util.Set<String>> dreamingScopes(DreamingModel model, Optional<OpenQqConfig.Settings> qq,
+                                                       Optional<QqGroups> groups) {
+        var scopes = new java.util.TreeSet<>(model.sourceScopes());
+        if (qq.isPresent()) {
+            var channel = qq.get();
+            scopes.add("c2c:onebot:" + channel.accountId() + ":" + channel.allowedUserId());
+            String group = "group:onebot:" + channel.accountId() + ":";
+            if (groups.isPresent()) {
+                var active = groups.get().dreamingGroups();
+                if (active.isEmpty()) return Optional.empty();
+                active.get().forEach(id -> scopes.add(group + id));
+            } else if (channel.allowedGroupId() != 0) scopes.add(group + channel.allowedGroupId());
+        }
+        return Optional.of(scopes);
     }
 
     /**

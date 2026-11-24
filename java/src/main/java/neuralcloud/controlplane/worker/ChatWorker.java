@@ -644,7 +644,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         }
         try {
             var responseBody = JSON.fromJson(response.body(), JsonObject.class);
-            return new Generation(replyText(responseBody), usage(responseBody));
+            return new Generation(geminiText(responseBody), usage(responseBody));
         } catch (JsonParseException error) {
             throw new IOException("Gemini 响应不是有效的 JSON 对象", error);
         }
@@ -822,7 +822,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
      * 1. 要求 {@code finishReason=STOP}，避免把截断或被安全拦截的半成品交付给用户；
      * 2. 遍历 {@code content.parts}，过滤掉 {@code thought=true} 的内部思考片段，只拼接最终可见正文。
      */
-    private static String replyText(JsonObject payload) throws IOException {
+    public static String geminiText(JsonObject payload) throws IOException {
         if (payload == null || !(payload.get("candidates") instanceof JsonArray candidates)
                 || candidates.size() != 1 || !(candidates.get(0) instanceof JsonObject candidate)) {
             throw new IOException("Gemini 响应须有一条文本候选");
