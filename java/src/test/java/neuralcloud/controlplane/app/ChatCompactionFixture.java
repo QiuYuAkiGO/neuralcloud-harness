@@ -40,6 +40,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 
 /** 从正式模型配置和会话入口重放。仅模型 HTTP 对端受控，共享审计和 Trace 均由 Harness 创建。 */
 final class ChatCompactionFixture implements AutoCloseable {
@@ -92,6 +93,7 @@ final class ChatCompactionFixture implements AutoCloseable {
     volatile Handler plan = call -> "{\"kind\":\"REPLY\",\"query\":\"\"}";
     volatile Handler reply = call -> "我看到了。";
     volatile Handler summary = call -> "{\"items\":[],\"closed\":[]}";
+    volatile Consumer<JsonObject> summaryEnvelope = response -> {};
     volatile Handler participation = call -> "REPLY";
     volatile Handler statusIntro = call -> "嗯，我刚看了下这台服务器。";
     private final HttpServer server;
@@ -198,7 +200,9 @@ final class ChatCompactionFixture implements AutoCloseable {
                     case "reply" -> reply.respond(call);
                     default -> throw new AssertionError("测试供应商不支持 " + call.name());
                 };
-                write(exchange, 200, body.has("contents") ? gemini(text) : openAi(call.name(), text));
+                var response = body.has("contents") ? gemini(text) : openAi(call.name(), text);
+                if (call.name().equals("submit_chat_summary")) summaryEnvelope.accept(response);
+                write(exchange, 200, response.toString());
             } catch (ProviderError error) {
                 write(exchange, error.status, "受控的供应商错误");
             } catch (InterruptedException interrupted) {
@@ -230,13 +234,13 @@ final class ChatCompactionFixture implements AutoCloseable {
         return definition.getAsJsonObject("properties").has("items") ? "submit_chat_summary" : "plan_turn";
     }
 
-    private static String gemini(String text) {
-        return JSON.toJson(Map.of("candidates", List.of(Map.of("finishReason", "STOP",
+    private static JsonObject gemini(String text) {
+        return JSON.toJsonTree(Map.of("candidates", List.of(Map.of("finishReason", "STOP",
                 "content", Map.of("parts", List.of(Map.of("text", text))))),
-                "usageMetadata", Map.of("promptTokenCount", 45, "cachedContentTokenCount", 6, "candidatesTokenCount", 12)));
+                "usageMetadata", Map.of("promptTokenCount", 45, "cachedContentTokenCount", 6, "candidatesTokenCount", 12))).getAsJsonObject();
     }
 
-    private static String openAi(String name, String text) {
+    private static JsonObject openAi(String name, String text) {
         String arguments = switch (name) {
             case "select_reply" -> JSON.toJson(Map.of("decision", text));
             case "select_status_intro" -> JSON.toJson(Map.of("intro", text));
@@ -245,9 +249,9 @@ final class ChatCompactionFixture implements AutoCloseable {
         boolean plain = "reply".equals(name);
         var message = plain ? Map.of("content", text) : Map.of("tool_calls", List.of(Map.of(
                 "id", "call-1", "type", "function", "function", Map.of("name", name, "arguments", arguments))));
-        return JSON.toJson(Map.of("model", "trial", "choices", List.of(Map.of("finish_reason", plain ? "stop" : "tool_calls",
+        return JSON.toJsonTree(Map.of("model", "trial", "choices", List.of(Map.of("finish_reason", plain ? "stop" : "tool_calls",
                 "message", message)), "usage", Map.of("prompt_tokens", 45, "completion_tokens", 12,
-                "prompt_tokens_details", Map.of("cached_tokens", 6))));
+                "prompt_tokens_details", Map.of("cached_tokens", 6)))).getAsJsonObject();
     }
 
     private static void write(HttpExchange exchange, int status, String content) throws IOException {
