@@ -108,6 +108,8 @@ historyBudgetUnits=48000
 java -cp 'java/target/test-classes;java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar' neuralcloud.controlplane.app.ChatCompactionReplay '<模型档位.properties>' '<新目录>' 48000 1
 ```
 
+在类名后加 `--holdout` 可从同一固定截点直接询问旧线索。该组合成原文长 50279 单元，期间没有前台模型答复，固定输入指纹和预登记的评分项见输出目录的 `holdout-case.json`。使用支持 `identity_lookup` 的 Memory JAR 运行 `chat_compaction_identity.py`，可单独核验目录称呼按原用途送达及其回放边界。
+
 **生产记忆。** 使用生产 Misty 服务时，在记忆配置中设 `recallMode=scoped`（省略时为 `recent`）。OpenQQ 私聊沿用生产的 `c2c:onebot:<账号>:<用户>` 会话标识，写入携带实际消息 ID 和发言者的 v2 事件。历史查询检索本轮之前对接收会话可见的记录。查询本人身份时，记忆接口使用 OpenQQ 入站事件绑定的发件人账号，只返回记忆服务提供的已确认称呼。既有测试库的回执保留在原审计链，生产读取只使用生产回执。
 
 **Java Memory v2。** 在 `memoryConfig` 指定的文件中设置 `apiVersion=2`、`recallMode=scoped` 和回环 `endpoint=http://127.0.0.1:端口/`。`characterId` 和 `accessTokenEnv` 与 Memory 服务配置对应，省略 `apiVersion` 时继续选择 v1。控制台在角色、协议和所需能力核验成功后开放，审计目录中的 `memory-v2-<角色>.sqlite` 持久保存写入待办、模型输入的证据版本和消费位置。
@@ -124,7 +126,7 @@ java -cp 'java/target/test-classes;java/target/neuralcloud-control-plane-0.1.0-S
 
 生产 QQ 私聊另提供 `SELF_HISTORY`。当用户问自己以前说过什么，Chat Worker 提交话题关键词，只读接口使用入站私聊绑定的本人账号，向记忆服务查询本轮之前在 QQ 群聊或私聊的原话。审计记录查询类别、命中数以及 Worker 收到的带时间、渠道来源的节选。`HISTORY` 查询接收会话可引用的历史，`SELF_IDENTITY` 用来查询本人已确认的称呼。
 
-**对话上下文。** Chat Worker 按原顺序重放同渠道、同会话的用户消息和已确认送出的 Misty 回复。原文保留在审计链，单次请求的历史部分最多使用 48,000 个 UTF-16 代码单元，超出时按整条消息从最早处缩减请求前缀。历史消息维持原文和角色，本轮直接读取的记忆材料附在当前消息之后。`chat_worker_turn_plan` 记录历史消息条数，以及 Gemini 实际返回的输入和缓存 token 计数。
+**对话上下文。** 默认 `OFF` 时，Chat Worker 按原顺序重放同渠道、同会话的用户消息和已确认送出的 Misty 回复。原文保留在审计链，单次请求的历史部分最多使用 48,000 个 UTF-16 代码单元，超出时按整条消息从最早处缩减请求前缀。启用 `ROLLING` 时，按本页的压缩规则组装历史。本轮直接读取的记忆材料附在当前消息之后。`chat_worker_turn_plan` 记录历史消息条数，以及 Gemini 实际返回的输入和缓存 token 计数。
 
 **参与判断。** 渠道通过 `ReplySelector.Context` 提供发言是否直接指向 Misty、本条正文及同一会话的近期原文。控制台发给 Chat Worker 的消息属于 `DIRECT`，选择 `REPLY`。群聊普通消息使用 `AMBIENT`，由 Chat Worker 用只读摘要判断。Gemini 配置的 `replyPreferences` 指向摘要资源，默认的首版根据 Misty 人设与远端历史记忆提炼。`ChatWorker.reply` 每次先判断参与，`REPLY` 才生成获准正文，`SKIP` 返回空结果，判断失败则抛出异常。
 
