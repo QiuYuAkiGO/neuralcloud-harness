@@ -2,6 +2,7 @@ package neuralcloud.controlplane.memory;
 
 import com.google.gson.*;
 
+import neuralcloud.controlplane.console.AuditLog;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
 import neuralcloud.controlplane.memory.ConversationMemory.QueryKind;
 
@@ -90,6 +91,9 @@ public final class ResidentV2 extends ResidentMemory {
         this.journal = journal;
         this.grantToken = grantToken;
     }
+
+    /** 自动引用只有在当前服务已协商受众读契约时启用。 */
+    boolean supportsAudienceReads() { return audienceReads; }
 
     /** 返回启动核验阶段锁定的远端记忆流标识 {@code stream_id}。 */
     public String stream() {
@@ -574,7 +578,7 @@ public final class ResidentV2 extends ResidentMemory {
                     if (!(source instanceof JsonObject s)) throw new IOException("来源引用无效");
                     checkRef(s);
                 }
-                string(item, "text");
+                excerptText(item);
                 // 目录返回的称呼只属于明确给出的账号，即使在原会话使用也受共享开关约束。
                 if (purpose.equals("IDENTITY") && (!string(item, "identity_account_id").matches("[1-9][0-9]{4,15}")
                         || !new JsonPrimitive(true).equals(item.get("grant_dependent"))
@@ -585,6 +589,12 @@ public final class ResidentV2 extends ResidentMemory {
         }
         String assessment = recall ? string(raw.getAsJsonObject("assessment"), "state") : "";
         return new Snapshot(id, seq, rows, assessment);
+    }
+
+    /** 读取窗口可以恰好落在正文末尾，也可能只含空白；其类型仍必须是字符串。 */
+    private static String excerptText(JsonObject item) throws IOException {
+        if (item.get("text") instanceof JsonPrimitive value && value.isString()) return value.getAsString();
+        throw new IOException("Memory v2 的 text 窗口须为字符串");
     }
 
     /** 校验单个引用对象包含合法的 64 位十六进制 {@code record_id} 及 >= 1 的 {@code revision}。 */
@@ -663,6 +673,25 @@ public final class ResidentV2 extends ResidentMemory {
                         length);
         if (start > 0) body.addProperty("start", start);
         return audienceRequest("v2/read", body, scope, false);
+    }
+
+    /** 普通回读只取 2048 码点。更正后的长发言按同一版本续读，防止把两次更正的正文拼在一起。 */
+    String replacementText(Trace.Scope scope, JsonObject item) throws IOException, InterruptedException {
+        String part = excerptText(item);
+        var text = new StringBuilder(part);
+        var ref = item.getAsJsonObject("ref");
+        int window = 2048, offset = 0;
+        while (part.codePointCount(0, part.length()) == window && text.length() <= AuditLog.DIALOGUE_CHAR_BUDGET) {
+            offset += window;
+            window = 16384;
+            var next = readWindow(scope, "CHAT_WORKER", "HISTORY", List.of(string(ref, "record_id")), offset, window)
+                    .items().getFirst();
+            if (!"ONLINE".equals(string(next, "status")) || !ref.equals(next.get("ref")))
+                throw new IOException("历史发言在回放期间发生更正");
+            part = excerptText(next);
+            text.append(part);
+        }
+        return text.toString();
     }
 
     /** 拉取当前会话的 L0 事项/人物热目录卡片指针列表（最多 12 张），并核对流标识与卡片引用合法性。 */
@@ -799,7 +828,7 @@ public final class ResidentV2 extends ResidentMemory {
      */
     static String render(JsonObject item, String purpose) throws IOException {
         if (!string(item, "status").equals("ONLINE")) return "此前引用的原依据已失效。";
-        String value = string(item, "text");
+        String value = excerptText(item);
         if (purpose.equals("SELF_IDENTITY")) return senderNameEvidence(value);
         if (purpose.equals("IDENTITY"))
             return "QQ 账号 " + string(item, "identity_account_id") + " 经确认的称呼是「" + value + "」。";
@@ -918,10 +947,10 @@ public final class ResidentV2 extends ResidentMemory {
         return false;
     }
 
-    private record CurrentItem(String stream, long seq, JsonObject item) {}
+    record CurrentItem(String stream, long seq, JsonObject item) {}
 
     /** 同一受众的历史可能登记过多次。每种查询目的按 /v2/read 的 128 条上限批量回读，保留各批的真实水位。 */
-    private Map<Trace.MemoryTarget, CurrentItem> reread(Trace.Scope scope, String role, Set<Trace.MemoryTarget> affected)
+    Map<Trace.MemoryTarget, CurrentItem> reread(Trace.Scope scope, String role, Set<Trace.MemoryTarget> affected)
             throws IOException, InterruptedException {
         var byKind = new LinkedHashMap<String, List<String>>();
         for (var target : affected)
@@ -1088,20 +1117,23 @@ public final class ResidentV2 extends ResidentMemory {
 
     /**
      * 渠道向外发送回复前的最终交付门禁复核：
-     * 1. 检查当前时刻仍严格早于本轮所有共享/时效证据的最早截止时间 {@link Trace#validUntil()}；
-     * 2. 以 {@code ROUTER} 身份按原始查询用途向 {@code v2/read} 复核每条来源仍处于 {@code ONLINE}
-     *    且版本号未修订，防止在模型生成回复期间授权被撤回或原始记录被改写后仍被外发。
+     * 以原查询用途复核每条来源的引用权及修订号，同时检查回执的来源数量和本轮最早有效截止时间。
      */
     public void verifyDelivery(Trace trace) throws IOException, InterruptedException {
-        if (!Instant.now().isBefore(trace.validUntil())) throw new IOException("渠道交付前引用的证据已到期");
-        var current = reread(trace.scope(), "ROUTER", trace.sharedSources().keySet());
+        var sources = trace.sharedSources();
+        // 送达后的自述须能按 Memory 写入契约持久化，不能先外发再发现来源超过上限。
+        if (sources.keySet().stream().map(Trace.MemoryTarget::recordId).distinct().count() > 128)
+            throw new IOException("自述的 source_refs 超过 Memory 允许的 128 项");
+        var current = reread(trace.scope(), "ROUTER", sources.keySet());
         for (var entry : current.entrySet()) {
             var item = entry.getValue().item();
             if (!"ONLINE".equals(string(item, "status"))) throw new IOException("渠道交付前引用权已失效");
             var ref = item.getAsJsonObject("ref");
             if (!Objects.equals(
-                    trace.sharedSources().get(entry.getKey()),
-                    integer(ref, "revision", 1))) throw new IOException("渠道交付前引用依据已修订");
+                    sources.get(entry.getKey()), integer(ref, "revision", 1)))
+                throw new IOException("渠道交付前引用依据已修订");
         }
+        // 受众复核本身也可能经过到期时刻，须用复核完成时的时间判定。
+        if (!Instant.now().isBefore(trace.validUntil())) throw new IOException("渠道交付前引用的证据已到期");
     }
 }

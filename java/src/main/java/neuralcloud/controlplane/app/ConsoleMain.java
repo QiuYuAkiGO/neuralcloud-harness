@@ -20,6 +20,7 @@ import neuralcloud.controlplane.memory.ObserveQueue;
 import neuralcloud.controlplane.orchestration.Orchestrator;
 import neuralcloud.controlplane.orchestration.MasterEpochs;
 import neuralcloud.controlplane.orchestration.ObserveScheduler;
+import neuralcloud.controlplane.router.MemoryGatekeeper;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.router.RouterMemoryWriter;
@@ -170,7 +171,12 @@ public final class ConsoleMain {
                 return configured.create(taskClient);
             });
             var routerInference = new Master(routerClient, routerSettings);
-            var router = new Router<>(routerInference, routerPrompt, Route.class);
+            var router = new Router<>(routerInference, routerPrompt, Route.class, memory.map(MemoryAccess::reads));
+            if (router.memoryCall().isPresent()) {
+                audit.write("runtime", null, "router", "router_capability_registered", Map.of("name", MemoryCall.NAME,
+                        "automaticRecall", router.memoryCall().get().supportsAutomaticRecall(),
+                        "callers", List.of(Caller.CHAT_WORKER, Caller.TASK_WORKER, Caller.MASTER)));
+            }
             var master = new Master(masterClient, masterSettings);
             // 先恢复唯一的主干租约，再把同一运行时交给控制台和 QQ。Router 只复用推理客户端。
             var epochs = new MasterEpochs(audit.directory().resolve("master-epochs.sqlite"), settings.masterEpoch());
@@ -427,7 +433,7 @@ public final class ConsoleMain {
                         : new ReplySelector.Context(
                                 ReplySelector.Addressing.AMBIENT,
                                 seen.text(),
-                                trace.dialogue().stream().map(m -> m.text()).toList());
+                                store.reads().dialogue(trace).messages().stream().map(m -> m.text()).toList());
         var decision = chat.selectReply(context);
         int selected =
                 trace.write(
@@ -587,21 +593,73 @@ public final class ConsoleMain {
                                     ChatWorker chat, Router<Route> router, Optional<MasterRuntime> master,
                                     Optional<Route> route, Action action)
             throws IOException, InterruptedException {
-        var read = store.reads().bind(trace, Caller.CHAT_WORKER, seen.event());
-        var updates = read.startTurn();
-        var turn = chat.planTurn(seen.text(), updates.isEmpty() ? trace.dialogue() : List.of(),
-                read.queryKinds(), updates, route);
+        var handler = router.memoryCall().orElse(store.reads());
+        var read = handler.bind(trace, Caller.CHAT_WORKER, seen.event());
+        MemoryGatekeeper.Decision decision = null;
+        MemoryCall push = null;
+        MemoryCall.Result pushed = null;
+        ChatWorker.Turn turn;
+        int cause;
+        try {
+            var updates = read.startTurn();
+            var dialogue = read.dialogue();
+            cause = read.eventId();
+            if (router.memoryCall().isPresent() && handler.supportsAutomaticRecall()) {
+                decision = MemoryGatekeeper.decide(seen.text(), dialogue, read.queryKinds());
+                cause = trace.write(cause, "router", "router_memory_gate", Map.of(
+                        "capability", MemoryCall.NAME, "consumer", "CHAT_WORKER",
+                        "operation", decision.kind().isPresent() ? "RECALL" : "SKIP",
+                        "reason", decision.reason(), "query", decision.query()));
+                if (decision.kind().isPresent()) {
+                    // 刷新游标和自动查证各自记账；只有模型实际接收输入后，才确认消费。
+                    push = read.nextRead(cause);
+                    pushed = push.read(decision.kind().orElseThrow(), decision.query(), MemoryCall.AUTOMATIC_INPUT_BYTES);
+                    push.verifyEvidence();
+                    cause = push.eventId();
+                }
+            }
+            read.verifyEvidence();
+            turn = chat.planTurn(seen.text(), dialogue, read.queryKinds(), updates, route,
+                    pushed == null ? List.of() : pushed.sentences());
+        } catch (IOException error) {
+            throw new ChatWorker.PlanningFailure(error);
+        }
         read.refreshed();
-        int planned = trace.write(read.eventId(), "chat-worker", "chat_worker_turn_plan",
-                Map.of("kind", turn.kind().name(), "dialogueMessages", turn.dialogue().size(), "usage", turn.usage()));
-        read.verifyEvidence();
+        if (push != null) push.delivered();
+        var planData = new java.util.LinkedHashMap<String, Object>();
+        planData.put("kind", turn.kind().name());
+        planData.put("dialogueMessages", turn.dialogue().size());
+        planData.put("usage", turn.usage());
+        if (push != null) planData.put("automaticInput", push.consumedInput(pushed));
+        int planned = trace.write(cause, "chat-worker", "chat_worker_turn_plan", planData);
+        try {
+            read.verifyEvidence();
+            if (push != null) push.verifyEvidence();
+        } catch (IOException changed) {
+            throw new ChatWorker.PlanningFailure(changed);
+        }
         var reply = switch (turn.kind()) {
-            case REPLY, CLARIFY -> new Reply("chat_worker_reply",
+            case REPLY -> new Reply("chat_worker_reply", Map.of("text", push == null
+                    ? chat.replyToTurn(turn, List.of()).orElseThrow()
+                    : chat.replyWithMemory(turn, push, pushed, List.of()).orElseThrow()), planned);
+            case CLARIFY -> new Reply("chat_worker_reply",
                     Map.of("text", chat.replyToTurn(turn, List.of()).orElseThrow()), planned);
-            case ACTION -> action.run(planned);
+            case ACTION -> {
+                // 当本轮指令只要求查记忆，ACTION 的执行目标是 Router 注册的只读能力。
+                if (decision == null || !decision.memoryOnly()) yield action.run(planned);
+                String answer = push == null ? "你想让我再查哪件事？"
+                        : chat.replyWithMemory(turn, push, pushed, List.of()).orElseThrow();
+                yield new Reply("chat_worker_reply", Map.of("text", answer), planned);
+            }
             case HISTORY, SELF_IDENTITY, SELF_HISTORY, IDENTITY -> {
-                var recall = store.reads().bind(trace, Caller.CHAT_WORKER, planned);
-                String answer = chat.replyWithMemory(turn, recall).orElseThrow();
+                var kind = ConversationMemory.QueryKind.valueOf(turn.kind().name());
+                if (push != null && pushed.kind() == kind && decision.query().equals(turn.query()))
+                    yield new Reply("chat_worker_reply", Map.of("text",
+                            chat.replyWithMemory(turn, push, pushed, List.of()).orElseThrow()), planned);
+                var recall = read.nextRead(planned);
+                String answer = push == null ? chat.replyWithMemory(turn, recall).orElseThrow()
+                        : chat.replyWithMemory(turn, recall, recall.read(kind, turn.query(), MemoryCall.AUTOMATIC_INPUT_BYTES),
+                                push.withoutNoticeTexts(pushed.sentences())).orElseThrow();
                 yield new Reply("chat_worker_reply", Map.of("text", answer), recall.eventId());
             }
             case SUBJECT_CONFLICT -> {
@@ -611,6 +669,7 @@ public final class ConsoleMain {
             }
         };
         read.verifyEvidence();
+        if (push != null) push.verifyEvidence();
         return reply;
     }
 

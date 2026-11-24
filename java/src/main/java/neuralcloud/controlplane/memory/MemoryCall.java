@@ -9,8 +9,10 @@ import com.google.gson.Strictness;
 import com.google.gson.annotations.SerializedName;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
 import neuralcloud.controlplane.memory.ConversationMemory.QueryKind;
+import neuralcloud.controlplane.worker.DialogueMessage;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -32,6 +34,7 @@ import java.util.regex.Pattern;
 public final class MemoryCall {
     /** 暴露给模型调用的函数工具名。 */
     public static final String NAME = "memory_call";
+    public static final int AUTOMATIC_INPUT_BYTES = 8192;
     private static final Gson JSON = new GsonBuilder().setStrictness(Strictness.STRICT).create();
     /**
      * 拦截“上文 / 刚才的内容 / 聊天记录”等空泛占位查询词的正则。
@@ -72,6 +75,8 @@ public final class MemoryCall {
     private final String inputId = java.util.UUID.randomUUID().toString();
     /** 本轮常规召回或印象修订收集到的在线证据快照绑定。 */
     private List<MemoryJournal.Read> bindings = List.of();
+    private boolean preparedRead;
+    private Map<Trace.MemoryTarget, Long> dialogueVersions = Map.of();
     /** 本轮起始阶段拉取到的变更刷新结果，用于模型第一轮调用后推进 watches 游标。 */
     private ResidentV2.Refresh refresh;
 
@@ -300,7 +305,7 @@ public final class MemoryCall {
 
     /** 确认模型已完成消费本轮通过 {@link #read} 或 {@link #impressionEvidence} 注入的证据。 */
     public void delivered() throws IOException {
-        if (memory.v2() != null && !bindings.isEmpty()) memory.v2().delivered(inputId);
+        if (memory.v2() != null && (preparedRead || !bindings.isEmpty())) memory.v2().delivered(inputId);
     }
 
     /**
@@ -343,6 +348,7 @@ public final class MemoryCall {
      */
     public void verifyEvidence() throws IOException, InterruptedException {
         if (memory.v2() == null) return;
+        if (!dialogueVersions.isEmpty()) memory.verifyDialogue(trace.scope(), dialogueVersions);
         var current = new ArrayList<>(bindings);
         current.addAll(hotBindings);
         if (refresh != null)
@@ -357,6 +363,19 @@ public final class MemoryCall {
         this.caller = caller;
         this.eventId = parent;
         this.numberEvidence = numberEvidence;
+    }
+
+    /** 记录实际用于本轮规划的历史版本。追加查证继承同一组历史，不能借新句柄绕过期间发生的撤回。 */
+    public List<DialogueMessage> dialogue() throws IOException, InterruptedException {
+        var history = memory.dialogue(trace);
+        dialogueVersions = history.versions();
+        return history.messages();
+    }
+
+    public MemoryCall nextRead(int parent) {
+        var next = memory.bind(trace, caller, parent);
+        next.dialogueVersions = dialogueVersions;
+        return next;
     }
 
     /** 只以实际交付的同群通知原文窗口校验引用，其他候选材料留在 Master 的受众边界内。 */
@@ -396,6 +415,12 @@ public final class MemoryCall {
                 .findFirst();
     }
 
+    /** 审计按输入标识关联规划实际消费的材料、字节数和 SQLite 中的确切证据版本。 */
+    public Map<String, Object> consumedInput(Result result) {
+        return Map.of("inputId", inputId, "kind", result.kind(), "count", result.count(),
+                "utf8Bytes", String.join("\n", result.sentences()).getBytes(StandardCharsets.UTF_8).length);
+    }
+
     /** 返回本句柄最近一次写入的记忆审计事件 ID，供调用方串联下一事件的 causedBy。 */
     public int eventId() {
         return eventId;
@@ -426,6 +451,18 @@ public final class MemoryCall {
         return List.copyOf(kinds);
     }
 
+    /** 补查优先。相同材料只交付一次，规划时已消费的预查材料仅在本次剩余预算内重用。 */
+    public static List<String> mergeMaterials(List<String> result, List<String> earlier) {
+        if (earlier.isEmpty()) return result;
+        var messages = new java.util.LinkedHashSet<>(result);
+        int used = String.join("\n", messages).getBytes(StandardCharsets.UTF_8).length;
+        for (String line : earlier) {
+            int needed = line.getBytes(StandardCharsets.UTF_8).length + (messages.isEmpty() ? 0 : 1);
+            if (needed <= AUTOMATIC_INPUT_BYTES - used && messages.add(line)) used += needed;
+        }
+        return List.copyOf(messages);
+    }
+
     /** 空 query 表示查本人、或按 IDENTITY 列举有确认记录的账号。 */
     public Map<String, Object> tool() {
         var kinds = queryKinds();
@@ -449,13 +486,18 @@ public final class MemoryCall {
      * 3. v2 下登记本地 {@code inputs}/{@code watches} 并完成交付来源校验，最后写出 {@code memory_call_result} 审计事件。
      */
     public Result read(QueryKind kind, String query) throws IOException, InterruptedException {
+        return read(kind, query, Integer.MAX_VALUE);
+    }
+
+    /** 预算只计交给消费者的完整证据句和行间换行，按同一批实际交付项登记版本。 */
+    public Result read(QueryKind kind, String query, int byteBudget) throws IOException, InterruptedException {
         if (!queryKinds().contains(kind) || !validQuery(kind.name(), query)) {
             throw new IOException("memory_call 的 kind 或 query 不符合当前渠道的查询契约");
         }
         int requested = trace.write(eventId, caller.node, NAME, Map.of("kind", kind.name(), "query", query));
         ConversationMemory.Recall recalled;
         try {
-            recalled = memory.retrieve(trace, requested, kind, query, caller.name(), inputId, numberEvidence);
+            recalled = memory.retrieve(trace, requested, kind, query, caller.name(), inputId, numberEvidence, byteBudget);
         } catch (IOException | InterruptedException error) {
             trace.write(requested, "memory", "memory_call_failed", Map.of("detail", error.toString()));
             throw error;
@@ -472,8 +514,10 @@ public final class MemoryCall {
         }
         // 模型和审计共用同一份结果。范围说明及近期上下文不计入实际命中数。
         bindings = recalled.bindings();
-        if (memory.v2() != null)
+        if (memory.v2() != null) {
             memory.v2().prepare(inputId, caller.name(), trace.scope(), sentences, bindings);
+            preparedRead = true;
+        }
         verifyDeliverySources(bindings);
         var result = new Result(kind, recalled.matchCount(), sentences);
         eventId = trace.write(recalled.eventId(), "memory", "memory_call_result", result);

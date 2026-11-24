@@ -13,6 +13,7 @@ import neuralcloud.controlplane.console.ConsoleServer.Reply;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
 import neuralcloud.controlplane.router.RouterMemoryWriter;
 import neuralcloud.controlplane.worker.ChatImage;
+import neuralcloud.controlplane.worker.ChatWorker;
 
 import java.io.IOException;
 import java.net.URI;
@@ -259,11 +260,16 @@ public final class OpenQqChannel implements AutoCloseable {
                                 "author_decision_reply",
                                 Map.of("text", "未取得授权决定的回执。" + error.getMessage()),
                                 failed);
-            else {
+            else if (error instanceof ChatWorker.PlanningFailure) {
+                // 参与轮次有明确出口。渠道故障、授权改变和仅观察仍走各自的协议，不能触发重复外发。
+                error.printStackTrace(System.err);
+                reply = new Reply("chat_worker_failure_notice", Map.of("text", "这次没能完成查证和回复。"), failed);
+            } else {
                 error.printStackTrace(System.err);
                 return;
             }
         }
+        boolean failureNotice = reply.type().equals("chat_worker_failure_notice");
         int drafted = trace.write(reply.causedBy() == null ? request : reply.causedBy(),
                 "chat-worker", reply.type(), reply.data());
         int sending =
@@ -288,7 +294,7 @@ public final class OpenQqChannel implements AutoCloseable {
                             "message",
                             segments);
             List<Long> evidenceGroups =
-                    trace.sharedSources().isEmpty()
+                    failureNotice || trace.sharedSources().isEmpty()
                             ? List.of()
                             : trace.scope()
                                     .qq()
@@ -320,8 +326,9 @@ public final class OpenQqChannel implements AutoCloseable {
                             sending,
                             "openqq",
                             "qq_delivery",
-                            trace.delivery(Map.of("messageId", id(data.get("message_id")))));
-            if (!decision && writes.isPresent()) {
+                            failureNotice ? Map.of("messageId", id(data.get("message_id")))
+                                    : trace.delivery(Map.of("messageId", id(data.get("message_id")))));
+            if (!decision && !failureNotice && writes.isPresent()) {
                 writes.orElseThrow().rememberDelivered(trace, delivered, (String) reply.data().get("text"));
             }
         } else if ("failed".equals(string(receipt.get("status")))
