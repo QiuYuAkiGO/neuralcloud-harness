@@ -69,9 +69,10 @@ class ActionTrial(Trial):
                                      self_id=ACCOUNT, user_id=PEER, message_id=number,
                                      message=[{"type": "text", "data": {"text": text}}])))
 
-    def private_events(self):
-        status, result = call(self.hp, f"/api/audit/chains/qq-private-{ACCOUNT}-{PEER}")
-        if status == 404:  # OneBot 已投递但首个入站事件尚未写出。
+    def audit_events(self, channel, recipient):
+        """首条 OneBot 入站异步创建审计链，私聊和群聊均可能在轮询时短暂返回 404。"""
+        status, result = call(self.hp, f"/api/audit/chains/qq-{channel}-{ACCOUNT}-{recipient}")
+        if status == 404:
             return []
         assert status == 200, (status, result)
         return result["events"]
@@ -121,11 +122,11 @@ class ActionLookupTest(unittest.TestCase):
             self.assertIn(kind, schema)
             self.assertRegex(instructions, rf"(?<![A-Z_]){kind}(?![A-Z_])")
         self.assertNotIn("SELF_HISTORY", schema)
-        until(lambda: any(e["type"] == "qq_delivery" for e in t.events(B)), "查证结果送达群")
+        until(lambda: any(e["type"] == "qq_delivery" for e in t.audit_events("group", B)), "查证结果送达群")
         messages = t.sent_texts("send_group_msg", B)
         self.assertEqual(1, len(messages))
         self.assertIn("纸鸢七号", messages[0])
-        events = t.events(B)
+        events = t.audit_events("group", B)
         self.assertTrue(any(e["type"] == "router_route" and e["data"]["route"] == "ACTION_REQUEST" for e in events))
         self.assertNotIn("task_worker_dispatch", [e["type"] for e in events])
         self.assertTrue(any(e["type"] == "memory_recall" and any(
@@ -138,7 +139,8 @@ class ActionLookupTest(unittest.TestCase):
         t = self.reply_group()
         t.plan = {"kind": "CLARIFY", "query": ""}
         t.emit(B, 102, "再查一下那个。")
-        result = until(lambda: next((e for e in t.events(B) if e["type"] in {"qq_delivery", "node_failed"}), None),
+        result = until(lambda: next((e for e in t.audit_events("group", B)
+                                     if e["type"] in {"qq_delivery", "node_failed"}), None),
                        "澄清轮次出口")
         self.assertEqual("qq_delivery", result["type"], result)
         self.assertEqual([CLARIFICATION], t.sent_texts("send_group_msg", B))
@@ -151,7 +153,7 @@ class ActionLookupTest(unittest.TestCase):
         t.harness()
         t.plan = {"kind": "UNKNOWN_PLAN", "query": ""}
         t.private(201, QUESTION)
-        failure = until(lambda: next((e for e in t.private_events() if e["type"] == "node_failed"), None),
+        failure = until(lambda: next((e for e in t.audit_events("private", PEER) if e["type"] == "node_failed"), None),
                         "非法规划的审计失败")
         self.assertTrue(t.plans)
         self.assertTrue(failure["data"]["detail"])
@@ -159,11 +161,11 @@ class ActionLookupTest(unittest.TestCase):
         self.assertEqual(1, len(messages))
         self.assertRegex(messages[0], "失败|未能|没能|没法|未完成|没.*成功|无法|出错|遇到.*问题|没.*处理")
         self.assertFalse(t.generations)
-        self.assertFalse(any(e["type"] == "chat_worker_reply" for e in t.private_events()))
+        self.assertFalse(any(e["type"] == "chat_worker_reply" for e in t.audit_events("private", PEER)))
         t.private(201, QUESTION)
         t.private(202, NEXT)
         until(lambda: any(e["type"] == "memory_durable" and e["data"]["kind"] == "SELF_EXPRESSION"
-                          for e in t.private_events()), "后继正常回复送达并落盘")
+                          for e in t.audit_events("private", PEER)), "后继正常回复送达并落盘")
         self.assertEqual([messages[0], ACK], t.sent_texts("send_private_msg", PEER))
         self.assertEqual([ACK], [w["content"] for w in t.writes if w["kind"] == "self_expression"])
         self.assertFalse(t.dispatches)
@@ -176,7 +178,7 @@ class ActionLookupTest(unittest.TestCase):
         t.emit(B, 302, QUESTION, at=False)
         until(lambda: t.status(A)["pending"] == 1, "仅观察入账")
         until(lambda: any(e["type"] == "qq_participation" and e["data"]["decision"] == "SKIP"
-                          for e in t.events(B)), "常规群消息不参与")
+                          for e in t.audit_events("group", B)), "常规群消息不参与")
         self.assertFalse(t.plans)
         self.assertFalse(t.sent)
 
