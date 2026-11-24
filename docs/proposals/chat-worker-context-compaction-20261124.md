@@ -44,6 +44,10 @@
 
 ## 五、保存、并发和失败恢复
 
+摘要调用最后一条输入为 JSON 对象 `{"entries":[...]}`。每个条目由宿主提供从 1 起的整数 `index`、`kind` 和 `text`。旧条目的类别沿用 `TOPIC`、`CONSTRAINT`、`OPEN_POINT`，原文类别为 `USER` 或 `MISTY`。说话者、事件位置和已核实的业务回执由宿主另列，原文分片保留准确的片段正文。供后续轮使用的提要是历史转述，具体验证和动作仍走正式入口。
+
+每次尝试写入 `chat_context_compaction` 审计事件。`status` 取 `COMMITTED`、`REJECTED` 或 `FAILED`，分别表示成功提交、候选未通过校验或操作失败。`revision`、`covered`、`offset` 反映实际生效的修订、覆盖事件和 UTF-16 偏移，`gapUnits` 是本轮未展开的原文长度。用量一律取供应商响应，缺少的计数保持缺省。
+
 在该主体审计目录增加 `chat-context.sqlite`，沿用项目现有的 SQLite 依赖。每个 `Trace.Scope.sessionId()` 对应一份当前快照，另绑定 `conversationId()` 供授权复核。快照保存格式版本、修订号、最近重置点、已覆盖到的事件及可选分片偏移、条目与其原始依据。事件由 `(runId,eventId)` 标识，先后按审计文件的恢复顺序及文件内位置确定。`eventId` 在重启后会重新计数，不能单独作游标。[会话标识](../../java/src/main/java/neuralcloud/controlplane/console/ConsoleServer.java#L105-L137) · [原审计恢复顺序](../../java/src/main/java/neuralcloud/controlplane/console/AuditLog.java#L69-L89)
 
 1. 每个会话同一时刻最多准备一个候选。快照固定为“本轮请求之前、最近重置之后”的连续合格事件。原文与已送达回复以各自可见的事件位置入列。摘要网络调用期间，其他会话及本会话新入站、送达回执可正常记账。
