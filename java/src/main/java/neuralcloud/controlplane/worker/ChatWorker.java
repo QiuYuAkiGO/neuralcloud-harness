@@ -631,7 +631,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         var request = HttpRequest.newBuilder(endpoint).timeout(requestTimeout)
                 .header("Content-Type", "application/json")
                 .header("x-goog-api-key", apiKey)
-                .POST(HttpRequest.BodyPublishers.ofString(JSON.toJson(body))).build();
+                .POST(HttpRequest.BodyPublishers.ofString(neuralcloud.controlplane.console.ModelInputLog.record(JSON.toJson(body)))).build();
         HttpResponse<String> response;
         try {
             response = client.send(request, HttpResponse.BodyHandlers.ofString());
@@ -754,7 +754,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
         if (apiKey != null) {
             builder.header("Authorization", "Bearer " + apiKey);
         }
-        var request = builder.POST(HttpRequest.BodyPublishers.ofString(JSON.toJson(body))).build();
+        var request = builder.POST(HttpRequest.BodyPublishers.ofString(neuralcloud.controlplane.console.ModelInputLog.record(JSON.toJson(body)))).build();
         HttpResponse<String> response;
         try {
             response = client.send(request, HttpResponse.BodyHandlers.ofString());

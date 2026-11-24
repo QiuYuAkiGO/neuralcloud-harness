@@ -147,6 +147,7 @@ function showTab(name) {
   clearInterval(state.nodesTimer);
   clearInterval(state.auditTimer);
   clearInterval(state.qqTimer);
+  if (name === 'playground') window.dialoguePlayground?.open();
   if (name === 'qq') {
     loadQq();
     state.qqTimer = setInterval(() => {
@@ -165,6 +166,10 @@ function showTab(name) {
 }
 
 document.querySelectorAll('.tab').forEach((tab) => tab.addEventListener('click', () => showTab(tab.dataset.tab)));
+// 同一窗口打开另一个评测链接时，浏览器只触发 hashchange。
+window.addEventListener('hashchange', () => {
+  if (location.hash.split('/')[0] === '#playground') showTab('playground');
+});
 
 /* ---------- 对话 ---------- */
 
@@ -520,6 +525,7 @@ async function init() {
   const linked = new URL(location.href).searchParams.get('chain');
   await loadChat(linked ?? localStorage.getItem('neuralcloud.chain') ?? crypto.randomUUID(), linked !== null);
   if (location.hash === '#qq') showTab('qq');
+  if (location.hash.split('/')[0] === '#playground') showTab('playground');
   document.getElementById('chat-send').disabled = false;
 }
 

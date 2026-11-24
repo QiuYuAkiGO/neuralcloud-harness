@@ -506,7 +506,7 @@ public final class Master {
         payload.addProperty("temperature", temperature);
         HttpRequest request = requestBuilder(settings.endpoint())
                 .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(JSON.toJson(payload)))
+                .POST(HttpRequest.BodyPublishers.ofString(neuralcloud.controlplane.console.ModelInputLog.record(JSON.toJson(payload))))
                 .build();
 
         HttpResponse<String> response;

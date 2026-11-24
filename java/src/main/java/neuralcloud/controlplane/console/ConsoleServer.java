@@ -313,6 +313,7 @@ public final class ConsoleServer implements AutoCloseable {
         var console =
                 new ConsoleServer(HttpServer.create(address, 0), audit, monitor, nodes, writes, qq);
         console.server.createContext("/", console::handle);
+        PlaygroundProxy.mount(console.server);
         console.server.setExecutor(console.executor);
         console.server.start();
         return console;
