@@ -57,9 +57,11 @@ class ReplayTrial(Trial):
         if names == ["select_route"]:
             return tool("select_route", {"route": "CONVERSATION"})
         if names == ["plan_turn"]:
+            self.checkpoint("replay-plan")
             return tool("plan_turn", {"kind": "HISTORY" if self.query else "REPLY", "query": self.query})
         assert not names, names
-        return 200, {"model": "trial", "choices": [{"finish_reason": "stop", "message": {"content": self.answer}}]}
+        answer = self.answer(body["messages"]) if callable(self.answer) else self.answer
+        return 200, {"model": "trial", "choices": [{"finish_reason": "stop", "message": {"content": answer}}]}
 
     def start_memory(self, name):
         self.memory_process = self.start(name, ["-jar", self.mjar, "--config", self.mc])
@@ -158,12 +160,16 @@ def check_replay(t, chain, history, visible, forbidden):
     for messages in [*plans, *replies]:
         for role, text in visible:
             assert any(row["role"] == role and text in row["content"] for row in messages), (
-                chain, role, "未按原说话者回放", text)
+                chain, role, "未按原说话者完整回放", len(text), text[:16], text[-16:])
 
 
 def current_versions(t, harness):
     """正例：QQ 已送达的自述与网页入站各更正一次，各自同轮的另一方仍应原样可见。"""
-    qq_input, qq_old, qq_new = "信封上贴着银杏。", "我把蓝印章放在北架。", "我把蓝印章放在南架。"
+    qq_input, qq_old = "信封上贴着银杏。", "我把蓝印章放在北架。"
+    # 精确到 Memory 原文窗口边界；开头和末尾的非 BMP 字符都各算一个码点。
+    prefix, suffix = "我把蓝印章放在南架。🦉", "读到流星尾标🌠"
+    qq_new = prefix + "页" * (2048 - len(prefix) - len(suffix)) + suffix
+    assert len(qq_new) == 2048
     web_old, web_new = "我在读苍鹭册。", "我在读翠鸟册。"
     # 两渠道的自述原本同文，仅 QQ 的自述被更正，网页自述须保留自己的授权和版本。
     qq, qq_history = t.turn(QQ, qq_input, qq_old)
@@ -173,6 +179,40 @@ def current_versions(t, harness):
     t.restart_for_replay(harness)
     check_replay(t, QQ, qq_history, [("user", qq_input), ("assistant", qq_new)], [qq_old])
     check_replay(t, WEB, web_history, [("user", web_new), ("assistant", qq_old)], [web_old])
+
+
+def retract_after_planning(t, target, text):
+    """首个规划已看见这条历史。更正回执先于模型返回，只允许后续调用使用重新获准的正文。"""
+    question = "早上好。"
+    t.inputs.clear()
+    t.query = ""
+    # 仅在生成请求还带着旧自述时复述，渠道回包即可揭示这次引用是否实际送达。
+    t.answer = lambda messages: text if text in json.dumps(messages, ensure_ascii=False) else "早安。"
+    gate = t.arm("replay-plan")
+    later = t.worker.submit(call, t.hp, "/api/nodes/conversation/messages", dict(chain=WEB, text=question))
+    try:
+        gate.wait()
+        names, messages = t.inputs[-1]
+        assert names == ["plan_turn"] and any(row["role"] == "assistant" and text in row["content"]
+                                               for row in messages), "规划必须先收到仍有效的自述"
+        first_unseen = len(t.inputs)
+        correct(t, audience(t, target, "ORCHESTRATOR"), target)
+    finally:
+        gate.release.set()
+    status, result = later.result(timeout=15)
+    following = t.inputs[first_unseen:]
+    for names, messages in following:
+        assert text not in json.dumps(messages, ensure_ascii=False), (WEB, names, "规划后已撤回的正文又进入了模型", text)
+    if status == 200:
+        assert any(not names for names, _ in following), "正常回复应有本轮生成请求"
+        assert result["type"] == "chat_worker_reply" and text not in result["data"]["text"], result
+    else:
+        assert status >= 400 and result.get("error"), (status, result)
+        events = t.audit(WEB)
+        start = next(i for i, row in enumerate(events)
+                     if row["type"] == "operator_message" and row["data"]["text"] == question)
+        assert any(row["type"] == "node_failed" for row in events[start:])
+        assert not any(row["type"] == "console_response_written" for row in events[start:])
 
 
 def unavailable_versions(t, harness):
@@ -204,6 +244,7 @@ def unavailable_versions(t, harness):
     forbidden = [withdrawn_reply, withdrawn_input, *answers]
     check_replay(t, QQ, qq_history, [("user", text) for text in [kept_input, *questions]], forbidden)
     check_replay(t, WEB, web_history, [("assistant", kept_reply)], forbidden)
+    retract_after_planning(t, ref(web, "SELF_EXPRESSION"), kept_reply)
 
 
 if __name__ == "__main__":
