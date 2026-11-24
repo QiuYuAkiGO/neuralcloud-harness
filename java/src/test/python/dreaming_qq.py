@@ -202,6 +202,12 @@ def run(t):
                    for c in t.commits), "关闭群后仍提交了旧授权的在途提案"
 
     # 实际断开 WebSocket 并暂扣下次群名单回包。在此期间由另一写入方持久确认一条群原文。
+    # 保留最近一次真实策略变更完成后的公开水位与群档案，以区别重连和真正的权限撤销。
+    start = len(t.batches)
+    settled = t.wait_for(lambda: next((b for b in t.batches[start:] if b["after"] == b["through"]), None),
+                         "群策略变更后的积压已处理")
+    settled_profile = next(p for p in profiles if p["subject"] == NOTES[REPLY_GROUP])
+    outage = len(t.batches)
     roster = t.arm("roster")
     try:
         t.ws.close()
@@ -210,9 +216,12 @@ def run(t):
         offline = t.ingest("during-outage", DISCONNECTED, "成员", group(C))
         time.sleep(2.2)
         assert t.material(DISCONNECTED) is None
+        assert settled_profile in t.profiles(), "临时断线使已确认的群档案退役"
+        assert any(draft(REPLY_GROUP) in doc for doc in t.files().values()), "临时断线撤下了已确认的群档案"
     finally:
         roster.release.set()
     assert ref(t.published(DISCONNECTED, group(C))) == ref(offline)
+    assert all(b["after"] >= settled["after"] for b in t.batches[outage:]), "重新核验同一名单时重扫了已确认范围"
 
     # 沿用隔离的 Memory，切换到静态群配置，检查前一个配置的动态群不再进入接收范围。
     t.stop_harness()
