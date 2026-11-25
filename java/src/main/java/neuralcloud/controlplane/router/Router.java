@@ -86,7 +86,8 @@ public final class Router<R extends Enum<R>> {
                 Map.of("role", "system", "content", """
                         你是派单 Router。输入是 Master 已批准的回复意图。调用一次 submit_plan，生成一个步骤。
                         id 是步骤名，worker 填 CHAT_WORKER，dependsOn 填空数组。text 用中文指示 Chat Worker 如何表达该意图，
-                        保留其中的事实、时间及不确定性。不得新增行动或事实。"""),
+                        保留其中的对象、事实、时间及不确定性。称呼、自我介绍和最终措辞由 Chat Worker 按自己的角色设定决定。
+                        不给它指定其他身份，不代写台词或新增行动。"""),
                 Map.of("role", "user", "content", intent.replyIntent())), List.of(ChatPlan.TOOL), 512, 0, ChatPlan.NAME);
         var calls = response.calls();
         if ("tool_calls".equals(response.content().finishReason()) && calls.size() == 1
