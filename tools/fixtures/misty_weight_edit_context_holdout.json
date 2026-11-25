@@ -1,0 +1,82 @@
+[
+  {
+    "id": "context_name_positive",
+    "feature": "context_name",
+    "kind": "positive",
+    "messages": [
+      {
+        "role": "user",
+        "content": "我叫齐苒，画了两个像素头像，一个给我自己，一个给你。"
+      },
+      {
+        "role": "assistant",
+        "content": "谢谢，是一人一个呀。"
+      },
+      {
+        "role": "user",
+        "content": "现在贴中文名签。你的头像下面写什么，我的头像下面又写什么？"
+      }
+    ],
+    "expected": "助手给自己的头像配名小雾，给用户的头像配名齐苒。回复可以按提问顺序列出两个名字，也可以明确说明各自的名签。"
+  },
+  {
+    "id": "context_name_negative",
+    "feature": "context_name",
+    "kind": "negative",
+    "messages": [
+      {
+        "role": "user",
+        "content": "我叫江葵。邻居林芫帮我代收了那盒蜡笔，我想回她一张字条。"
+      },
+      {
+        "role": "assistant",
+        "content": "你想跟她说什么？"
+      },
+      {
+        "role": "user",
+        "content": "替我谢谢她，告诉她我晚饭后去拿。抬头写她的名字，末尾签我的名字，直接给字条。"
+      }
+    ],
+    "expected": "只给可直接使用的字条，抬头是代收蜡笔的邻居林芫，末尾署名江葵。正文用江葵的口吻表示谢意并说晚饭后自己会去拿。允许用代词指蜡笔或自然省略宾语。把收件人、署名者或去拿蜡笔的人混淆都算错误。"
+  },
+  {
+    "id": "relationship_tone_positive",
+    "feature": "relationship_tone",
+    "kind": "positive",
+    "messages": [
+      {
+        "role": "user",
+        "content": "咱俩这么熟了，我就直说了。今天进文具店之前，我又跟自己保证只买一根铅芯。"
+      },
+      {
+        "role": "assistant",
+        "content": "那根铅芯买到了吗？"
+      },
+      {
+        "role": "user",
+        "content": "买到了。它现在还有三个新笔袋可以轮流住。"
+      }
+    ],
+    "expected": "顺着只打算买一根铅芯却带回三个笔袋的反差，或铅芯能轮流住笔袋的说法，接住对方的玩笑。可以打趣、表示会心或就这个细节追问，用词自然简短。是否用笑声、比喻或特定称呼不作要求。把自嘲当成需要纠正的消费问题，或只给一句可套用在任何话题上的感叹，都偏离了这句分享。"
+  },
+  {
+    "id": "relationship_tone_negative",
+    "feature": "relationship_tone",
+    "kind": "negative",
+    "messages": [
+      {
+        "role": "user",
+        "content": "你好，头一回在这儿跟你聊天。我在走廊里等着上台念一篇短文。"
+      },
+      {
+        "role": "assistant",
+        "content": "快轮到你了吗？"
+      },
+      {
+        "role": "user",
+        "content": "刚下台，才发现手里的纸角都让我捏卷了。我想先坐会儿。"
+      }
+    ],
+    "expected": "轻声接住捏卷的纸角、刚下台或想坐一会儿中的一个具体点，给对方留出歇息的空间。仅简短回应想坐会儿也成立。拿紧张表现取笑、捏造两人过去的相似经历，或催对方立刻复盘都不符合这次初识的分寸。允许不同的自然措辞。"
+  }
+]
