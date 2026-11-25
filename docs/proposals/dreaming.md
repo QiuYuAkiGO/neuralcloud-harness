@@ -17,6 +17,28 @@ Dreaming 在 Harness 的控制台进程内使用独立的后台线程和模型�
 
 模型只返回 `{"changes":[...]}`。每项包含 kind（person 或 topic）、subject（人物或主题的稳定名称）、expected_version（新建为 0）、text（以“我”开头的 Misty 第一人称暂定认识）、scope（适用范围）、reason（形成或更改认识的理由）、source_refs（本批提供的一手 record_id 与 revision）。同一身份每批最多出现一次。作者由宿主绑定。退役的档案仅可作为重评身份提示，旧正文不进入模型。
 
+### 人物称呼与归档
+
+人物的 `subject` 使用当事人的主要称呼，只有一种已知称呼时使用该称呼。材料无法确定对象时暂缓建档。人物重名时须有一手材料支持可区分的称呼。已确认的旧称、外文名和旧档案标题可以登记为同一人物的别称。主题仍按各自的名称修订。
+
+Memory 的可选启动配置 `dreamingPeopleFile` 指向相对于 Memory 配置文件的 UTF-8 JSON。例如以下配置为同一角色登记两组称呼。实际账号映射随角色私有配置保存。
+
+```json
+{
+  "character_id": "misty",
+  "people": [
+    {"subject": "小雾", "aliases": ["Misty"], "self": true},
+    {"subject": "林澄", "aliases": ["阿澄"], "qq_sender_id": "123456789"}
+  ]
+}
+```
+
+导入在服务就绪前完成。主称呼、别称、QQ 发件人和角色本人绑定持久保存在该角色库中。重复导入同一绑定幂等，冲突会使整个导入回滚。已有有效档案按主称呼归并为一个当前版本，合并正文、适用范围、修订理由和全部有效来源。已退役的正文继续留在历史中。原版本与命令回执可追溯，覆盖水位保持原位。若合并超过既有单档长度或引用数上限，导入报出字段并回滚。
+
+领取批次时，只有与本批获准材料或相关人物档案对应的绑定才进入 `person_names`，每项含 `subject` 和 `aliases`。QQ 发件人和角色自己的发言可标出 `evidence[].speaker_subject`，含义仅为这句话的作者。称呼提示用于选档，形成认识仍需引用原文。模型用主称呼和该档案的版本提交。Memory 拒绝把已登记的别称作为新人物建档。合并后的整份认识继续对每条来源执行当前受众的 CITE 复核。
+
+人物文件使用 `people/<主称呼>.md`。路径分隔符、保留字符和字面百分号使用百分号编码，设备保留名、过长或在文件系统上会重名的称呼有可区分的文件名。Markdown 标题保留完整称呼。导出器识别本角色的旧哈希文件和新托管文件，以便迁移与撤回；同名的手写文件或其他角色文件保留并报告冲突。主题继续使用原哈希命名。
+
 ## 部署与恢复
 
 生产使用配置了 Memory v2 scoped 的控制台，在其 properties 中设置 `dreamingConfig=classpath:/config/dreaming-gemini.properties`。该独立配置选择 Gemini 原生 generateContent、gemini-4-hydrogen 和环境变量 GEMINI_API_KEY。本地兼容服务用 OPENAI_CHAT、完整 /v1/chat/completions 地址和模型 ID。两种协议均按同一 JSON 业务契约校验。

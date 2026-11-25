@@ -85,6 +85,13 @@ public final class DreamingMemory {
         return POSITION.stream().allMatch(k -> Objects.equals(command.get(k), batch.get(k)));
     }
 
+    /** 版本冲突和字段拒绝都是 Memory 已确定未提交的答复，原证据仍可由模型重新整理。 */
+    public static boolean rejectedProposal(IOException error) {
+        return error instanceof ResidentV2.SourceChanged
+                || (error instanceof ResidentMemory.ServiceError service
+                        && service.status == 422 && "INVALID_FIELD".equals(service.code));
+    }
+
     public Optional<JsonObject> receipt(JsonObject command)
             throws IOException, InterruptedException {
         if (!memory.stream().equals(string(command, "stream_id")))

@@ -180,12 +180,15 @@ public final class DreamingScheduler implements AutoCloseable {
             if (!foreground.idle() || scopes.get().filter(allowed::equals).isEmpty()) return;
             receipt = router.sendDreaming(command);
         }
+        JsonObject answer;
         try {
-            finish(command, receipt.await());
-        } catch (ResidentV2.SourceChanged conflict) {
-            files.resolved();
-            throw conflict;
+            answer = receipt.await();
+        } catch (IOException error) {
+            // 模型可能猜中本批未提供的历史别称。只有权威端明确拒绝才释放该提案重新推理。
+            if (DreamingMemory.rejectedProposal(error)) files.resolved();
+            throw error;
         }
+        finish(command, answer);
     }
 
     /** 已确认的批次只报告覆盖与回执。导出失败保留本地命令，下次从权威版本重建。 */

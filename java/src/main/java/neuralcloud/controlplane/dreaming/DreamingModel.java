@@ -158,13 +158,27 @@ public final class DreamingModel implements AutoCloseable {
 
     /** 屏蔽回执和水位等宿主字段，两个协议共用同一组一手依据、提示词和输出校验。 */
     public JsonArray organize(JsonObject batch) throws IOException, InterruptedException {
-        String input =
-                JSON.toJson(
-                        Map.of(
-                                "evidence",
-                                batch.getAsJsonArray("evidence"),
-                                "profiles",
-                                batch.getAsJsonArray("profiles")));
+        var material = new JsonObject();
+        material.add("evidence", batch.get("evidence"));
+        material.add("profiles", batch.get("profiles"));
+        var aliases = new HashMap<String, String>();
+        if (batch.has("person_names")) {
+            // 属于本批次的已确认称呼同时约束提示词和模型输出，旧版 Memory 可省略此字段。
+            if (!(batch.get("person_names") instanceof JsonArray names)) throw invalid("person_names");
+            for (var raw : names) {
+                if (!(raw instanceof JsonObject person)
+                        || !(person.get("aliases") instanceof JsonArray previous))
+                    throw invalid("person_names.aliases");
+                String subject = string(person, "subject", 128);
+                for (var name : previous) {
+                    if (!(name instanceof JsonPrimitive p) || !p.isString())
+                        throw invalid("person_names.aliases");
+                    aliases.put(p.getAsString(), subject);
+                }
+            }
+            material.add("person_names", names);
+        }
+        String input = JSON.toJson(material);
         var request =
                 HttpRequest.newBuilder(endpoint)
                         .timeout(timeout)
@@ -232,7 +246,7 @@ public final class DreamingModel implements AutoCloseable {
                     protocol == Protocol.GEMINI
                             ? ChatWorker.geminiText(envelope)
                             : toolArguments(envelope);
-            return checked(JSON.fromJson(arguments, JsonObject.class), batch);
+            return checked(JSON.fromJson(arguments, JsonObject.class), batch, aliases);
         } catch (JsonParseException | IllegalStateException | NumberFormatException e) {
             throw new IOException("Dreaming 模型响应的 JSON 或类型无效", e);
         }
@@ -265,7 +279,8 @@ public final class DreamingModel implements AutoCloseable {
     }
 
     /** 模型签入同一来源只能一次，旧印象与模型自报署名均不能成为证据。 */
-    private static JsonArray checked(JsonObject output, JsonObject batch) throws IOException {
+    private static JsonArray checked(JsonObject output, JsonObject batch, Map<String, String> aliases)
+            throws IOException {
         if (output == null
                 || !output.keySet().equals(Set.of("changes"))
                 || !(output.get("changes") instanceof JsonArray changes)
@@ -299,7 +314,10 @@ public final class DreamingModel implements AutoCloseable {
                                             "reason",
                                             "source_refs"))) throw invalid("changes.fields");
             String kind = string(item, "kind", 16);
-            var identity = List.of(kind, string(item, "subject", 128));
+            String subject = string(item, "subject", 128);
+            if ("person".equals(kind) && aliases.containsKey(subject))
+                throw invalid("subject 须使用主称呼 " + aliases.get(subject));
+            var identity = List.of(kind, subject);
             if (!Set.of("person", "topic").contains(kind) || !identities.add(identity))
                 throw invalid("kind/subject");
             if (integer(item, "expected_version", 0) != versions.getOrDefault(identity, 0L))

@@ -14,7 +14,8 @@
             ]
           },
           "subject": {
-            "type": "string"
+            "type": "string",
+            "description": "人物使用已确认的主要或唯一称呼，主题使用其名称。"
           },
           "expected_version": {
             "type": "integer"
