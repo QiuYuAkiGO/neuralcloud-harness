@@ -159,6 +159,26 @@ def static_members(t):
     t.silent()
 
 
+def signed_messages(t):
+    """OneBot 群消息号是有符号 int32。按真实消息号保存与引用，数字字符串、越界值和负账号无效。"""
+    t.start_dreaming()
+    t.scopes({SCOPE, PRIVATE, group(A), group(C)})
+    t.say(A, "-17", SECOND, "伪装成数字的字符串。")
+    t.say(A, 2147483648, SECOND, "溢出的消息号。")
+    t.say(A, -18, (-54322, "月衡"), "负数用户号。")
+    t.say(A, -2147483648, SECOND, QUESTION)
+    source = t.committed_message(-2147483648)
+    t.say(A, 0, FIRST, PROBE)
+    t.wait_for(lambda: t.material(PROBE), "有效的零值消息号也从同一群连接入账")
+    assert set(t.received) == {"-2147483648", "0"}, t.received
+    assert t.material(QUESTION)["message_id"] == "-2147483648" and t.material(PROBE)["message_id"] == "0"
+    archive, = t.profiles()
+    assert (archive["subject"], archive["text"], archive["source_refs"]) == (SECOND[1], FACTS[QUESTION][1], [source])
+    messages = [e["data"]["messageId"] for e in t.events(A) if e["type"] == "qq_message"]
+    assert messages == [-2147483648, 0], messages
+    t.silent()
+
+
 class HistoryRelay(DreamTrial):
     """在正式 HTTP 边界交付数字位置相同的历史页和实时页，模拟历史提交后丢失即时回包。"""
     def __init__(self, args):
@@ -210,12 +230,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     for key in ("harness", "memory", "output"):
         parser.add_argument(key, type=Path)
-    parser.add_argument("--case", choices=("dynamic", "static", "history"))
+    parser.add_argument("--case", choices=("dynamic", "static", "signed", "history"))
     parser.set_defaults(live=False)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
     for label, test, fixture in (("dynamic", dynamic_members, MemberTrial), ("static", static_members, MemberTrial),
-                                 ("history", history_receipt, HistoryRelay)):
+                                 ("signed", signed_messages, MemberTrial), ("history", history_receipt, HistoryRelay)):
         if args.case and args.case != label:
             continue
         trial = fixture(argparse.Namespace(**{**vars(args), "output": args.output / label}))
