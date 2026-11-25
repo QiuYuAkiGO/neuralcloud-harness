@@ -86,6 +86,8 @@ public final class MemoryCall {
     /** 本轮常规召回或印象修订收集到的在线证据快照绑定。 */
     private List<MemoryJournal.Read> bindings = List.of();
     private boolean preparedRead;
+    /** 重新呈现这批群通知时沿用实际发给规划模型的时间格式。 */
+    private boolean authorMaterials;
     private Map<Trace.MemoryTarget, Long> dialogueVersions = Map.of();
     /** 本轮起始阶段拉取到的变更刷新结果，用于模型第一轮调用后推进 watches 游标。 */
     private ResidentV2.Refresh refresh;
@@ -410,7 +412,7 @@ public final class MemoryCall {
         for (var read : bindings) {
             var item = read.item();
             if (item.has("member_notice") && item.get("member_notice").getAsBoolean())
-                remaining.remove(ResidentV2.render(item, read.kind()));
+                remaining.remove(ResidentV2.render(item, read.kind(), authorMaterials));
         }
         return remaining;
     }
@@ -620,6 +622,7 @@ public final class MemoryCall {
         }
         // 模型和审计共用同一份结果。范围说明及近期上下文不计入实际命中数。
         bindings = recalled.bindings();
+        authorMaterials = author != null;
         if (memory.v2() != null) {
             memory.v2().prepare(inputId, caller.name(), trace.scope(), sentences, bindings);
             preparedRead = true;

@@ -193,7 +193,7 @@ public final class ConversationMemory {
         // 仅保留当前仍在线的条目生成证据绑定与自然语言呈现，避免把已撤回或离线记录交给模型。
         for (var item : snap.items()) {
             if (!"ONLINE".equals(ResidentV2.string(item, "status"))) continue;
-            String sentence = ResidentV2.render(item, kind.name());
+            String sentence = ResidentV2.render(item, kind.name(), author != null);
             if (numberEvidence) sentence = "【证据 " + (rows.size() + 1) + "】" + sentence;
             int size = sentence.getBytes(StandardCharsets.UTF_8).length + (messages.isEmpty() ? 0 : 1);
             if (size > byteBudget - bytes) continue;

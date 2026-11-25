@@ -372,7 +372,8 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
                 + (queryKinds.contains(QueryKind.IDENTITY) ? IDENTITY_INSTRUCTION : "")
                 + (queryKinds.contains(QueryKind.SELF_HISTORY) ? SELF_HISTORY_INSTRUCTION : "")
                 + (authorHistory ? "\nHISTORY 查某人的原话时，author_ref 填 QQ 号或完整称呼，query 填话题或空串。"
-                        + "已经拿到可用原话可以直接 REPLY，据有限发言说明你的印象。问谁提到某人时只查话题。\n" : "");
+                        + "只问人物印象时话题为空。已给出该作者的原话就选 REPLY，据原话说明印象；姓名属于 author_ref。"
+                        + "用户明确问谁提到某个名字时才把名字用作正文检索词。\n" : "");
         String planningInput = materials.isEmpty() ? text
                 : text + "\n\n记忆服务返回的查询材料：\n" + String.join("\n", materials);
         var turn = parseTurn(inferTurn(prompt, history, planningInput, choices, authorHistory), context, history, choices, authorHistory);

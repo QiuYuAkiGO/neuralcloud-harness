@@ -861,6 +861,11 @@ public final class ResidentV2 extends ResidentMemory {
      * - 活跃证据会清晰标注说话人、场景、证据级别（原话 / 派生线索 / 工具尝试 / 工具回执）、断言时态（未决或历史）及折算日期。
      */
     static String render(JsonObject item, String purpose) throws IOException {
+        return render(item, purpose, false);
+    }
+
+    /** QQ 作者原话给中文模型显示北京时间。原始 UTC 仍保留在证据绑定、审计和 HTTP 回执。 */
+    static String render(JsonObject item, String purpose, boolean qqAuthor) throws IOException {
         if (!string(item, "status").equals("ONLINE")) return "此前引用的原依据已失效。";
         String value = excerptText(item);
         if (purpose.equals("SELF_IDENTITY")) return senderNameEvidence(value);
@@ -899,9 +904,9 @@ public final class ResidentV2 extends ResidentMemory {
                         default -> active ? "，当前安排" : "，历史安排";
                     };
         }
-        String when =
-                string(item, "occurred_at")
-                        + (item.has("action_id") ? "，动作 " + string(item, "action_id") : "");
+        String when = string(item, "occurred_at");
+        if (qqAuthor) when = "北京时间 " + SPOKEN_AT.format(Instant.parse(when));
+        if (item.has("action_id")) when += "，动作 " + string(item, "action_id");
         if (item.has("resolved_dates")) when += "，按发言日折算 " + item.get("resolved_dates");
         return who + venue + "的" + label + "（" + when + "）：“" + value + "”。可在当前会话引用。";
     }
