@@ -48,8 +48,9 @@ class Snapshot:
             self.digest = hashlib.file_digest(stream, "sha256").hexdigest()
         self.stat = self.signature()
         with closing(self.connect()) as db:
-            if db.execute("PRAGMA user_version").fetchone()[0] != 4:
-                raise ValueError("需要包含修订、授权和目录的 Memory v2 格式 4 快照")
+            # 格式 5 增加独立的 Dreaming 表，历史回放仍读取格式 4 已有的修订、授权和目录。
+            if db.execute("PRAGMA user_version").fetchone()[0] not in (4, 5):
+                raise ValueError("需要包含修订、授权和目录的 Memory v2 格式 4 或 5 快照")
             self.character, self.stream = db.execute("SELECT character_id,stream_id FROM meta").fetchone()
             self.watermark = db.execute("SELECT coalesce(max(seq),0) FROM changes").fetchone()[0]
         self.audit = audit_context(audit_dir)
