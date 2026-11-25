@@ -67,6 +67,43 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 
 控制台的模型配置和提示词字段可使用 `classpath:/config/文件名` 引用内置资源，也可指定文件系统路径。相对文件路径和相对审计目录均按 Java 进程的工作目录解析。
 
+### 远端 Chat Worker 使用本机小雾第四版
+
+模型机从 `Misty-Qwen3.5-9B-edit-v4` 完整检查点导出 BF16 文本权重和视觉投影。用 `llama-server` 加载两者时指定 `--model <文本.gguf> --mmproj <视觉.gguf> --alias qwen3.5-9b-mistyv4 --host 127.0.0.1 --port 18083 --api-key-file <密钥文件> --jinja --reasoning off`。轮次规划要求引擎支持按函数名指定的 `tool_choice`。本次部署使用 llama.cpp b12721 加上游提交 `5bd90fa0`。[第四版检查点记录](../docs/harness/2026-11-25-misty-persona-v4.md) · [具名工具调用支持](https://github.com/ggml-org/llama.cpp/commit/5bd90fa0e40b)
+
+文本 GGUF 的 `default` 模板使用检查点原文，处理普通对话和图片。独立的 `tool_use` 模板使用 Qwen JSON 工具格式。Chat Worker 指定 `plan_turn` 时，模板预填函数名，由模型生成处理类别和记忆查询参数。制作 GGUF 时需将引用的上游模板展开为完整文本。下面的命令从仓库根目录运行，`MISTY_CHECKPOINT` 指向第四版目录，`LLAMA_CPP` 指向 llama.cpp b12721 源码，`MODEL_DIR` 指向导出的 GGUF 所在目录。
+
+```sh
+python - "$MISTY_CHECKPOINT" "$LLAMA_CPP" "$MODEL_DIR/templates.json" <<'PY'
+import json, sys
+from pathlib import Path
+checkpoint, llama_cpp, output = map(Path, sys.argv[1:])
+default = (checkpoint / "chat_template.jinja").read_text(encoding="utf-8")
+rules = Path("tools/templates/misty-v4-plan-turn.jinja").read_text(encoding="utf-8")
+qwen = (llama_cpp / "models/templates/Qwen-Qwen3-0.6B.jinja").read_text(encoding="utf-8")
+tools = rules.replace("{% include 'Qwen-Qwen3-0.6B.jinja' %}", qwen)
+output.write_text(json.dumps({"chat_template": [
+    {"name": "default", "template": default}, {"name": "tool_use", "template": tools}
+]}, ensure_ascii=False), encoding="utf-8")
+PY
+PYTHONPATH="$LLAMA_CPP/gguf-py" python -m gguf.scripts.gguf_new_metadata \
+  "$MODEL_DIR/qwen3.5-9b-mistyv4-bf16.gguf" "$MODEL_DIR/misty-v4-chat.gguf" \
+  --chat-template-config "$MODEL_DIR/templates.json"
+```
+
+在模型机运行以下 SSH 转发，将 `user@console-host` 换成远端控制台的 SSH 目标。将小雾第四版配置复制到远端，让该实例的 `chatWorkerConfig` 指向这份文件，向控制台进程提供与推理服务一致的 `MISTY_CHAT_API_KEY`，然后重启该实例。[小雾第四版配置](src/main/resources/config/chat-worker-misty-v4.properties)
+
+```sh
+ssh -NT -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+  -R 127.0.0.1:18083:127.0.0.1:18083 user@console-host
+```
+
+当前模型机由 Windows 计划任务 `NeuralCloud-MistyV4-Model` 和 `NeuralCloud-MistyV4-Tunnel` 分别运行推理服务和 SSH 隧道。两者随当前用户登录启动。远端聊天依赖模型机保持登录、唤醒和联网。
+
+在远端控制台主机运行 `python3 java/src/test/python/misty_v4_chat_worker.py`，可从网页控制台入口验证模型身份、聊天回复和无凭据请求的拒绝行为。在设有 `MISTY_CHAT_API_KEY` 的环境运行 `python3 java/src/test/python/misty_v4_tool_template.py`，可核对具名规划调用及原始图文模板。
+
+### 控制台配置字段
+
 | 字段 | 取值 |
 | --- | --- |
 | `listenHost`、`listenPort` | 本机回环地址和端口 |
