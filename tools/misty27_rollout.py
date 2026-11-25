@@ -37,16 +37,11 @@ def read_cases(path):
     return cases
 
 
-def complete(endpoint, model, history):
-    """每轮使用同一思考与解码设置，长度耗尽时照实保存不完整的输出。"""
-    payload = {
-        "model": model, "messages": history, "temperature": 0, "seed": 27,
-        "max_tokens": 2048, "chat_template_kwargs": {"enable_thinking": True},
-    }
-    req = Request(endpoint, data=json.dumps(payload).encode("utf-8"),
-                  headers={"Content-Type": "application/json"})
-    with urlopen(req, timeout=600) as response:
-        result = json.load(response)
+def decoded_turn(result, fingerprint):
+    """只在已核实的 llama.cpp 构建上接受原生空通道，null 表示服务省略了字段。"""
+    native = fingerprint is not None
+    if native and result.get("system_fingerprint") != fingerprint:
+        raise ValueError("system_fingerprint 与指定的 llama.cpp 构建不符")
     choices = result["choices"]
     if not isinstance(choices, list) or len(choices) != 1:
         raise ValueError("choices 须有一条返回")
@@ -56,19 +51,34 @@ def complete(endpoint, model, history):
         raise ValueError(f"finish_reason 不在实验契约内：{reason!r}")
     channels = {}
     for field in ("reasoning_content", "content"):
+        if native and field == "reasoning_content" and field not in message:
+            channels[field] = None
+            continue
         value = message[field]
-        if not isinstance(value, str) or (reason == "stop" and not value.strip()):
-            raise ValueError(f"{field} 须返回文本，正常停止时须非空")
+        if not isinstance(value, str) or (not native and reason == "stop" and not value.strip()):
+            raise ValueError(f"{field} 违反当前回执的文本契约")
         channels[field] = value
     return {**channels, "finish_reason": reason}
 
 
-def collect(case, endpoint, model):
+def complete(endpoint, model, history, fingerprint):
+    """每轮使用同一思考与解码设置，长度耗尽时照实保存不完整的输出。"""
+    payload = {
+        "model": model, "messages": history, "temperature": 0, "seed": 27,
+        "max_tokens": 2048, "chat_template_kwargs": {"enable_thinking": True},
+    }
+    req = Request(endpoint, data=json.dumps(payload).encode("utf-8"),
+                  headers={"Content-Type": "application/json"})
+    with urlopen(req, timeout=600) as response:
+        return decoded_turn(json.load(response), fingerprint)
+
+
+def collect(case, endpoint, model, fingerprint):
     """模型只看到自己的历史正文，评测侧另存每轮推理以便裁判检查。"""
     history, turns = [], []
     for user in case["turns"]:
         history.append({"role": "user", "content": user})
-        turn = complete(endpoint, model, history)
+        turn = complete(endpoint, model, history, fingerprint)
         turns.append(turn)
         history.append({"role": "assistant", "content": turn["content"]})
     return {"id": case["id"], "turns": turns}
@@ -78,11 +88,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--endpoint", required=True)
     parser.add_argument("--model", required=True)
+    parser.add_argument("--llama-fingerprint", help="按指定构建的原生 llama.cpp 空通道语义采集")
     parser.add_argument("--cases", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     cases = read_cases(args.cases)
-    publish_json(args.output, [collect(case, args.endpoint, args.model) for case in cases])
+    publish_json(args.output, [collect(case, args.endpoint, args.model, args.llama_fingerprint) for case in cases])
 
 
 if __name__ == "__main__":

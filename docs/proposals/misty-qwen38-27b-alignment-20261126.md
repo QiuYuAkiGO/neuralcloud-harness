@@ -37,6 +37,8 @@
 
 成功时输出 JSON 数组，按输入次序保留每案 `id` 和 `turns`。每次返回原样保留 `reasoning_content`、`content` 及 `finish_reason`。只有 `stop` 和 `length` 是本实验的解码终点。`stop` 必须返回非空推理和非空正文；`length` 必须有显式通道，正文允许为空。服务错误、字段缺失或契约错误返回非零退出码，诊断指出失败字段或 HTTP 状态，且不发布半份成品。试卷可按案例分片以独立批次运行。
 
+本机 llama.cpp 会省略空的推理字段。采集该服务时传入 `--llama-fingerprint BUILD`，逐轮核验响应中 `system_fingerprint` 与 BUILD 严格相等。该原生契约要求正文字段为字符串并照录，可为空；若服务省略推理字段，保存 JSON `null`，若明确返回字符串则原样保留。推理缺失的轮次在对应 T 考项按失败核算。缺失或不匹配的构建指纹须报错并停止发布。通用聊天接口仍使用显式双字段契约。
+
 ## 计分入口
 
 `python tools/misty27_score.py --manifest FILE --judgments FILE --baseline FILE --output FILE` 汇总裁判回执。清单为数组，每案提供 `id`、`kind`、`criteria`。`kind` 的值为 `ordinary`（普通）、`ability`（能力）、`attack`（对抗）或 `long`（长对话）。两份裁判回执格式相同，顶层是 `cases` 数组与 `collapse_evidence` 字符串数组。每案提供 `id`、与该案冻结考项完全对应的 `grades` 映射、布尔值 `passed` 和 `events` 数组。每个事件明确给出 `type`（`identity` 或 `fabrication`）及非空 `evidence`。能力案的 `passed` 表示满足客观答案，长对话和对抗案的 `passed` 表示通过该案冻结条件。基线自身汇总时两份回执传同一文件。
