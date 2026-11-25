@@ -43,7 +43,7 @@ def positive_int(value):
 def positive_rate(value):
     rate = float(value)
     if not math.isfinite(rate) or rate <= 0:
-        raise argparse.ArgumentTypeError("学习率须为有限正数")
+        raise argparse.ArgumentTypeError("须为有限正数")
     return rate
 
 
@@ -56,26 +56,26 @@ def load_text(source, device):
     return tokenizer, model.eval().requires_grad_(False)
 
 
-def prompt_ids(tokenizer, messages):
-    # 每个样本从新的用户会话进入。关闭思考是官方模板参数，两组使用相同设置。
+def prompt_ids(tokenizer, messages, enable_thinking=False):
+    # 使用官方模板的思考开关。训练和常规评估默认关闭，补测显式启用。
     if not messages or messages[0]["role"] != "user" or messages[-1]["role"] != "user":
         raise ValueError("messages 须由用户消息开始并结束")
     for index, message in enumerate(messages):
         if message["role"] != ("user" if index % 2 == 0 else "assistant"):
             raise ValueError("messages 仅接受交替出现的 user 和 assistant")
     return tokenizer.apply_chat_template(
-        messages, tokenize=True, return_dict=False, add_generation_prompt=True, enable_thinking=False
+        messages, tokenize=True, return_dict=False, add_generation_prompt=True, enable_thinking=enable_thinking
     )
 
 
-def generate_cases(tokenizer, model, rows, args):
+def generate_cases(tokenizer, model, rows, args, *, enable_thinking=False):
     """仅把留出题的消息送入 generate，逐条记录可见回复、长度与停止条件。"""
     if not rows:
         raise ValueError("cases 至少需要一道留出题")
     result = []
     for start in range(0, len(rows), args.batch_size):
         batch = rows[start : start + args.batch_size]
-        prompts = [prompt_ids(tokenizer, row["messages"]) for row in batch]
+        prompts = [prompt_ids(tokenizer, row["messages"], enable_thinking) for row in batch]
         width = max(map(len, prompts))
         tokens = torch.full((len(prompts), width), tokenizer.pad_token_id, dtype=torch.long)
         mask = torch.zeros_like(tokens)
@@ -93,21 +93,61 @@ def generate_cases(tokenizer, model, rows, args):
         for row, output in zip(batch, generated[:, width:].cpu().tolist()):
             ended = stop in output
             ids = output[: output.index(stop)] if ended else output
-            result.append({
-                "id": row["id"], "reply": tokenizer.decode(ids, skip_special_tokens=False),
-                "tokens": len(ids), "stop": "im_end" if ended else "limit",
-            })
+            record = {"id": row["id"], "tokens": len(ids), "stop": "im_end" if ended else "limit"}
+            if enable_thinking:
+                # 官方模板在提示末尾打开 think 段。只记录结束标记后的公开答复，缺失时保留空答。
+                boundary = tokenizer.convert_tokens_to_ids("</think>")
+                visible = ids[ids.index(boundary) + 1:] if boundary in ids else []
+                record["reply"] = tokenizer.decode(visible, skip_special_tokens=False).lstrip("\n")
+                record["visible_tokens"] = len(visible)
+            else:
+                record["reply"] = tokenizer.decode(ids, skip_special_tokens=False)
+            result.append(record)
         print(f"已生成 {len(result)}/{len(rows)} 条", flush=True)
     return result
+
+
+def generate_dialogues(tokenizer, model, rows, args):
+    """每个模型带着自己生成的可见历史继续，每个用户话轮只调用一次。"""
+    if not rows or any(not r["turns"] for r in rows) or len({r["id"] for r in rows}) != len(rows):
+        raise ValueError("dialogues 须包含有轮次且 id 唯一的对话")
+    messages = {r["id"]: [] for r in rows}
+    answers = {r["id"]: [] for r in rows}
+    for index in range(max(len(r["turns"]) for r in rows)):
+        active = [r for r in rows if index < len(r["turns"])]
+        for row in active:
+            messages[row["id"]].append({"role": "user", "content": row["turns"][index]["user"]})
+        prompts = [{"id": r["id"], "messages": messages[r["id"]]} for r in active]
+        for response in generate_cases(tokenizer, model, prompts, args, enable_thinking=args.enable_thinking):
+            identifier = response.pop("id")
+            messages[identifier].append({"role": "assistant", "content": response["reply"]})
+            answers[identifier].append(response)
+    return [{"id": r["id"], "turns": answers[r["id"]]} for r in rows]
 
 
 def evaluate(args):
     """同一检查点加载一次，各套题独立分批，以便和各自的基线逐条对照。"""
     if len(args.cases) != len(args.output) or len(set(args.output)) != len(args.output):
         raise ValueError("每份 cases 需要各自唯一的 output 路径")
+    if bool(args.dialogues) != bool(args.dialogue_output) or args.dialogue_output in args.output:
+        raise ValueError("dialogues 与其独立的 dialogue-output 必须成对提供")
+    if not args.cases and not args.dialogues:
+        raise ValueError("须提供固定 cases 或连续 dialogues")
+    if args.case_ids and len(args.cases) != 1:
+        raise ValueError("case-ids 需要一份明确的 cases 题库")
     tokenizer, model = load_text(args.model, args.device)
     for cases, output in zip(args.cases, args.output, strict=True):
-        write_json(output, generate_cases(tokenizer, model, read_json(cases), args))
+        rows = read_json(cases)
+        if args.case_ids:
+            wanted = read_json(args.case_ids)
+            by_id = {r["id"]: r for r in rows}
+            if (not isinstance(wanted, list) or not wanted or any(not isinstance(i, str) for i in wanted)
+                    or len(set(wanted)) != len(wanted) or not set(wanted) <= by_id.keys()):
+                raise ValueError("case-ids 须包含题库内不重复的 id")
+            rows = [by_id[i] for i in wanted]
+        write_json(output, generate_cases(tokenizer, model, rows, args, enable_thinking=args.enable_thinking))
+    if args.dialogues:
+        write_json(args.dialogue_output, generate_dialogues(tokenizer, model, read_json(args.dialogues), args))
 
 
 def training_rows(tokenizer, rows):
@@ -311,8 +351,12 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     ev = commands.add_parser("evaluate")
     ev.add_argument("--model", type=Path, required=True)
-    ev.add_argument("--cases", type=Path, nargs="+", required=True)
-    ev.add_argument("--output", type=Path, nargs="+", required=True)
+    ev.add_argument("--cases", type=Path, nargs="+", default=[])
+    ev.add_argument("--output", type=Path, nargs="+", default=[])
+    ev.add_argument("--case-ids", type=Path)
+    ev.add_argument("--enable-thinking", action="store_true")
+    ev.add_argument("--dialogues", type=Path)
+    ev.add_argument("--dialogue-output", type=Path)
     ev.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     ev.add_argument("--batch-size", type=positive_int, default=6)
     ev.add_argument("--max-new-tokens", type=positive_int, default=224)
