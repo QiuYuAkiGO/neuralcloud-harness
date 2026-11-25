@@ -138,6 +138,16 @@ public final class ConsoleServer implements AutoCloseable {
             }
         }
 
+        /** 只读已由本轮渠道签入的共同群名册，查找完整昵称或群名片所属的账号。 */
+        @FunctionalInterface
+        interface MemberNames {
+            Set<String> lookup(List<Long> groups, String name) throws IOException, InterruptedException;
+        }
+
+        default Set<String> memberAccounts(String name) throws IOException, InterruptedException {
+            return Set.of();
+        }
+
         int request();
 
         Scope scope();
@@ -190,6 +200,11 @@ public final class ConsoleServer implements AutoCloseable {
                     audit, new Scope("openqq", chain, audit.runId(), Optional.of(qq)), request);
         }
 
+        /** 读取名册的能力由已连接的 QQ 渠道提供，scope 本身只携带可持久化的受众身份。 */
+        static Trace forQqPrivate(AuditLog audit, String chain, int request, QqPrivate qq, MemberNames names) {
+            return bound(audit, new Scope("openqq", chain, audit.runId(), Optional.of(qq)), request, names);
+        }
+
         /** 入口须先验证成员凭据；私聊审计链和 Memory 受众取自同一份身份。 */
         static Trace forMobilePrivate(AuditLog audit, int request, MobileMember member) {
             return bound(audit, new Scope("mistyai", member.conversationId(), audit.runId(),
@@ -204,7 +219,16 @@ public final class ConsoleServer implements AutoCloseable {
         }
 
         private static Trace bound(AuditLog audit, Scope scope, int request) {
+            return bound(audit, scope, request, (groups, name) -> Set.of());
+        }
+
+        private static Trace bound(AuditLog audit, Scope scope, int request, MemberNames names) {
             return new Trace() {
+                @Override
+                public Set<String> memberAccounts(String name) throws IOException, InterruptedException {
+                    return names.lookup(scope.qq().orElseThrow().memberGroups(), name);
+                }
+
                 private final Map<MemoryTarget, Long> shared = new LinkedHashMap<>();
                 private java.time.Instant expiry = java.time.Instant.MAX;
 

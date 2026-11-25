@@ -638,6 +638,7 @@ public final class ConsoleMain {
         MemoryGatekeeper.Decision decision = null;
         MemoryCall push = null;
         MemoryCall.Result pushed = null;
+        MemoryCall.Author automaticAuthor = null;
         ChatWorker.Turn turn;
         int cause;
         try {
@@ -645,7 +646,7 @@ public final class ConsoleMain {
             var dialogue = read.dialogue();
             cause = read.eventId();
             if (router.memoryCall().isPresent() && handler.supportsAutomaticRecall()) {
-                decision = MemoryGatekeeper.decide(seen.text(), dialogue, read.queryKinds());
+                decision = MemoryGatekeeper.decide(seen.text(), dialogue, read.queryKinds(), read.authorHistory());
                 cause = trace.write(cause, "router", "router_memory_gate", Map.of(
                         "capability", MemoryCall.NAME, "consumer", "CHAT_WORKER",
                         "operation", decision.kind().isPresent() ? "RECALL" : "SKIP",
@@ -653,14 +654,22 @@ public final class ConsoleMain {
                 if (decision.kind().isPresent()) {
                     // 刷新游标和自动查证各自记账；只有模型实际接收输入后，才确认消费。
                     push = read.nextRead(cause);
-                    pushed = push.read(decision.kind().orElseThrow(), decision.query(), MemoryCall.AUTOMATIC_INPUT_BYTES);
+                    automaticAuthor = push.resolveAuthor(decision.authorRef());
+                    if (automaticAuthor != null && automaticAuthor.id() == null) {
+                        if (automaticAuthor.ambiguous() || decision.topicFallback() == null)
+                            return Reply.chat(automaticAuthor.clarification(), push.eventId(), handler.chatReviews());
+                        // “怎么看 X”在目录及共同群均无匹配时仍可以是普通话题。
+                        decision = decision.asTopic();
+                        automaticAuthor = null;
+                    }
+                    pushed = push.read(decision.kind().orElseThrow(), decision.query(), MemoryCall.AUTOMATIC_INPUT_BYTES, automaticAuthor);
                     push.reviewChatEvidence(ChatReview.BEFORE_PLAN);
                     cause = push.eventId();
                 }
             }
             read.reviewChatEvidence(ChatReview.BEFORE_PLAN);
             turn = chat.planTurn(seen.text(), dialogue, read.queryKinds(), updates, route,
-                    pushed == null ? List.of() : pushed.sentences());
+                    pushed == null ? List.of() : pushed.sentences(), read.authorHistory());
         } catch (IOException error) {
             throw new ChatWorker.PlanningFailure(error);
         }
@@ -668,6 +677,10 @@ public final class ConsoleMain {
         if (push != null) push.delivered();
         var planData = new java.util.LinkedHashMap<String, Object>();
         planData.put("kind", turn.kind().name());
+        if (turn.authorRef() != null) {
+            planData.put("author_ref", turn.authorRef());
+            planData.put("query", turn.query());
+        }
         planData.put("dialogueMessages", turn.dialogue().size());
         planData.put("usage", turn.usage());
         if (push != null) planData.put("automaticInput", push.consumedInput(pushed));
@@ -694,12 +707,18 @@ public final class ConsoleMain {
             }
             case HISTORY, SELF_IDENTITY, SELF_HISTORY, IDENTITY -> {
                 var kind = ConversationMemory.QueryKind.valueOf(turn.kind().name());
-                if (push != null && pushed.kind() == kind && decision.query().equals(turn.query()))
-                    yield Reply.chat(chat.replyWithMemory(turn, push, pushed, List.of()).orElseThrow(), planned, reviews);
                 var recall = read.nextRead(planned);
-                String answer = push == null ? chat.replyWithMemory(turn, recall).orElseThrow()
-                        : chat.replyWithMemory(turn, recall, recall.read(kind, turn.query(), MemoryCall.AUTOMATIC_INPUT_BYTES),
-                                push.withoutNoticeTexts(pushed.sentences())).orElseThrow();
+                var author = recall.resolveAuthor(turn.authorRef());
+                if (author != null && author.id() == null)
+                    yield Reply.chat(author.clarification(), recall.eventId(), reviews);
+                // 姓名和 QQ 号可能属于同一人，只有规范账号、话题和读取目的都相同才复用。
+                boolean sameAuthor = java.util.Objects.equals(author == null ? null : author.id(),
+                        automaticAuthor == null ? null : automaticAuthor.id());
+                if (push != null && sameAuthor && pushed.kind() == kind && decision.query().equals(turn.query()))
+                    yield Reply.chat(chat.replyWithMemory(turn, push, pushed, List.of()).orElseThrow(), recall.eventId(), reviews);
+                var result = recall.read(kind, turn.query(), push == null ? Integer.MAX_VALUE : MemoryCall.AUTOMATIC_INPUT_BYTES, author);
+                String answer = chat.replyWithMemory(turn, recall, result,
+                        push == null || !sameAuthor ? List.of() : push.withoutNoticeTexts(pushed.sentences())).orElseThrow();
                 yield Reply.chat(answer, recall.eventId(), reviews);
             }
             case SUBJECT_CONFLICT -> {

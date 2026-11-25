@@ -89,7 +89,7 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 
 「不接收」忽略整条消息。「仅观察」记录配文与图片标记。「观察与回复」结合图像内容判断参与，点名沿用直接回复流程。可从审计里的 `chat_worker_image_recognition` 追到 `chat_worker_image_input` 的模型、文件类型、大小、SHA-256，以及入站原文的 Memory 版本。识别文字以 Chat Worker 的观察交给后续节点。审计中不保存图片字节或下载链接。
 
-**会话记忆。** `memoryConfig` 可接独立的常驻记忆服务，指向含 `endpoint`、`characterId` 和 `accessTokenEnv` 的配置文件。启用记忆时，Master 配置使用支持原生工具调用的 `/v1/chat/completions`。Chat Worker、任务 Worker 和 Master 均可直接发起只读的 `memory_call`，模型只提交 `kind` 和 `query`。Router 负责写入。Chat Worker 收到消息后，Router 先取得用户发言的持久回执。QQ 确认送达或控制台写出 HTTP 正文后，Router 才提交角色回复入库。两次写入均沿用原始渠道事件作为幂等键。网页和 OpenQQ 分别使用 `console:` 和 `openqq:` 会话命名空间。
+**会话记忆。** `memoryConfig` 可接独立的常驻记忆服务，指向含 `endpoint`、`characterId` 和 `accessTokenEnv` 的配置文件。启用记忆时，Master 配置使用支持原生工具调用的 `/v1/chat/completions`。Chat Worker、任务 Worker 和 Master 均可直接发起只读的 `memory_call`，模型提交 `kind` 和 `query`。已协商 `qq_author_history` 的 QQ 私聊可在 `HISTORY` 附带 `author_ref`。Router 负责写入。Chat Worker 收到消息后，Router 先取得用户发言的持久回执。QQ 确认送达或控制台写出 HTTP 正文后，Router 才提交角色回复入库。两次写入均沿用原始渠道事件作为幂等键。网页和 OpenQQ 分别使用 `console:` 和 `openqq:` 会话命名空间。
 
 **生产记忆。** 使用生产 Misty 服务时，在记忆配置中设 `recallMode=scoped`（省略时为 `recent`）。OpenQQ 私聊沿用生产的 `c2c:onebot:<账号>:<用户>` 会话标识，写入携带实际消息 ID 和发言者的 v2 事件。历史查询检索本轮之前对接收会话可见的记录。查询本人身份时，记忆接口使用 OpenQQ 入站事件绑定的发件人账号，只返回记忆服务提供的已确认称呼。既有测试库的回执保留在原审计链，生产读取只使用生产回执。
 
@@ -106,6 +106,8 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 在 `POST /api/nodes/chat-worker/messages` 中，`chain`、`text` 沿用原入口。操作员转录有据可查的发言时，可另附 `observation`，含 `speaker`、`source_venue`、`occurred_at` 和明确的 `assertion`。会话范围仍由 Harness 绑定。OpenQQ 私聊从渠道事件取得发件人及消息 ID。可在同级 `neuralcloud-memory` 仓库运行 `python -u tests/acceptance.py` 复跑两服务的会议与故障恢复用例。
 
 审计中的 `memory_call` 归属发起查询的节点，`memory_recall` 列出读取的记录 ID，`memory_call_result.data` 包含 `kind`、实际命中数 `count` 和原样交给调用方的 `sentences`。Router 的写入请求为 `router_memory_write`，持久化成功后才有 `memory_durable` 回执。生产历史检索零命中时，材料说明当前会话的查询结果。`recent` 模式只按回执重读近期对话，在材料中注明回读条数，话题命中数为零。
+
+QQ 私聊中，问人物印象或明确问某人的原话时，Router 在首次规划前按 QQ 号、完整确认称呼、已核实共同群的昵称或名片解析发言者。重名时请求澄清。Memory 按提问者的引用权限读取该账号的原话，空话题取最近 4 条。审计的 `qq_author_lookup` 记录解析来源、结果及耗时，`memory_call` 记录实际作者条件。
 
 生产 QQ 私聊另提供 `SELF_HISTORY`。当用户问自己以前说过什么，Chat Worker 提交话题关键词，只读接口使用入站私聊绑定的本人账号，向记忆服务查询本轮之前在 QQ 群聊或私聊的原话。审计记录查询类别、命中数以及 Worker 收到的带时间、渠道来源的节选。`HISTORY` 查询接收会话可引用的历史，`SELF_IDENTITY` 用来查询本人已确认的称呼。
 

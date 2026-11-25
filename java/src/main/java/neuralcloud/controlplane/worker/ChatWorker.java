@@ -156,7 +156,10 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
 
     /** 单轮规划产出：保存输入上下文、类别、检索词、已合并证据更新的前缀对话历史，以及提示词缓存统计 {@code usage}。 */
     public record Turn(Context context, TurnKind kind, String query, String conflict, List<DialogueMessage> dialogue,
-                       Map<String, Integer> usage) {}
+                       Map<String, Integer> usage, String authorRef) {
+        public Turn(Context context, TurnKind kind, String query, String conflict, List<DialogueMessage> dialogue,
+                    Map<String, Integer> usage) { this(context, kind, query, conflict, dialogue, usage, null); }
+    }
 
     private record Generation(String text, Map<String, Integer> usage) {}
 
@@ -344,6 +347,12 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
     /** 查证材料只附在当前问题之后。原始对话和更正提示保留各自的说话者，后续生成使用同一批证据。 */
     public Turn planTurn(String text, List<DialogueMessage> dialogue, List<QueryKind> queryKinds,
                          List<String> updates, Optional<Route> routed, List<String> materials) throws IOException {
+        return planTurn(text, dialogue, queryKinds, updates, routed, materials, false);
+    }
+
+    /** 规划工具的作者槽位仅在本轮已协商时展示，与 Router 预查绑定同一个受众。 */
+    public Turn planTurn(String text, List<DialogueMessage> dialogue, List<QueryKind> queryKinds,
+                         List<String> updates, Optional<Route> routed, List<String> materials, boolean authorHistory) throws IOException {
         var context = Context.direct(text);
         // 更正先进入该轮首个模型输入，并随该轮后续生成保留。
         var history = new ArrayList<>(dialogue);
@@ -361,10 +370,13 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
                 + (choices.contains(TurnKind.ACTION) ? "\nACTION：需要现场操作且没有待决的重大主体取舍，按原文交给执行层。\n" : "")
                 + (queryKinds.contains(QueryKind.SELF_IDENTITY) ? SELF_IDENTITY_INSTRUCTION : "")
                 + (queryKinds.contains(QueryKind.IDENTITY) ? IDENTITY_INSTRUCTION : "")
-                + (queryKinds.contains(QueryKind.SELF_HISTORY) ? SELF_HISTORY_INSTRUCTION : "");
+                + (queryKinds.contains(QueryKind.SELF_HISTORY) ? SELF_HISTORY_INSTRUCTION : "")
+                + (authorHistory ? "\nHISTORY 查某人的原话时，author_ref 填 QQ 号或完整称呼，query 填话题或空串。"
+                        + "只问人物印象时话题为空。已给出该作者的原话就选 REPLY，据原话说明印象；姓名属于 author_ref。"
+                        + "用户明确问谁提到某个名字时才把名字用作正文检索词。\n" : "");
         String planningInput = materials.isEmpty() ? text
                 : text + "\n\n记忆服务返回的查询材料：\n" + String.join("\n", materials);
-        var turn = parseTurn(inferTurn(prompt, history, planningInput, choices), context, history, choices);
+        var turn = parseTurn(inferTurn(prompt, history, planningInput, choices, authorHistory), context, history, choices, authorHistory);
         if (turn.kind() == TurnKind.HISTORY || turn.kind() == TurnKind.SELF_HISTORY) {
             var invalid = openTargetInQuery(text, turn.query());
             if (invalid.isPresent()) {
@@ -372,12 +384,12 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
                 var lookup = EnumSet.of(turn.kind());
                 String feedback = "\n上次的 query 为「" + turn.query() + "」。其中「" + invalid.get()
                         + "」是本题等待查出的对象，不能把它或它的类别作为关键词。请只用已知参与方和事件动作重提。";
-                var corrected = parseTurn(inferTurn(prompt + feedback, history, planningInput, lookup), context, history, lookup);
+                var corrected = parseTurn(inferTurn(prompt + feedback, history, planningInput, lookup, authorHistory), context, history, lookup, authorHistory);
                 if (openTargetInQuery(text, corrected.query()).isPresent())
                     throw new IOException("Chat Worker 重提的 query 仍包含本轮待查对象");
                 var usage = new HashMap<>(turn.usage());
                 corrected.usage().forEach((key, count) -> usage.merge(key, count, Integer::sum));
-                return new Turn(context, corrected.kind(), corrected.query(), "", corrected.dialogue(), Map.copyOf(usage));
+                return new Turn(context, corrected.kind(), corrected.query(), "", corrected.dialogue(), Map.copyOf(usage), corrected.authorRef());
             }
         }
         return turn;
@@ -400,31 +412,33 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
     }
 
     /** 两类推理端点都只开放本轮允许的处理类别。 */
-    private Generation inferTurn(String prompt, List<DialogueMessage> history, String text, EnumSet<TurnKind> choices)
+    private Generation inferTurn(String prompt, List<DialogueMessage> history, String text, EnumSet<TurnKind> choices, boolean authorHistory)
             throws IOException {
-        if (apiFormat == ApiFormat.GEMINI) {
-            var schema = Map.of("type", "OBJECT", "required", List.of("kind", "query"),
-                    "properties", Map.of("kind", Map.of("type", "STRING", "enum", choices),
-                            "query", Map.of("type", "STRING"), "conflict", Map.of("type", "STRING")));
+        boolean gemini = apiFormat == ApiFormat.GEMINI;
+        String type = gemini ? "STRING" : "string";
+        var fields = new LinkedHashMap<String, Object>();
+        fields.put("kind", Map.of("type", type, "enum", choices.stream().map(Enum::name).toList()));
+        fields.put("query", Map.of("type", type));
+        fields.put("conflict", Map.of("type", type));
+        if (authorHistory) fields.put("author_ref", Map.of("type", type));
+        if (gemini) {
+            var schema = Map.of("type", "OBJECT", "required", List.of("kind", "query"), "properties", fields);
             var config = Map.of("maxOutputTokens", maxOutputTokens,
                     "thinkingConfig", Map.of("thinkingLevel", thinkingLevel, "includeThoughts", false),
                     "responseMimeType", "application/json", "responseSchema", schema);
             return generateWithUsage(prompt, contents(history, text, List.of()), config);
         } else {
-            var choiceNames = choices.stream().map(Enum::name).toList();
             var parameters = Map.<String, Object>of(
                     "type", "object",
                     "additionalProperties", false,
                     "required", List.of("kind", "query"),
-                    "properties", Map.of(
-                            "kind", Map.of("type", "string", "enum", choiceNames),
-                            "query", Map.of("type", "string"), "conflict", Map.of("type", "string")));
+                    "properties", fields);
             return callOpenAiTool(prompt, history, text, "plan_turn",
                     "提交本轮处理类别与查询线索", parameters);
         }
     }
 
-    private static Turn parseTurn(Generation result, Context context, List<DialogueMessage> history, EnumSet<TurnKind> choices)
+    private static Turn parseTurn(Generation result, Context context, List<DialogueMessage> history, EnumSet<TurnKind> choices, boolean authorHistory)
             throws IOException {
         try {
             var plan = JSON.fromJson(result.text(), JsonObject.class);
@@ -435,10 +449,16 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
                 boolean referral = choice == TurnKind.SUBJECT_CONFLICT;
                 String conflict = plan.get("conflict") instanceof JsonPrimitive field && field.isString()
                         ? field.getAsString().strip() : "";
-                if (choices.contains(choice) && MemoryCall.validQuery(choice.name(), query)
+                String author = null;
+                if (plan.has("author_ref")) {
+                    if (!authorHistory || !(plan.get("author_ref") instanceof JsonPrimitive name) || !name.isString())
+                        throw new IOException("本轮 plan_turn 不接受此 author_ref");
+                    author = name.getAsString();
+                }
+                if (choices.contains(choice) && MemoryCall.validQuery(choice.name(), query, author)
                         && (referral ? plan.size() == 3 && !conflict.isEmpty() && conflict.length() <= 1024
-                                     : plan.size() == 2)) {
-                    return new Turn(context, choice, query, conflict, List.copyOf(history), result.usage());
+                                     : plan.size() == (author == null ? 2 : 3))) {
+                    return new Turn(context, choice, query, conflict, List.copyOf(history), result.usage(), author);
                 }
             }
         } catch (JsonParseException | IllegalArgumentException error) {
@@ -449,7 +469,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
 
     /** 按本轮规划先通过 {@link MemoryCall#read} 取证，再基于召回材料生成角色回复，并在产出后通知证据已交付。 */
     public Optional<String> replyWithMemory(Turn turn, MemoryCall memory) throws IOException, InterruptedException {
-        var result = memory.read(QueryKind.valueOf(turn.kind().name()), turn.query());
+        var result = memory.read(QueryKind.valueOf(turn.kind().name()), turn.query(), Integer.MAX_VALUE, memory.resolveAuthor(turn.authorRef()));
         return replyWithMemory(turn, memory, result, List.of());
     }
 

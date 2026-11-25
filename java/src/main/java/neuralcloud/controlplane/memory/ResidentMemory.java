@@ -40,7 +40,7 @@ public class ResidentMemory {
     /** 本控制面写入记忆服务时声明的固定来源实例标识。 */
     private static final String SOURCE = "neuralcloud-java";
     /** 渲染给模型的发言时间统一采用北京时间，与中文对话习惯保持一致。 */
-    private static final DateTimeFormatter SPOKEN_AT = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss")
+    static final DateTimeFormatter SPOKEN_AT = DateTimeFormatter.ofPattern("uuuu-MM-dd HH:mm:ss")
             .withZone(ZoneId.of("Asia/Shanghai"));
     /** 回读单条记录时视作“不可用/已下线”的非致命状态集合，命中时返回 {@link Optional#empty()}。 */
     private static final Set<String> UNAVAILABLE = Set.of(
