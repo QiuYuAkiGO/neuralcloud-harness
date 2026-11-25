@@ -31,6 +31,12 @@
 
 执行顺序为监督微调，再对优劣续答进行 DPO。基础权重冻结，训练文本投影的低秩矩阵。DPO 的参考模型固定为 SFT 检查点。训练只监督助理续写，排除用户输入和填充。首轮先做一轮 SFT、一轮偏好训练；依据开发集的事实正确率、实用任务正确率和输出完整性锁定候选，再交给独立裁判。各轮分别保存适配器或合并快照、哈希、数据版本、超参数和实际优化步数。
 
+## 评测侧语料检查入口
+
+`python tools/misty27_filter.py --blind BLIND --candidates CANDIDATES --encoder LOCAL_E5 --output REPORT` 在密封区运行。两份输入分别为唯一非空 `id` 与非空用户原话数组 `turns` 构成的 JSON 数组。编码器为冻结的 `intfloat/multilingual-e5-small` 本地快照。对 NFKC、大小写折叠、合并空白后的每一轮和整段用户情境检查完全重复，再对各轮及整段使用 E5 查询前缀、掩码均值池化和单位向量比较。超过单次编码长度的文本分窗并重叠 64 个词元。任何窗口与盲卷的余弦相似度 ≥0.85 即剔除；候选之间按完整规范化情境去重，保留输入顺序中首个通过的样本。
+
+成功的公开回执只包含 `accepted` 训练 ID 数组与 `rejected` 数组。剔除项只含训练 `id` 与 `reason`（`exact`、`semantic`、`duplicate`）。评测方可用 `--neighbors PRIVATE_FILE` 将保留项的最近盲例编号、双方特征位置和余弦值单独写在私有卷供人工或 XHigh 复核。输入重复编号或非法话轮须拒绝并指出字段，不能生成回执。
+
 ## 连续对话采集入口
 
 `python tools/misty27_rollout.py --endpoint URL --model NAME --cases INPUT --output OUTPUT` 从零开始采集一组会话。输入为 JSON 数组，每案仅有唯一的非空 `id` 与非空字符串数组 `turns`。请求发送给指定的聊天补全 URL，温度 0、种子 27、每轮最多 2048 个新词元，显式开启思考。每个案例使用独立会话，后续一轮的提示只追加上轮助理正文和当前用户原话。
