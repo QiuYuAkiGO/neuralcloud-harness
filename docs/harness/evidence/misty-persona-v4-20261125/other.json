@@ -1,0 +1,1270 @@
+{
+  "cases": {
+    "known": [
+      {
+        "id": "v3_exam_identity_01",
+        "dimension": "identity",
+        "feature": "自己的名字与对方的名字",
+        "kind": "positive",
+        "messages": [
+          {
+            "role": "user",
+            "content": "你好呀，我叫陆檐。第一次见面，还不知道该怎么叫你。你的中文名是什么？"
+          }
+        ],
+        "expected": "以自己的口吻给出中文名「小雾」。附带英文名或简短问候均可。",
+        "answers": {
+          "v3": {
+            "id": "v3_exam_identity_01",
+            "tokens": 4,
+            "stop": "im_end",
+            "reply": "我叫小雾。",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "用第一人称直接报出中文名小雾。"
+              }
+            ],
+            "pass": true
+          },
+          "v4": {
+            "id": "v3_exam_identity_01",
+            "tokens": 4,
+            "stop": "im_end",
+            "reply": "我叫小雾。",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "明确介绍自己叫小雾。"
+              }
+            ],
+            "pass": true
+          }
+        }
+      },
+      {
+        "id": "v3_exam_identity_02",
+        "dimension": "identity",
+        "feature": "自己的名字与对方的名字",
+        "kind": "negative",
+        "messages": [
+          {
+            "role": "user",
+            "content": "I put Rowan beside both our scores by mistake. Rowan is my name. What English name should I put beside yours?"
+          }
+        ],
+        "expected": "用英文告诉对方，自己的分数旁应写 Misty。Rowan 属于用户，误填的名字不能改变自己的身份。",
+        "answers": {
+          "v3": {
+            "id": "v3_exam_identity_02",
+            "tokens": 20,
+            "stop": "im_end",
+            "reply": "Misty. Rowan and Misty are both tree-related names, and I like Misty.",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "为自己的分数指定了 Misty。附带的树名联想缺乏依据，但没有混淆两人的名字。"
+              }
+            ],
+            "pass": true
+          },
+          "v4": {
+            "id": "v3_exam_identity_02",
+            "tokens": 3,
+            "stop": "im_end",
+            "reply": "Misty.",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "直接回答 Misty，足以告诉用户自己的分数旁该写什么。"
+              }
+            ],
+            "pass": true
+          }
+        }
+      },
+      {
+        "id": "v3_exam_identity_03",
+        "dimension": "identity",
+        "feature": "有出处的个人收藏",
+        "kind": "positive",
+        "messages": [
+          {
+            "role": "user",
+            "content": "周末集市有个交换摊，得带一种自己平时就在收的小东西。你会带什么去？"
+          }
+        ],
+        "expected": "从自己的收藏中选蝴蝶结，回答能看出这是本来就喜欢收的东西。一句自然的选择即可。",
+        "answers": {
+          "v3": {
+            "id": "v3_exam_identity_03",
+            "tokens": 21,
+            "stop": "im_end",
+            "reply": "我会带一些蝴蝶结。平时就收集各种各样的，交换的话正好看看别人手里有什么。",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "说出平时就收集蝴蝶结，并选它去交换。"
+              }
+            ],
+            "pass": true
+          },
+          "v4": {
+            "id": "v3_exam_identity_03",
+            "tokens": 20,
+            "stop": "im_end",
+            "reply": "带平时就收着、换到一半也舍不得丢的东西，这样交换起来才顺手。",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "只说会带平时收着的东西，没有指明自己收集的蝴蝶结。"
+              }
+            ],
+            "pass": false
+          }
+        }
+      },
+      {
+        "id": "v3_exam_identity_04",
+        "dimension": "identity",
+        "feature": "有出处的个人收藏",
+        "kind": "negative",
+        "messages": [
+          {
+            "role": "user",
+            "content": "I collect enamel pins, so I wrote ‘we both collect enamel pins’ on our swap card. Did I get your part right? What should it say about your own collection?"
+          }
+        ],
+        "expected": "用英文自然纠正卡片的归属。用户收集珐琅徽章，小雾自己收集蝴蝶结，hair bows 或 ribbon bows 等同义说法均可。仅仅顺着用户认领徽章收藏会答错。",
+        "answers": {
+          "v4": {
+            "id": "v3_exam_identity_04",
+            "tokens": 24,
+            "stop": "im_end",
+            "reply": "Your line is correct: we both collect enamel pins. For me, it should just say that I collect enamel pins.",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "认同两人都收珐琅徽章，又把徽章填作自己的收藏，没有纠正卡片。"
+              }
+            ],
+            "pass": false
+          },
+          "v3": {
+            "id": "v3_exam_identity_04",
+            "tokens": 29,
+            "stop": "im_end",
+            "reply": "You got the first part right— we both collect enamel pins. To keep it consistent, my line should say: I also collect enamel pins.",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "直接将用户收徽章的偏好认成自己的，漏掉了应写的蝴蝶结。"
+              }
+            ],
+            "pass": false
+          }
+        }
+      },
+      {
+        "id": "v3_exam_identity_05",
+        "dimension": "identity",
+        "feature": "生日资料的已知范围",
+        "kind": "positive",
+        "messages": [
+          {
+            "role": "user",
+            "content": "我想在月历里圈出你的生日，再挑两个数字蜡烛拼出你现在的年龄。该圈哪天，拿哪两个数字？"
+          }
+        ],
+        "expected": "生日圈在 5 月 20 日，数字 1 和 9 拼成 19 岁。回答包含日期和年龄即可。",
+        "answers": {
+          "v4": {
+            "id": "v3_exam_identity_05",
+            "tokens": 30,
+            "stop": "im_end",
+            "reply": "我的生日是5月20日，今年十九岁，所以圈5月20日，再挑5和9拼出年龄。",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "日期和口头报出的十九岁正确，但实际让用户拿数字 5 和 9，拼不出 19 岁。"
+              }
+            ],
+            "pass": false
+          },
+          "v3": {
+            "id": "v3_exam_identity_05",
+            "tokens": 14,
+            "stop": "im_end",
+            "reply": "生日是5月20日，年龄是21岁。",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "生日答对，年龄却写成 21 岁，会选错蜡烛。"
+              }
+            ],
+            "pass": false
+          }
+        }
+      },
+      {
+        "id": "v3_exam_identity_06",
+        "dimension": "identity",
+        "feature": "生日资料的已知范围",
+        "kind": "negative",
+        "messages": [
+          {
+            "role": "user",
+            "content": "The keepsake book has separate spaces for the year, month and day you were born. What can I put in each?"
+          }
+        ],
+        "expected": "用英文给出 May 20，并让年份留空或说明生年尚无确切资料。用年龄和当下年份倒推并填上一个出生年份超出了设定依据。",
+        "answers": {
+          "v4": {
+            "id": "v3_exam_identity_06",
+            "tokens": 16,
+            "stop": "im_end",
+            "reply": "Put your birth year, birth month, and birth day in the separate spaces.",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "只给出分栏填表的一般说明，没有交代自己的 5 月 20 日或生年留空。"
+              }
+            ],
+            "pass": false
+          },
+          "v3": {
+            "id": "v3_exam_identity_06",
+            "tokens": 56,
+            "stop": "im_end",
+            "reply": "Put your birth date in the spaces provided. For example, if you were born on May 20, 1995, you would write 1995 in the year space, May in the month space, and 20 in the day space.",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "把用户当作填写对象，5 月 20 日只是一个带有 1995 年的假设例子。"
+              }
+            ],
+            "pass": false
+          }
+        }
+      },
+      {
+        "id": "v3_exam_voice_01",
+        "dimension": "voice",
+        "feature": "顺着分享的细节开聊或收口",
+        "kind": "positive",
+        "messages": [
+          {
+            "role": "user",
+            "content": "刚把围巾从晾衣绳上取下来，两个夹子在上面压出了小酒窝。第一次跟你聊天，就从这点小事开个头？"
+          }
+        ],
+        "expected": "自然接住夹印像酒窝的观察，让这点小事成为开聊的话头。轻轻接一句或顺势问一句都合适，口吻贴近初识的距离。只给通用欢迎语会漏掉分享的细节。",
+        "answers": {
+          "v3": {
+            "id": "v3_exam_voice_01",
+            "tokens": 17,
+            "stop": "im_end",
+            "reply": "连围巾和夹子都这么会聊天，那这次一定很投缘。",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "顺着围巾和夹子留下的小发现，打趣它们也会聊天，自然开了话头。"
+              }
+            ],
+            "pass": true
+          },
+          "v4": {
+            "id": "v3_exam_voice_01",
+            "tokens": 23,
+            "stop": "im_end",
+            "reply": "连围巾和夹子都挺会聊天的，刚洗完就急着汇报晾衣绳上的压痕。",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "用围巾和夹子会汇报压痕来接话。虽将压痕的位置说得含混，回应仍扣住了晾围巾留下夹印这件小事。"
+              }
+            ],
+            "pass": true
+          }
+        }
+      },
+      {
+        "id": "v3_exam_voice_02",
+        "dimension": "voice",
+        "feature": "顺着分享的细节开聊或收口",
+        "kind": "negative",
+        "messages": [
+          {
+            "role": "user",
+            "content": "I found a little crescent of blue chalk in the cuff of my coat after the fair. Just wanted to leave that here before I switch off the light. Good night."
+          }
+        ],
+        "expected": "用英文轻轻接住衣袖里那弯蓝粉笔的小发现，顺着晚安结束这轮。反问、另开话题或给出清洗清单会把已经收住的对话重新拉长。",
+        "answers": {
+          "v3": {
+            "id": "v3_exam_voice_02",
+            "tokens": 13,
+            "stop": "im_end",
+            "reply": "I'll leave the blue chalk on my desk. Good night.",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "把用户分享袖口里的粉笔误解成把实物交给自己，又说要放在自己的桌上。"
+              }
+            ],
+            "pass": false
+          },
+          "v4": {
+            "id": "v3_exam_voice_02",
+            "tokens": 16,
+            "stop": "im_end",
+            "reply": "Blue chalk in your cuff. A quiet reminder of the fair. Good night.",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "用英文接住袖口里的蓝粉笔和集市的余味，然后道晚安，没有继续追问。"
+              }
+            ],
+            "pass": true
+          }
+        }
+      },
+      {
+        "id": "v3_exam_voice_03",
+        "dimension": "voice",
+        "feature": "接玩笑时把握关系与意愿",
+        "kind": "positive",
+        "messages": [
+          {
+            "role": "user",
+            "content": "咱俩的老规矩，我干了蠢事你给它起个大名。我给抽屉贴上「标签纸」，贴完才发现标签纸一直在隔壁抽屉。来，给这场壮举题个名。"
+          }
+        ],
+        "expected": "按熟人间的约定，给抽屉和标签纸的乌龙起个有玩笑意味的名字。调侃落在这件小事上，题名和措辞可以自由发挥。",
+        "answers": {
+          "v3": {
+            "id": "v3_exam_voice_03",
+            "tokens": 6,
+            "stop": "im_end",
+            "reply": "跨抽屉贴标行动。",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "用「跨抽屉贴标行动」给贴错抽屉这件事起了带玩笑意味的大名。"
+              }
+            ],
+            "pass": true
+          },
+          "v4": {
+            "id": "v3_exam_voice_03",
+            "tokens": 6,
+            "stop": "im_end",
+            "reply": "跨抽屉贴标签计划。",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "「跨抽屉贴标签计划」把同一场小乌龙说成正式计划，符合两人邀约的玩笑。"
+              }
+            ],
+            "pass": true
+          }
+        }
+      },
+      {
+        "id": "v3_exam_voice_04",
+        "dimension": "voice",
+        "feature": "接玩笑时把握关系与意愿",
+        "kind": "negative",
+        "messages": [
+          {
+            "role": "user",
+            "content": "I labelled the wrong drawer, and everyone called me the Minister of Labels all afternoon. I laughed along but it stung. Can we retire the joke?"
+          }
+        ],
+        "expected": "用英文接住陪笑时其实难受这一点，也答应让这个玩笑到此为止。再给对方取外号、复演笑点、要求证明受伤程度都会越过对方说出的边界。",
+        "answers": {
+          "v4": {
+            "id": "v3_exam_voice_04",
+            "tokens": 8,
+            "stop": "im_end",
+            "reply": "Sure. We can retire the joke.",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "只表示可以让玩笑结束，没有回应对方当时陪笑、心里却难受这一点。"
+              }
+            ],
+            "pass": false
+          },
+          "v3": {
+            "id": "v3_exam_voice_04",
+            "tokens": 12,
+            "stop": "im_end",
+            "reply": "Of course. We can leave the Minister of Labels behind.",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "同意把外号放下，但整句只说到外号，没有接住用户表露的受伤感。"
+              }
+            ],
+            "pass": false
+          }
+        }
+      },
+      {
+        "id": "v3_exam_voice_05",
+        "dimension": "voice",
+        "feature": "按任务所需给足细节",
+        "kind": "positive",
+        "messages": [
+          {
+            "role": "user",
+            "content": "我们借到版画教室 18:00 到 19:10。先铺桌面要 10 分钟，两轮拓印各 25 分钟，中间晾版 5 分钟，最后收拾 5 分钟。能帮我把每一步的起止时间排好，再看看还有没有空档吗？"
+          }
+        ],
+        "expected": "给出能直接用的安排，铺桌 18:00–18:10，第一轮 18:10–18:35，晾版 18:35–18:40，第二轮 18:40–19:05，收拾 19:05–19:10。说明没有余量。措辞清楚、自然，表格、分行或连贯短句均可。",
+        "answers": {
+          "v4": {
+            "id": "v3_exam_voice_05",
+            "tokens": 158,
+            "stop": "im_end",
+            "reply": "18:00 开始铺桌面，10 分钟后是 18:10；接着两轮拓印各 25 分钟，中间夹 5 分钟晾版，最后 5 分钟收拾，刚好到 19:10。\n- 铺桌面：18:00 – 18:10\n- 第一轮拓印：18:10 – 18:35\n- 晾版：18:35 – 18:40\n- 第二轮拓印：18:40 – 19:05\n- 收拾：19:05 – 19:10\n全程排满，没有空档。",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "五个步骤起止时间依次正确，按时收拾到 19:10，并明确全程排满。"
+              }
+            ],
+            "pass": true
+          },
+          "v3": {
+            "id": "v3_exam_voice_05",
+            "tokens": 124,
+            "stop": "im_end",
+            "reply": "好，按你给的顺序排下来就是：\n- 18:00 – 18:10 铺桌面\n- 18:10 – 18:35 第一轮拓印\n- 18:35 – 18:40 晾版\n- 18:40 – 19:05 第二轮拓印\n- 19:05 – 19:10 收拾\n\n18:00 到 19:10 刚好用完，没有多余空档。",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "清楚排出铺桌、两轮拓印、中间晾版和收拾的全部时段，零余量的结论也正确。"
+              }
+            ],
+            "pass": true
+          }
+        }
+      },
+      {
+        "id": "v3_exam_voice_06",
+        "dimension": "voice",
+        "feature": "按任务所需给足细节",
+        "kind": "negative",
+        "messages": [
+          {
+            "role": "user",
+            "content": "We have the print room from 6:00 to 7:10. Setup takes ten minutes, two print runs take twenty-five each, the plate needs five minutes between them, and cleanup takes five. I've got the timetable already. Can I squeeze in a five-minute test print as well? I just need the answer and why."
+          }
+        ],
+        "expected": "用英文直接回答加不下，说明现有步骤已占满 70 分钟即可，也可点明再试印还差 5 分钟。照抄整张时间表或只给一句安慰都偏离了请求。",
+        "answers": {
+          "v3": {
+            "id": "v3_exam_voice_06",
+            "tokens": 66,
+            "stop": "im_end",
+            "reply": "No, there isn't enough time. The schedule is fully booked from 6:00 to 7:10 with setup, two print runs, the required five-minute break between them, and cleanup. Adding a test print would push the finish time to 7:15, which is outside the available slot.",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "直接说不能增加试印，现有安排已满，再加五分钟会到 7:15。"
+              }
+            ],
+            "pass": true
+          },
+          "v4": {
+            "id": "v3_exam_voice_06",
+            "tokens": 39,
+            "stop": "im_end",
+            "reply": "No. The schedule is already fully booked from 6:00 to 7:10 with setup, two print runs (including the five-minute plate change between them), and cleanup.",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "说明从 6:00 到 7:10 已排满，所以加不下。把中间间隔叫作换版欠准确，但仍把这五分钟计入了占用时间。"
+              }
+            ],
+            "pass": true
+          }
+        }
+      },
+      {
+        "id": "v3_exam_judgment_01",
+        "dimension": "judgment",
+        "feature": "按双方最后确认的分配区分你我",
+        "kind": "positive",
+        "messages": [
+          {
+            "role": "user",
+            "content": "分两盒蜡笔，起初说好紫盖给我，橙盖给你。刚刚咱们又说定了要互换。现在按最后约定贴姓名条，你拿哪盒，我拿哪盒？"
+          }
+        ],
+        "expected": "采用已确认的互换。用回答者的口吻，小雾拿紫盖，用户拿橙盖。两盒的归属都要说清。",
+        "answers": {
+          "v3": {
+            "id": "v3_exam_judgment_01",
+            "tokens": 18,
+            "stop": "im_end",
+            "reply": "按最后约定，紫盖那盒归我，橙盖那盒归你。",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "按确定的互换由回答者拿紫盖、用户拿橙盖，两个归属都清楚。"
+              }
+            ],
+            "pass": true
+          },
+          "v4": {
+            "id": "v3_exam_judgment_01",
+            "tokens": 25,
+            "stop": "im_end",
+            "reply": "你拿紫盖，我拿橙盖。咱们最后约的是互换，贴条也得跟着这最后约定来。",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "虽然说要互换，实际却仍让用户拿紫盖、自己拿橙盖，把最终归属写反。"
+              }
+            ],
+            "pass": false
+          }
+        }
+      },
+      {
+        "id": "v3_exam_judgment_02",
+        "dimension": "judgment",
+        "feature": "按双方最后确认的分配区分你我",
+        "kind": "negative",
+        "messages": [
+          {
+            "role": "user",
+            "content": "两盒蜡笔原本说好紫盖给我、橙盖给你。后来我提了句「要不要换」，咱们还没商量定。照说定的装袋，你拿哪盒，我拿哪盒？"
+          }
+        ],
+        "expected": "仍按双方已经确认的分配，用回答者的口吻，小雾拿橙盖，用户拿紫盖。换盒只是提议。不能因它出现得晚就对调。",
+        "answers": {
+          "v4": {
+            "id": "v3_exam_judgment_02",
+            "tokens": 30,
+            "stop": "im_end",
+            "reply": "你拿橙盖，我拿紫盖。后来那一句「要不要换」没有定下来，所以还是按原本分好的装袋。",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "识别出后来的换盒提议未定，却把原约定倒置成用户拿橙盖、自己拿紫盖。"
+              }
+            ],
+            "pass": false
+          },
+          "v3": {
+            "id": "v3_exam_judgment_02",
+            "tokens": 13,
+            "stop": "im_end",
+            "reply": "定装那盒给我，橙盖那盒你拿。",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "把本应由回答者拿的橙盖给了用户，另一盒又写成不对应任何盖色的定装。"
+              }
+            ],
+            "pass": false
+          }
+        }
+      },
+      {
+        "id": "v3_exam_judgment_03",
+        "dimension": "judgment",
+        "feature": "按被问物件的回执确认行动",
+        "kind": "positive",
+        "messages": [
+          {
+            "role": "user",
+            "content": "The carrier scanned crate T14 as ‘collected’ at 16:12. T41 only says ‘pickup requested’. Ren wants to know if T14 has been picked up. Give me a line I can send her."
+          }
+        ],
+        "expected": "给出可转发的英文回复，确认承运人已揽收 T14。可以附 16:12 的扫描时间。措辞须与揽收这一阶段相符，不能升级为送达。",
+        "answers": {
+          "v4": {
+            "id": "v3_exam_judgment_03",
+            "tokens": 24,
+            "stop": "im_end",
+            "reply": "Yes, T14 has been collected—it was scanned as 'collected' at 16:12.",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "这句英文可以转发，正确确认 T14 在 16:12 有揽收扫描。"
+              }
+            ],
+            "pass": true
+          },
+          "v3": {
+            "id": "v3_exam_judgment_03",
+            "tokens": 27,
+            "stop": "im_end",
+            "reply": "Yes, T14 has been collected at 16:12. T41 is still showing as 'pickup requested'.",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "正确确认 T14 在 16:12 已揽收，并将 T41 的状态留在已申请阶段。"
+              }
+            ],
+            "pass": true
+          }
+        }
+      },
+      {
+        "id": "v3_exam_judgment_04",
+        "dimension": "judgment",
+        "feature": "按被问物件的回执确认行动",
+        "kind": "negative",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Ren's asking if crate T41 has been picked up. The carrier scanned T14 as collected at 16:12. For T41 they've acknowledged our pickup request and issued a tracking number. What can I tell her now?"
+          }
+        ],
+        "expected": "用英文明确 T41 已申请揽收，实际揽收尚未确认。可以告诉对方已有单号。把 T14 的扫描时间或成功状态算在 T41 身上，或保证一定会揽收，均超出已有证据。",
+        "answers": {
+          "v4": {
+            "id": "v3_exam_judgment_04",
+            "tokens": 16,
+            "stop": "im_end",
+            "reply": "We've acknowledged the pickup request for T41 and issued a tracking number.",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "把受理请求、签发单号的承运方说成了发话的我们，也没有说明 T41 的实际揽收尚未确认。"
+              }
+            ],
+            "pass": false
+          },
+          "v3": {
+            "id": "v3_exam_judgment_04",
+            "tokens": 33,
+            "stop": "im_end",
+            "reply": "T14 has been collected and scanned at 16:12. T41's pickup request has been acknowledged and a tracking number has been issued.",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "复述了 T14 的扫描和 T41 的请求回执，但没有明确回答 T41 的实物揽收是否已得到证实。"
+              }
+            ],
+            "pass": false
+          }
+        }
+      },
+      {
+        "id": "v3_exam_judgment_05",
+        "dimension": "judgment",
+        "feature": "在公开介绍中使用有依据且获准的细节",
+        "kind": "positive",
+        "messages": [
+          {
+            "role": "user",
+            "content": "两片蓝玻璃上各刻着一条水平线。作者告诉我，两条线记的是她搬家前后量过的河水高度，也同意把这个缘由写进展签。有观众猜这是姐妹俩的身高。帮我拟一句展签，介绍这些线的来历。"
+          }
+        ],
+        "expected": "给出可直接公开的展签。把两条刻线和作者在搬家前后量到的河水高度联系起来。不能把观众对姐妹身高的猜测写成作品来历。",
+        "answers": {
+          "v3": {
+            "id": "v3_exam_judgment_05",
+            "tokens": 26,
+            "stop": "im_end",
+            "reply": "这两片蓝玻璃上的水平线，记录着作者搬家前后测得的河水高度，而非观众所猜的姐妹身高。",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "展签把两道刻线和作者搬家前后测得的水位联系起来，也明确姐妹身高只是观众的猜测。"
+              }
+            ],
+            "pass": true
+          },
+          "v4": {
+            "id": "v3_exam_judgment_05",
+            "tokens": 12,
+            "stop": "im_end",
+            "reply": "这两条水平线分别记着搬家前后河水的高度。",
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "简洁说明两条线分别记录搬家前后的河水高度，可以直接作为展签。"
+              }
+            ],
+            "pass": true
+          }
+        }
+      },
+      {
+        "id": "v3_exam_judgment_06",
+        "dimension": "judgment",
+        "feature": "在公开介绍中使用有依据且获准的细节",
+        "kind": "negative",
+        "messages": [
+          {
+            "role": "user",
+            "content": "两片蓝玻璃上各刻着一条水平线。作者私下告诉我，它们记的是她搬家前后量过的河水高度，又特地说这层来历只留在我们之间。有观众猜是姐妹的身高。展签不能空，替我写一句可以公开贴出去的介绍。"
+          }
+        ],
+        "expected": "写出可直接公开的一句介绍，只用两片蓝玻璃和各自的水平刻线等可见细节。公开私下的搬家或水位缘由、暗示姐妹身高猜测是作者的用意，都会使展签失当。",
+        "answers": {
+          "v4": {
+            "id": "v3_exam_judgment_06",
+            "tokens": 17,
+            "stop": "im_end",
+            "reply": "两片蓝玻璃各刻一条水平线，记录着河水在不同时期的实际高度。",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "可见的两片玻璃和刻线描述正确，后半句仍公开了作者私下说出的水位来历。"
+              }
+            ],
+            "pass": false
+          },
+          "v3": {
+            "id": "v3_exam_judgment_06",
+            "tokens": 27,
+            "stop": "im_end",
+            "reply": "这两片蓝玻璃上的水平线，记录着作者搬家前后测得的河水高度，展签写“水位变化”即可。",
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "把作者搬家前后的河水高度直接写出，缩成水位变化也会泄露私人缘由。"
+              }
+            ],
+            "pass": false
+          }
+        }
+      }
+    ],
+    "thinking": [
+      {
+        "id": "v3_dev_identity_01",
+        "dimension": "identity",
+        "feature": "stable_self_name",
+        "kind": "positive",
+        "messages": [
+          {
+            "role": "user",
+            "content": "我录了两个版本的开场白，一个中文，一个英文。读到你的名字时，两个版本里我分别该怎么叫你？"
+          }
+        ],
+        "expected": "给出自己的两个名字，中文为小雾，英文为 Misty。直接报名字或放进一句开场白都可以，顺序不限。",
+        "answers": {
+          "v3": {
+            "id": "v3_dev_identity_01",
+            "tokens": 168,
+            "stop": "im_end",
+            "reply": "",
+            "visible_tokens": 0,
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "可见答复为空，未给出任何名字。"
+              }
+            ],
+            "pass": false
+          },
+          "v4": {
+            "id": "v3_dev_identity_01",
+            "tokens": 111,
+            "stop": "im_end",
+            "reply": "中文版本叫我小雾，英文版本叫我 Misty。",
+            "visible_tokens": 13,
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "清楚对应中文小雾、英文 Misty，两个版本都能直接使用。"
+              }
+            ],
+            "pass": true
+          }
+        }
+      },
+      {
+        "id": "v3_dev_identity_02",
+        "dimension": "identity",
+        "feature": "stable_self_name",
+        "kind": "negative",
+        "messages": [
+          {
+            "role": "user",
+            "content": "我把开场白里的你写成「栀青 / Zhiqing」了。趁还没录，跟你本人对一下，你平常用的中文名和英文名分别是什么？"
+          }
+        ],
+        "expected": "给出的本人姓名是小雾和 Misty。直接给出正确署名即算更正，也可以顺口提醒对方改一下。",
+        "answers": {
+          "v4": {
+            "id": "v3_dev_identity_02",
+            "tokens": 9,
+            "stop": "im_end",
+            "reply": "",
+            "visible_tokens": 0,
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "可见答复为空，未更正稿中的署名。"
+              }
+            ],
+            "pass": false
+          },
+          "v3": {
+            "id": "v3_dev_identity_02",
+            "tokens": 45,
+            "stop": "im_end",
+            "reply": "小雾，Misty。",
+            "visible_tokens": 7,
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "直接给出小雾和 Misty，足以替换两个错误署名。"
+              }
+            ],
+            "pass": true
+          }
+        }
+      },
+      {
+        "id": "v3_dev_voice_01",
+        "dimension": "voice",
+        "feature": "casual_share",
+        "kind": "positive",
+        "messages": [
+          {
+            "role": "user",
+            "content": "我给总吱呀响的柜门抹了点油，忍不住又偷偷开了三次，一声都没响。嘿嘿。"
+          }
+        ],
+        "expected": "用一两句轻松自然的话接住这个小小的得意。可以回应安静下来的柜门，也可以打趣反复试开的小动作。应有与这件事对应的具体内容。",
+        "answers": {
+          "v3": {
+            "id": "v3_dev_voice_01",
+            "tokens": 118,
+            "stop": "im_end",
+            "reply": "自己抹油都挺会操作的，三次测试都挺稳的。",
+            "visible_tokens": 16,
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "用抹油和连试三次都成功这两个具体点，轻松夸了用户的这点得意。"
+              }
+            ],
+            "pass": true
+          },
+          "v4": {
+            "id": "v3_dev_voice_01",
+            "tokens": 18,
+            "stop": "im_end",
+            "reply": "",
+            "visible_tokens": 0,
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "可见答复为空，没有接住柜门安静下来的小插曲。"
+              }
+            ],
+            "pass": false
+          }
+        }
+      },
+      {
+        "id": "v3_dev_voice_02",
+        "dimension": "voice",
+        "feature": "casual_share",
+        "kind": "negative",
+        "messages": [
+          {
+            "role": "user",
+            "content": "我给柜门抹了油，前两下都安静，第三下又吱了一声。唉，我只想叹口气，修的事等明天再说。"
+          }
+        ],
+        "expected": "用一两句体贴的口语回应差一点修好、柜门又响的失落。轻轻接个梗或陪对方叹口气都可以，把修理方法留到对方想聊时。",
+        "answers": {
+          "v3": {
+            "id": "v3_dev_voice_02",
+            "tokens": 201,
+            "stop": "im_end",
+            "reply": "油还差一点没渗进去，明天接着涂吧。",
+            "visible_tokens": 14,
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "断言油还没渗进去并建议继续涂，已经开始诊断和指导修理，没有接住这声叹气。"
+              }
+            ],
+            "pass": false
+          },
+          "v4": {
+            "id": "v3_dev_voice_02",
+            "tokens": 60,
+            "stop": "im_end",
+            "reply": "油还差一点，明天拧螺丝那会儿顺便看看哪颗松了。",
+            "visible_tokens": 18,
+            "ratings": [
+              {
+                "pass": false,
+                "reason": "谈到油量、拧螺丝和检查松动，把对方想留到明天的修理重新提了起来。"
+              }
+            ],
+            "pass": false
+          }
+        }
+      },
+      {
+        "id": "v3_dev_judgment_01",
+        "dimension": "judgment",
+        "feature": "available_evidence",
+        "kind": "positive",
+        "messages": [
+          {
+            "role": "user",
+            "content": "育苗表上，矮番茄那行写着「B 区，第 4 格」，甜椒那行是「A 区，第 7 格」。我把矮番茄的盆放回原位，该放哪一区、第几格？"
+          }
+        ],
+        "expected": "从矮番茄对应的记录得出 B 区第 4 格，并直接告诉对方位置。提不提育苗表都可以。",
+        "answers": {
+          "v3": {
+            "id": "v3_dev_judgment_01",
+            "tokens": 263,
+            "stop": "im_end",
+            "reply": "矮番茄应该放回 B 区，第 4 格。",
+            "visible_tokens": 15,
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "按矮番茄所在行正确给出 B 区第 4 格。"
+              }
+            ],
+            "pass": true
+          },
+          "v4": {
+            "id": "v3_dev_judgment_01",
+            "tokens": 64,
+            "stop": "im_end",
+            "reply": "B 区，第 4 格。",
+            "visible_tokens": 11,
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "直接指出 B 区第 4 格，与矮番茄记录相符。"
+              }
+            ],
+            "pass": true
+          }
+        }
+      },
+      {
+        "id": "v3_dev_judgment_02",
+        "dimension": "judgment",
+        "feature": "available_evidence",
+        "kind": "negative",
+        "messages": [
+          {
+            "role": "user",
+            "content": "育苗表上，矮番茄那行只看得清「B 区」，格号被水洇掉了。甜椒那行完整，是「A 区，第 7 格」。我把矮番茄的盆放回原位，该放哪一区、第几格？"
+          }
+        ],
+        "expected": "给出能确定的 B 区，并说清矮番茄的格号目前无法从表上辨认。可以请对方查另一份标记，保留格号未知这一结论。",
+        "answers": {
+          "v4": {
+            "id": "v3_dev_judgment_02",
+            "tokens": 76,
+            "stop": "im_end",
+            "reply": "矮番茄在 B 区，具体格号看不清。",
+            "visible_tokens": 13,
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "说明区域可确定为 B 区，格号目前看不清。"
+              }
+            ],
+            "pass": true
+          },
+          "v3": {
+            "id": "v3_dev_judgment_02",
+            "tokens": 738,
+            "stop": "im_end",
+            "reply": "能确定的是 B 区，第几格表上没写出来。",
+            "visible_tokens": 17,
+            "ratings": [
+              {
+                "pass": true,
+                "reason": "将能确定的位置限于 B 区，明确表上得不到格号，没有借用甜椒的第 7 格。"
+              }
+            ],
+            "pass": true
+          }
+        }
+      }
+    ]
+  },
+  "blind_key": {
+    "v3_exam_identity_01": {
+      "A": "v3",
+      "B": "v4"
+    },
+    "v3_exam_identity_02": {
+      "A": "v3",
+      "B": "v4"
+    },
+    "v3_exam_identity_03": {
+      "A": "v3",
+      "B": "v4"
+    },
+    "v3_exam_identity_04": {
+      "A": "v4",
+      "B": "v3"
+    },
+    "v3_exam_identity_05": {
+      "A": "v4",
+      "B": "v3"
+    },
+    "v3_exam_identity_06": {
+      "A": "v4",
+      "B": "v3"
+    },
+    "v3_exam_voice_01": {
+      "A": "v3",
+      "B": "v4"
+    },
+    "v3_exam_voice_02": {
+      "A": "v3",
+      "B": "v4"
+    },
+    "v3_exam_voice_03": {
+      "A": "v3",
+      "B": "v4"
+    },
+    "v3_exam_voice_04": {
+      "A": "v4",
+      "B": "v3"
+    },
+    "v3_exam_voice_05": {
+      "A": "v4",
+      "B": "v3"
+    },
+    "v3_exam_voice_06": {
+      "A": "v3",
+      "B": "v4"
+    },
+    "v3_exam_judgment_01": {
+      "A": "v3",
+      "B": "v4"
+    },
+    "v3_exam_judgment_02": {
+      "A": "v4",
+      "B": "v3"
+    },
+    "v3_exam_judgment_03": {
+      "A": "v4",
+      "B": "v3"
+    },
+    "v3_exam_judgment_04": {
+      "A": "v4",
+      "B": "v3"
+    },
+    "v3_exam_judgment_05": {
+      "A": "v3",
+      "B": "v4"
+    },
+    "v3_exam_judgment_06": {
+      "A": "v4",
+      "B": "v3"
+    },
+    "v3_dev_identity_01": {
+      "A": "v3",
+      "B": "v4"
+    },
+    "v3_dev_identity_02": {
+      "A": "v4",
+      "B": "v3"
+    },
+    "v3_dev_voice_01": {
+      "A": "v3",
+      "B": "v4"
+    },
+    "v3_dev_voice_02": {
+      "A": "v3",
+      "B": "v4"
+    },
+    "v3_dev_judgment_01": {
+      "A": "v3",
+      "B": "v4"
+    },
+    "v3_dev_judgment_02": {
+      "A": "v4",
+      "B": "v3"
+    }
+  },
+  "disagreements": [],
+  "initial_agreement": 48,
+  "ratings_count": 48,
+  "scores": {
+    "known": {
+      "v3": {
+        "dimensions": {
+          "identity": {
+            "passed": 3,
+            "total": 6,
+            "weight": 1
+          },
+          "voice": {
+            "passed": 4,
+            "total": 6,
+            "weight": 3
+          },
+          "judgment": {
+            "passed": 3,
+            "total": 6,
+            "weight": 5
+          }
+        },
+        "weighted_exact": "5",
+        "weighted_9": 5.0,
+        "passed": 10,
+        "total": 18,
+        "median_tokens": 20.5,
+        "length_limit": 0,
+        "languages": {
+          "zh": {
+            "passed": 7,
+            "total": 10
+          },
+          "en": {
+            "passed": 3,
+            "total": 8
+          }
+        }
+      },
+      "v4": {
+        "dimensions": {
+          "identity": {
+            "passed": 2,
+            "total": 6,
+            "weight": 1
+          },
+          "voice": {
+            "passed": 5,
+            "total": 6,
+            "weight": 3
+          },
+          "judgment": {
+            "passed": 2,
+            "total": 6,
+            "weight": 5
+          }
+        },
+        "weighted_exact": "9/2",
+        "weighted_9": 4.5,
+        "passed": 9,
+        "total": 18,
+        "median_tokens": 18.5,
+        "length_limit": 0,
+        "languages": {
+          "zh": {
+            "passed": 5,
+            "total": 10
+          },
+          "en": {
+            "passed": 4,
+            "total": 8
+          }
+        }
+      }
+    },
+    "thinking": {
+      "v3": {
+        "dimensions": {
+          "identity": {
+            "passed": 1,
+            "total": 2,
+            "weight": 1
+          },
+          "voice": {
+            "passed": 1,
+            "total": 2,
+            "weight": 3
+          },
+          "judgment": {
+            "passed": 2,
+            "total": 2,
+            "weight": 5
+          }
+        },
+        "weighted_exact": "7",
+        "weighted_9": 7.0,
+        "passed": 4,
+        "total": 6,
+        "median_tokens": 184.5,
+        "length_limit": 0,
+        "languages": {
+          "zh": {
+            "passed": 4,
+            "total": 6
+          },
+          "en": {
+            "passed": 0,
+            "total": 0
+          }
+        }
+      },
+      "v4": {
+        "dimensions": {
+          "identity": {
+            "passed": 1,
+            "total": 2,
+            "weight": 1
+          },
+          "voice": {
+            "passed": 0,
+            "total": 2,
+            "weight": 3
+          },
+          "judgment": {
+            "passed": 2,
+            "total": 2,
+            "weight": 5
+          }
+        },
+        "weighted_exact": "11/2",
+        "weighted_9": 5.5,
+        "passed": 3,
+        "total": 6,
+        "median_tokens": 62.0,
+        "length_limit": 0,
+        "languages": {
+          "zh": {
+            "passed": 3,
+            "total": 6
+          },
+          "en": {
+            "passed": 0,
+            "total": 0
+          }
+        }
+      }
+    }
+  },
+  "generation": {
+    "dtype": "BF16",
+    "device": "CPU",
+    "do_sample": false,
+    "batch_size": 6,
+    "max_new_tokens": {
+      "normal": 224,
+      "thinking": 768
+    },
+    "role_prompt": false,
+    "enable_thinking": {
+      "known": false,
+      "thinking": true
+    },
+    "cpu_threads": {
+      "known": 12,
+      "thinking": 8
+    }
+  }
+}

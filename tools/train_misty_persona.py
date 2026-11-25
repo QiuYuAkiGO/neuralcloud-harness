@@ -9,6 +9,7 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
+from safetensors import safe_open
 from safetensors.torch import save_file
 from torch.utils.checkpoint import checkpoint
 
@@ -20,6 +21,7 @@ from misty_weight_edit import (OFFICIAL_INDEX, SHARD_HASHES, load_text, positive
 FIRST_LAYER = 16
 LAYER_COUNT = 32
 SCALE = 2.0
+PREFIX = "model.language_model."
 KINDS = {"identity", "role", "voice", "judgment", "retain"}
 PARENT_EVIDENCE = Path(__file__).resolve().parents[1] / "docs/harness/evidence/misty-weight-edit-20261125/v2.json"
 
@@ -55,6 +57,23 @@ def target_paths():
         )
         for part in (*attn, "mlp.up_proj", "mlp.down_proj"):
             yield i, part
+
+
+def read_factors(path):
+    """继续训练、开发推理与发布共享同一组 FP32 因子的路径、秩和尺度契约。"""
+    names = [f"layers.{i}.{part}" for i, part in target_paths()]
+    by_weight = {}
+    with safe_open(path, framework="pt", device="cpu") as file:
+        metadata = file.metadata()
+        rank = int(metadata["rank"])
+        if float(metadata["scale"]) != SCALE or set(file.keys()) != {f"{n}.{k}" for n in names for k in ("a", "b")}:
+            raise ValueError("候选文件的尺度或目标投影集合不符")
+        for name in names:
+            a, b = file.get_tensor(name + ".a"), file.get_tensor(name + ".b")
+            if a.shape[0] != rank or b.shape[1] != rank or a.dtype != torch.float32 or b.dtype != torch.float32:
+                raise ValueError(f"{name} 的因子不满足 rank 和 FP32 契约")
+            by_weight[PREFIX + name + ".weight"] = (a, b)
+    return by_weight
 
 
 class LowRank(torch.nn.Module):
@@ -155,11 +174,22 @@ def fit(model, batches, rng, args):
     if args.device == "cuda":
         model.model.layers[args.gpu_from:].to("cuda")
     edits = {}
+    initial = read_factors(args.initial_factors) if args.initial_factors else {}
     for i, part in target_paths():
         layer = model.model.layers[i]
         edit = LowRank(layer.get_submodule(part), args.rank)
+        name = f"layers.{i}.{part}"
+        if initial:
+            # 在原 FP32 因子上继续更新，避免把已经舍入的第三版密集权重再次舍入。
+            a, b = initial[PREFIX + name + ".weight"]
+            if a.shape != edit.a.shape or b.shape != edit.b.shape:
+                raise ValueError(f"{name} 的初始因子与当前父矩阵或训练秩不符")
+            with torch.no_grad():
+                edit.a.copy_(a)
+                edit.b.copy_(b)
         layer.set_submodule(part, edit)
-        edits[f"layers.{i}.{part}"] = edit
+        edits[name] = edit
+    del initial
     parameters = [p for edit in edits.values() for p in (edit.a, edit.b)]
     optimizer = torch.optim.AdamW(parameters, lr=args.lr, weight_decay=0.01, foreach=False)
     steps = len(batches) * args.epochs
@@ -224,6 +254,7 @@ def main():
     parser.add_argument("--corpus", type=Path, nargs="+", required=True)
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--cache", type=Path, help="复用同一输入权重和语料的冻结前向结果")
+    parser.add_argument("--initial-factors", type=Path, help="在来自同一父模型的候选因子上继续优化")
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cuda")
     parser.add_argument("--gpu-from", type=int, choices=range(FIRST_LAYER, LAYER_COUNT), default=18)
     parser.add_argument("--threads", type=positive_int, default=12)
@@ -278,6 +309,7 @@ def main():
         batch_tokens=args.batch_tokens, batches=len(batches),
         kinds=Counter(r["kind"] for r in rows), pairs=sum("chosen" in r for r in rows),
         corpora=corpora, history=history,
+        initial_factors_sha256=sha_file(args.initial_factors) if args.initial_factors else None,
     ))
 
 

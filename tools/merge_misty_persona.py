@@ -13,29 +13,11 @@ from safetensors import safe_open
 
 from misty_weight_edit import (edit_paths, generate_cases, load_text, positive_int,
                                read_json, write_json)
-from train_misty_persona import SCALE, parent_shards, sha_file, target_paths
+from train_misty_persona import PREFIX, SCALE, parent_shards, read_factors, sha_file
 
 
 ROW_BLOCK = 512
 BLOCK_BYTES = 8 * 1024 ** 2
-PREFIX = "model.language_model."
-
-
-def read_factors(path):
-    """训练器与合并器按实际层路径交接。拒绝缺失、多余或尺度不符的因子。"""
-    names = [f"layers.{i}.{part}" for i, part in target_paths()]
-    by_weight = {}
-    with safe_open(path, framework="pt", device="cpu") as file:
-        metadata = file.metadata()
-        rank = int(metadata["rank"])
-        if float(metadata["scale"]) != SCALE or set(file.keys()) != {f"{n}.{k}" for n in names for k in ("a", "b")}:
-            raise ValueError("候选文件的尺度或目标投影集合不符")
-        for name in names:
-            a, b = file.get_tensor(name + ".a"), file.get_tensor(name + ".b")
-            if a.shape[0] != rank or b.shape[1] != rank or a.dtype != torch.float32 or b.dtype != torch.float32:
-                raise ValueError(f"{name} 的因子不满足 rank 和 FP32 契约")
-            by_weight[PREFIX + name + ".weight"] = (a, b)
-    return by_weight
 
 
 def merge_block(base, a, b):
