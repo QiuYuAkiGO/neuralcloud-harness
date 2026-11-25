@@ -248,21 +248,38 @@ public final class Master {
      */
     public MasterIntent submitIntent(String prompt, int maxTokens, double temperature, MemoryCall memory)
             throws IOException, InterruptedException {
-        var messages = memoryMessages(prompt, memory,
-                "\n先选择与当前事项最相关的一种查询，只调用一次 memory_call，然后等待回执。"
-                        + "收到回执后只调用一次 submit_intent。只引用本轮工具标明的证据序号。没有依据时给空 evidence 和空 impression。");
+        return submitIntent(prompt, maxTokens, temperature, memory, false);
+    }
+
+    /** QQ 已完成参与判断时，将必须回复的条件传到提交边界，保留原文和正常的模型重提机制。 */
+    public MasterIntent submitIntent(
+            String prompt,
+            int maxTokens,
+            double temperature,
+            MemoryCall memory,
+            boolean replyRequired)
+            throws IOException, InterruptedException {
+        var messages =
+                memoryMessages(
+                        prompt,
+                        memory,
+                        "\n先选择与当前事项最相关的一种查询，只调用一次 memory_call，然后等待回执。"
+                                + "收到回执后只调用一次 submit_intent。只引用本轮工具标明的证据序号。没有依据时给空 evidence 和空 impression。"
+                                + "下游只能看到 replyIntent，请在其中写出问题各项的具体答案。引用群通知时，将所用事实作为原文片段放在「」内。"
+                                + (replyRequired ? "本轮渠道已决定参与，needsReply 须为 true。" : ""));
         var lookup = chat(messages, List.of(memory.tool()), maxTokens, temperature, MemoryCall.NAME);
         memory.refreshed();
         var query = requiredCall(lookup, MemoryCall.NAME);
         memory.appendToolResult(messages, query.id(), query.arguments(), lookup.content().text());
         var offered = memory.evidenceRefs();
+        var notices = memory.noticeEvidence();
         memory.verifyEvidence();
         var turn = chat(messages, List.of(MasterIntent.TOOL), maxTokens, temperature, MasterIntent.NAME);
         memory.delivered();
         var call = requiredCall(turn, MasterIntent.NAME);
         MasterIntent intent;
         try {
-            intent = MasterIntent.parse(call.arguments(), offered);
+            intent = MasterIntent.parse(call.arguments(), offered, replyRequired, notices);
         } catch (MasterIntent.InvalidSubmission error) {
             // 向实际发起调用的模型反馈字段错误，重提沿用同一组编号与来源版本。
             messages.add(Map.of("role", "assistant", "content", turn.content().text(), "tool_calls", List.of(
@@ -272,7 +289,12 @@ public final class Master {
                     "content", error.getMessage() + "。请完整重提五个字段。"));
             memory.verifyEvidence();
             var retry = chat(messages, List.of(MasterIntent.TOOL), maxTokens, temperature, MasterIntent.NAME);
-            intent = MasterIntent.parse(requiredCall(retry, MasterIntent.NAME).arguments(), offered);
+            intent =
+                    MasterIntent.parse(
+                            requiredCall(retry, MasterIntent.NAME).arguments(),
+                            offered,
+                            replyRequired,
+                            notices);
         }
         memory.verifyEvidence();
         return intent;

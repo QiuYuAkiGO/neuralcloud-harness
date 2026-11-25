@@ -21,6 +21,7 @@ final class OpenQqConfig {
             long accountId,
             long allowedUserId,
             long allowedGroupId,
+            java.util.Optional<java.nio.file.Path> groupPoliciesFile,
             String accessToken) {}
 
     private OpenQqConfig() {}
@@ -31,6 +32,7 @@ final class OpenQqConfig {
         var fields = new java.util.HashSet<>(properties.stringPropertyNames());
         // allowedGroupId 为可选字段，先移除后再比对必填字段集合。
         fields.remove("allowedGroupId");
+        fields.remove("groupPoliciesFile");
         if (!fields.equals(FIELDS)
                 || properties.values().stream().anyMatch(value -> value.toString().isBlank())) {
             throw new IllegalArgumentException("OpenQQ 配置须包含以下非空字段 " + FIELDS);
@@ -54,6 +56,11 @@ final class OpenQqConfig {
             throw new IllegalArgumentException("OpenQQ 令牌环境变量须为 16 至 256 位可见 ASCII 字符 " + tokenEnv);
         }
         String group = properties.getProperty("allowedGroupId");
+        var policies =
+                java.util.Optional.ofNullable(properties.getProperty("groupPoliciesFile"))
+                        .map(java.nio.file.Path::of);
+        if (group != null && policies.isPresent())
+            throw new IllegalArgumentException("allowedGroupId 与 groupPoliciesFile 只能配置一个");
         if (group != null && !group.matches("[1-9][0-9]{4,11}"))
             throw new IllegalArgumentException("allowedGroupId 须为有效 QQ 群号");
         return new Settings(
@@ -61,6 +68,7 @@ final class OpenQqConfig {
                 Long.parseLong(account),
                 Long.parseLong(user),
                 group == null ? 0 : Long.parseLong(group),
+                policies,
                 token);
     }
 }

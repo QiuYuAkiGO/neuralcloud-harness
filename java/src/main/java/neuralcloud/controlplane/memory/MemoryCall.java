@@ -354,6 +354,21 @@ public final class MemoryCall {
         this.numberEvidence = numberEvidence;
     }
 
+    /** 只以实际交付的同群通知原文窗口校验引用，其他候选材料留在 Master 的受众边界内。 */
+    public Map<EvidenceRef, String> noticeEvidence() {
+        var notices = new LinkedHashMap<EvidenceRef, String>();
+        for (var binding : bindings) {
+            var item = binding.item();
+            if (item.has("member_notice") && item.get("member_notice").getAsBoolean())
+                notices.put(
+                        new EvidenceRef(
+                                binding.id(),
+                                item.getAsJsonObject("ref").get("revision").getAsLong()),
+                        item.get("text").getAsString());
+        }
+        return notices;
+    }
+
     /** 顺序与当轮记忆工具正文的证据编号一致。热目录和刷新通知由各自的交付记录管理。 */
     public List<EvidenceRef> evidenceRefs() throws IOException {
         if (!numberEvidence) throw new IOException("submit_intent 只能引用意图轮次实际交付的编号");

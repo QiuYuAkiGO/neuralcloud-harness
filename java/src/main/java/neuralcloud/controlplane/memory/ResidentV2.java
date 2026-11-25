@@ -130,6 +130,14 @@ public final class ResidentV2 extends ResidentMemory {
                                                 Long.toString(q.peerId()))));
         scope.mobile().ifPresent(m -> ctx.add("mobile_member", object(
                 "instance", m.instance(), "member_id", Long.toString(m.memberId()))));
+        scope.qq()
+                .filter(q -> !q.memberGroups().isEmpty())
+                .ifPresent(
+                        q -> {
+                            var ids = new JsonArray();
+                            q.memberGroups().forEach(id -> ids.add(id.toString()));
+                            ctx.getAsJsonObject("qq").add("member_group_ids", ids);
+                        });
         return ctx;
     }
 
@@ -141,6 +149,12 @@ public final class ResidentV2 extends ResidentMemory {
      */
     @Override
     public void verify(boolean qqEnabled) throws IOException, InterruptedException {
+        verify(qqEnabled, false);
+    }
+
+    /** 仅启用动态群策略的渠道要求服务端支持已核验成员的通知读取与修订。 */
+    public void verify(boolean qqEnabled, boolean managedGroups)
+            throws IOException, InterruptedException {
         var health = request("v2/health", null);
         if (integer(health, "api_major", 0) != 2
                 || !character().equals(string(health, "character_id"))
@@ -161,6 +175,7 @@ public final class ResidentV2 extends ResidentMemory {
                                 "candidates",
                                 "assertions"));
         if (scopedRecall()) required.add("scoped_recall");
+        if (managedGroups) required.add("qq_member_notices");
         if (grantToken != null) {
             if (!qqEnabled) throw new IOException("原作者授权需要已配置的 OpenQQ 渠道");
             required.addAll(List.of("audience_reads", "author_grants"));
@@ -263,10 +278,13 @@ public final class ResidentV2 extends ResidentMemory {
                         : null;
         if (raw == null || "NOT_FOUND".equals(string(raw, "status"))) {
             try {
-                raw = request(
-                                "impression".equals(string(body, "kind"))
+                String path =
+                        body.has("operation")
+                                ? "v2/corrections"
+                                : "impression".equals(string(body, "kind"))
                                         ? "v2/candidates"
-                                        : "v2/ingest", body);
+                                        : "v2/ingest";
+                raw = request(path, body);
             } catch (ServiceError e) {
                 if (Set.of(403, 409, 413, 422).contains(e.status)) {
                     journal.ack(event, object("status", "REFUSED", "code", e.code));
@@ -362,7 +380,65 @@ public final class ResidentV2 extends ResidentMemory {
                                                 messageId,
                                                 "conversation_id",
                                                 scope.conversationId())));
+        if (inbound && scope.group().map(Trace.QqGroup::managed).orElse(false))
+            return submitGroupText(scope, body, content, messageId);
         return submit(body);
+    }
+
+    /** 显式群通知沿用首条平台消息定位。变更须带原作者和预期版本，写前日志与普通入账共用。 */
+    private Receipt submitGroupText(
+            Trace.Scope scope, JsonObject body, String text, String messageId)
+            throws IOException, InterruptedException {
+        if (!(text.equals("/通知")
+                || text.startsWith("/通知 ")
+                || text.equals("/变更通知")
+                || text.startsWith("/变更通知 "))) return submit(body);
+        var command =
+                java.util.regex.Pattern.compile("^/(通知|变更通知)(?: ([\\s\\S]+))?$").matcher(text);
+        if (!command.matches() || command.group(2) == null || command.group(2).isBlank())
+            throw new IOException("通知缺少正文");
+        var group = scope.group().orElseThrow();
+        String prefix = "onebot-notice:" + group.accountId() + ":" + group.groupId() + ":";
+        var channel = body.getAsJsonObject("channel");
+        channel.addProperty("type", "qq_group_notice");
+        if (command.group(1).equals("通知")) {
+            body.addProperty("content", command.group(2));
+            body.addProperty("event_id", prefix + messageId);
+            return submit(body);
+        }
+        var edit =
+                java.util.regex.Pattern.compile("([1-9][0-9]{0,14})@([1-9][0-9]{0,17}) ([\\s\\S]+)")
+                        .matcher(command.group(2));
+        if (!edit.matches() || edit.group(3).isBlank())
+            throw new IOException("须使用 /变更通知 首条消息ID@预期版本 正文");
+        var first =
+                request(
+                        "v2/receipts?source_instance="
+                                + SOURCE
+                                + "&event_id="
+                                + encode(prefix + edit.group(1)),
+                        null);
+        if (!"DURABLE".equals(string(first, "status"))) throw new IOException("未找到该群首条通知的持久回执");
+        return submit(
+                object(
+                        "context",
+                        context(scope, "ROUTER"),
+                        "source_instance",
+                        SOURCE,
+                        "event_id",
+                        prefix + messageId,
+                        "record_id",
+                        string(first, "record_id"),
+                        "expected_revision",
+                        Long.parseLong(edit.group(2)),
+                        "operation",
+                        "REPLACE",
+                        "reason",
+                        "原作者在 QQ 群内发送变更通知",
+                        "content",
+                        edit.group(3),
+                        "channel",
+                        channel));
     }
 
     /** 写入宿主执行器登记的工具尝试（{@code tool_attempt}）或工具回执（{@code tool_result}），以 {@code action} 串联配对。 */

@@ -18,6 +18,7 @@
   <nav>
     <button class="tab active" data-tab="chat">对话</button>
     <button class="tab" data-tab="audit">审计链</button>
+    <button class="tab" data-tab="qq">QQ 渠道</button>
     <button class="tab" data-tab="nodes">节点状态</button>
   </nav>
   <button id="theme-toggle"></button>
@@ -48,6 +49,13 @@
       </aside>
       <div id="audit-events" class="audit-events"><p class="muted">选择左侧的一条审计链。</p></div>
     </div>
+  </section>
+
+  <!-- QQ 群名单和接收策略由已认证的渠道连接提供，计数与审计链使用相同的持久事件。 -->
+  <section id="tab-qq" class="panel">
+    <div class="toolbar"><strong>QQ 群聊</strong><span id="qq-status" class="muted" role="status"></span><button id="qq-refresh">刷新</button></div>
+    <p id="qq-error" class="error" role="alert"></p>
+    <div id="qq-rooms" class="cards"></div>
   </section>
 
   <!-- 节点状态页签：展示各模型节点健康状态、最近调用/探测结果、Prometheus 指标及本机 GPU 表格 -->
