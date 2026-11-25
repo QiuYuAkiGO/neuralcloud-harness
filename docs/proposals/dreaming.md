@@ -49,7 +49,7 @@ Memory 的可选启动配置 `dreamingPeopleFile` 指向相对于 Memory 配置�
 
 启用整理的宿主在启动握手中同时要求 `dreaming`、`dreaming_qq_aliases` 和 `dreaming_group_history`。调度器在前台空闲时处理积压。模型失败时保留原覆盖位置。发送前持久保存命令，回执未知时按原键查证。实时、身份回扫与群聊历史各自推进，同一个 after/through 在不同进度上可代表不同材料。提交和回执必须匹配原页的 lane。当前 Markdown 由 Memory 权威版本原子替换，分别位于 impressions/people 与 impressions/topics。重启或导出失败时从权威档案重建。对外引用通过带受众的接口进行。
 
-动态群临时断线时保留已确认的档案和覆盖水位，名单重新核验后继续。关闭群策略或名单确认退群会收回失去依据的档案。正式验收可从 Harness 根目录运行以下命令，两个 JAR 均用 JDK 21 构建，最后一个路径参数须为全新目录。
+动态群临时断线时保留已确认的档案和覆盖水位，名单重新核验后继续。关闭群策略或名单确认退群会移除该群提供的来源范围。原作者独立授予 Dreaming 的 CITE 权限按授权的原文修订继续生效。只有仍可引用全部依据的档案才继续发布。正式验收可从 Harness 根目录运行以下命令，两个 JAR 均用 JDK 21 构建，最后一个路径参数须为全新目录。
 
 ```powershell
 python -X utf8 -u java/src/test/python/dreaming.py java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar ../neuralcloud-memory/target/neuralcloud-memory-2.0.0-SNAPSHOT.jar java/target/dreaming-live --live

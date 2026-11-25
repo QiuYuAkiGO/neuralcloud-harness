@@ -57,4 +57,4 @@ DREAMING · 档案版本 1
 | 第 3 版 | 林澄更正第二条说明，实际使用的是磁贴板。 | 引用转向同一条原文的第 2 版，首选工具随之更新。 |
 | 第 4 版 | 更正后的第二条说明被撤回。 | Misty 依据仍有效的第一条说明重新整理，只保留纸质清单这一条有据可查的认识。 |
 
-来源失效时，Memory 会先把依赖它的版本移出当前档案，Harness 在下次同步时收回相应 Markdown。若还有依据，Dreaming 可以沿用同一名字和版本序列重建。导出的文件供内部查阅。要把印象用于具体会话，应携带该会话身份读取 `POST /v2/dreaming/profiles`，Memory 只返回这个受众有权引用全部来源的档案。[端到端验收入口](../../java/src/test/python/dreaming.py) · [读取接口契约](../proposals/dreaming.md#输入和输出)
+关闭群接收会收回该群的取证范围。若原作者另行向 Dreaming 授予某条原文的 CITE 权限，这条特定修订仍可作为依据。当前档案一旦失去任一必要来源，Memory 会移出该版本，Harness 在下次同步时收回相应 Markdown。若还有依据，Dreaming 可以沿用同一名字和版本序列重建。导出的文件供内部查阅。要把印象用于具体会话，应携带该会话身份读取 `POST /v2/dreaming/profiles`，Memory 只返回这个受众有权引用全部来源的档案。[端到端验收入口](../../java/src/test/python/dreaming.py) · [读取接口契约](../proposals/dreaming.md#输入和输出)
