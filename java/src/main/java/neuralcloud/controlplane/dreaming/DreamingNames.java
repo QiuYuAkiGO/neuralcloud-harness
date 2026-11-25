@@ -1,12 +1,13 @@
 package neuralcloud.controlplane.dreaming;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.*;
 import java.text.Normalizer;
 import java.util.*;
 import java.util.regex.Pattern;
 
-/** 从人物的主称呼生成单个可移植文件分量。档案身份和 Markdown 标题仍使用原名。 */
+/** 从人物主称呼生成可移植的文件分量。归属按稳定 ID 核对，Markdown 标题使用完整原名。 */
 final class DreamingNames {
     private static final Pattern DEVICE = Pattern.compile(
             "(?iu)(?:CON|PRN|AUX|NUL|CONIN\\$|CONOUT\\$|(?:COM|LPT)[1-9¹²³]) *(?:\\..*)?");
@@ -14,23 +15,29 @@ final class DreamingNames {
     private static final String FORBIDDEN = "<>:\"/\\|?*%";
     private static final HexFormat HEX = HexFormat.of().withUpperCase();
 
-    /** 普通称呼保持原样。仅在文件系统可能把两人混为同一路径，或名称过长时加区分后缀。 */
-    static Map<String, String> people(List<String> subjects) {
+    /** 每个键都是完整人物指纹。短标记冲突时使用完整摘要，结果与服务器返回顺序无关。 */
+    static Map<String, String> people(Map<String, String> subjects) throws IOException {
         var stems = new LinkedHashMap<String, String>();
         var counts = new HashMap<String, Integer>();
-        for (String subject : subjects) {
-            String stem = encode(subject);
-            stems.put(subject, stem);
+        var shortIds = new HashMap<String, Integer>();
+        for (var person : subjects.entrySet()) {
+            String stem = encode(person.getValue());
+            stems.put(person.getKey(), stem);
             counts.merge(pathKey(stem), 1, Integer::sum);
+            shortIds.merge(person.getKey().substring(0, 12), 1, Integer::sum);
         }
-        stems.replaceAll((subject, stem) -> {
+        var filenames = new HashSet<String>();
+        for (var person : stems.entrySet()) {
+            String stem = person.getValue();
             if (counts.get(pathKey(stem)) > 1 || utf8Size(stem) > 252) {
                 // %~ 不会出现在逐字节的 %HH 转义中，避免与真实人名的后缀相撞。
-                String suffix = "%~" + digest(subject);
+                String shortId = person.getKey().substring(0, 12);
+                String suffix = "%~" + (shortIds.get(shortId) == 1 ? shortId : person.getKey());
                 stem = prefix(stem, 252 - suffix.length()) + suffix;
             }
-            return stem + ".md";
-        });
+            if (!filenames.add(pathKey(stem))) throw new IOException("Dreaming 人物文件名冲突");
+            person.setValue(stem + ".md");
+        }
         return stems;
     }
 

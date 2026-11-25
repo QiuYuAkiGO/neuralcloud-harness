@@ -15,6 +15,7 @@ final class DreamingFiles implements AutoCloseable {
     private final Path output;
     private final String prefix;
     private final String marker;
+    private final String personIdMarker;
     private final Connection db;
     private final FileChannel lock;
     private static final Gson JSON = new GsonBuilder().setStrictness(Strictness.STRICT).create();
@@ -23,6 +24,7 @@ final class DreamingFiles implements AutoCloseable {
         this.output = output;
         prefix = "dream-" + character + "-";
         marker = "\n<!-- dreaming-person " + character + " ";
+        personIdMarker = "\n<!-- dreaming-person-id " + character + " ";
         lock =
                 FileChannel.open(
                         audit.resolve("dreaming-" + character + ".lock"),
@@ -82,7 +84,20 @@ final class DreamingFiles implements AutoCloseable {
         }
     }
 
-    private record Page(String id, String body) {}
+    private record Owner(String hash, boolean byPersonId) {}
+    private record Page(Owner owner, Owner oldName, String body) {}
+
+    /** 旧人物档案按标题认领；新人物档案只把不透明 ID 的指纹写到页脚，不暴露平台账号。 */
+    private static Owner personOwner(JsonObject profile) throws IOException {
+        if (!profile.has("person_id"))
+            return new Owner(DreamingNames.digest(profile.get("subject").getAsString()), false);
+        if (profile.get("person_id") instanceof JsonPrimitive value && value.isString()) {
+            String id = value.getAsString();
+            if (!id.isBlank() && id.codePointCount(0, id.length()) <= 128)
+                return new Owner(DreamingNames.digest("person_id\0" + id), true);
+        }
+        throw new IOException("Dreaming 人物档案 person_id 无效");
+    }
 
     /** 多个角色可共用输出目录。锁覆盖认领、原子发布与清理，避免两次导出同时认领同一称呼。 */
     void publish(JsonArray profiles) throws IOException {
@@ -100,25 +115,34 @@ final class DreamingFiles implements AutoCloseable {
     private void publishLocked(JsonArray profiles) throws IOException {
         var people = new LinkedHashMap<String, Page>();
         var topics = new LinkedHashMap<String, Page>();
-        var names = DreamingNames.people(profiles.asList().stream().map(JsonElement::getAsJsonObject)
-                .filter(p -> "person".equals(p.get("kind").getAsString()))
-                .map(p -> p.get("subject").getAsString()).toList());
+        var subjects = new LinkedHashMap<String, String>();
+        var persons = new LinkedHashMap<Owner, JsonObject>();
         for (var entry : profiles) {
             var p = entry.getAsJsonObject();
             String kind = p.get("kind").getAsString(), name = p.get("subject").getAsString();
             if (!"DREAMING".equals(p.get("author").getAsString()))
                 throw new IOException("Dreaming 档案署名无效");
-            String id = DreamingNames.digest(name);
-            String body = markdown(p, name);
             switch (kind) {
                 case "person" -> {
-                    String filename = names.get(name);
-                    String tag = marker + id + " " + DreamingNames.filenameDigest(filename) + " -->\n";
-                    people.put(filename, new Page(id, body + tag));
+                    Owner owner = personOwner(p);
+                    if (subjects.putIfAbsent(owner.hash(), name) != null) throw new IOException("Dreaming 人物身份重复");
+                    persons.put(owner, p);
                 }
-                case "topic" -> topics.put(prefix + id + ".md", new Page(id, body));
+                case "topic" -> {
+                    var owner = new Owner(DreamingNames.digest(name), false);
+                    topics.put(prefix + owner.hash() + ".md", new Page(owner, owner, markdown(p, name)));
+                }
                 default -> throw new IOException("Dreaming 档案 kind 无效");
             }
+        }
+        var names = DreamingNames.people(subjects);
+        for (var entry : persons.entrySet()) {
+            Owner owner = entry.getKey();
+            String subject = subjects.get(owner.hash()), filename = names.get(owner.hash());
+            String tag = (owner.byPersonId() ? personIdMarker : marker) + owner.hash()
+                    + " " + DreamingNames.filenameDigest(filename) + " -->\n";
+            people.put(filename, new Page(owner, new Owner(DreamingNames.digest(subject), false),
+                    markdown(entry.getValue(), subject) + tag));
         }
         var conflicts = new ArrayList<Path>();
         sync("people", people, conflicts);
@@ -141,41 +165,61 @@ final class DreamingFiles implements AutoCloseable {
         return body.append("\nDREAMING · 档案版本 ").append(p.get("version").getAsLong()).append('\n').toString();
     }
 
-    /** 先撤回失效内容。仍有效的旧路径在新文件发布后清理，遇到手稿占名时可安全重试。 */
+    /** 先核对目标路径的现有所有者，发布成功后才撤掉原路径。同名旧档等待所有可确认的继任文件。 */
     private void sync(String group, Map<String, Page> pages, List<Path> conflicts) throws IOException {
         Path dir = Files.createDirectories(output.resolve(group));
         if (!Files.isDirectory(dir, LinkOption.NOFOLLOW_LINKS)) throw new IOException("Dreaming 导出目录无效 " + dir);
-        var managed = new LinkedHashMap<Path, String>();
-        var active = new HashSet<String>();
-        for (var page : pages.values()) active.add(page.id());
+        var managed = new LinkedHashMap<Path, Owner>();
+        var successors = new HashMap<Owner, Set<Owner>>();
+        for (var page : pages.values()) {
+            successors.computeIfAbsent(page.owner(), k -> new HashSet<>()).add(page.owner());
+            successors.computeIfAbsent(page.oldName(), k -> new HashSet<>()).add(page.owner());
+        }
         try (var entries = Files.newDirectoryStream(dir, "*.md")) {
             for (Path file : entries) {
-                String id = owner(file, group.equals("people"));
-                if (id == null) continue;
-                if (active.contains(id)) managed.put(file, id);
-                else Files.delete(file);
+                Owner owner = owner(file, group.equals("people"));
+                if (owner == null) continue;
+                // 明确退出的稳定身份须立即收回，即使另一个无关人物的导出随后失败。
+                if (owner.byPersonId() && !successors.containsKey(owner)) Files.delete(file);
+                else managed.put(file, owner);
             }
         }
-        var published = new HashSet<String>();
+        // 某人因手稿占名而无法迁移时，其他新档即使需要它的旧路径，也须等待它成功迁移。
+        var blocked = new HashSet<Owner>();
         for (var entry : pages.entrySet()) {
             Path file = dir.resolve(entry.getKey());
-            Page page = entry.getValue();
-            boolean exists = Files.exists(file, LinkOption.NOFOLLOW_LINKS);
-            if (exists && !page.id().equals(managed.get(file))) {
+            if (Files.exists(file, LinkOption.NOFOLLOW_LINKS) && !managed.containsKey(file)) {
+                blocked.add(entry.getValue().owner());
                 conflicts.add(file);
-                continue;
             }
+        }
+        boolean added;
+        do {
+            added = false;
+            for (var entry : pages.entrySet()) {
+                var occupants = successors.get(managed.get(dir.resolve(entry.getKey())));
+                if (occupants != null && !Collections.disjoint(occupants, blocked))
+                    added |= blocked.add(entry.getValue().owner());
+            }
+        } while (added);
+        for (var entry : pages.entrySet()) {
+            Page page = entry.getValue();
+            if (blocked.contains(page.owner())) continue;
+            Path file = dir.resolve(entry.getKey());
             byte[] content = page.body().getBytes(StandardCharsets.UTF_8);
+            boolean exists = managed.containsKey(file);
             if (!exists || !Arrays.equals(Files.readAllBytes(file), content)) write(file, content, exists);
             managed.remove(file);
-            published.add(page.id());
         }
-        for (var former : managed.entrySet())
-            if (published.contains(former.getValue())) Files.delete(former.getKey());
+        for (var former : managed.entrySet()) {
+            var required = successors.get(former.getValue());
+            if (required != null && !Collections.disjoint(required, blocked)) continue;
+            Files.delete(former.getKey());
+        }
     }
 
     /** 普通名称靠末尾的角色标记认领。旧哈希文件还须匹配原标题和 Dreaming 版本行。 */
-    private String owner(Path file, boolean person) throws IOException {
+    private Owner owner(Path file, boolean person) throws IOException {
         if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) return null;
         String name = file.getFileName().toString();
         if (name.startsWith(prefix) && name.substring(prefix.length()).matches("[0-9a-f]{64}\\.md")) {
@@ -184,22 +228,25 @@ final class DreamingFiles implements AutoCloseable {
             int end = body.indexOf("\n\n");
             if (body.startsWith("# ") && end >= 2 && id.equals(DreamingNames.digest(body.substring(2, end)))
                     && body.substring(body.lastIndexOf("\nDREAMING") + 1).matches("DREAMING · 档案版本 [1-9][0-9]*\\n"))
-                return id;
+                return new Owner(id, false);
         }
         if (!person) return null;
         // 只读固定长度的 ASCII 页脚，手写 Markdown 的编码和大小不影响所有权判断。
-        int length = marker.length() + 64 + 1 + 64 + " -->\n".length();
+        int fields = 64 + 1 + 64 + " -->\n".length();
         try (var channel = FileChannel.open(file, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
-            if (channel.size() < length) return null;
+            if (channel.size() < marker.length() + fields) return null;
+            int length = (int) Math.min(channel.size(), personIdMarker.length() + fields);
             channel.position(channel.size() - length);
             var buffer = ByteBuffer.allocate(length);
             while (buffer.hasRemaining()) if (channel.read(buffer) < 0) return null;
             String tail = new String(buffer.array(), StandardCharsets.US_ASCII);
             // 文件名也参与认领，用户另存的副本即使保留了原页脚也属于用户。
-            if (!tail.startsWith(marker) || !tail.endsWith(" " + DreamingNames.filenameDigest(name) + " -->\n"))
-                return null;
-            String id = tail.substring(marker.length(), marker.length() + 64);
-            return id.matches("[0-9a-f]{64}") ? id : null;
+            boolean byId = tail.startsWith(personIdMarker);
+            int start = tail.length() - fields;
+            if (!(byId || tail.substring(0, start).endsWith(marker))
+                    || !tail.endsWith(" " + DreamingNames.filenameDigest(name) + " -->\n")) return null;
+            String id = tail.substring(start, start + 64);
+            return id.matches("[0-9a-f]{64}") ? new Owner(id, byId) : null;
         }
     }
 
