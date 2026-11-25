@@ -89,7 +89,10 @@ class PersonIntentCases(unittest.TestCase):
                          ("HISTORY", "CITE", query, str(author)))
         self.assertEqual((req["context"]["role"], req["context"]["conversation_id"]),
                          ("CHAT_WORKER", PRIVATE))
-        self.assertEqual(req["context"]["qq"], dict(account_id=str(ACCOUNT), peer_id=str(roster.PEER)))
+        audience = req["context"]["qq"]
+        self.assertEqual((str(ACCOUNT), str(roster.PEER)), (audience["account_id"], audience["peer_id"]))
+        # OneBot 仅证实提问者加入 A、B 两群；作者读取须携带这两个群的范围。
+        self.assertCountEqual([str(A), str(B)], audience["member_group_ids"])
         return result["items"], material
 
     def test_explicit_speaker_and_topic_delivered_before_first_plan(self):
