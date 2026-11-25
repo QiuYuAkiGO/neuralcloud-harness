@@ -67,7 +67,7 @@ def chat_endpoint(replies):
 
 
 class RolloutTest(unittest.TestCase):
-    def run_rollout(self, cases, replies):
+    def run_rollout(self, cases, replies, *extra_args):
         """每个案例组仅调用一次 CLI，观察请求、退出状态、诊断和指定输出文件。"""
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -77,7 +77,8 @@ class RolloutTest(unittest.TestCase):
         with chat_endpoint(replies) as (endpoint, requests):
             run = subprocess.run(
                 [sys.executable, "tools/misty27_rollout.py", "--endpoint", endpoint,
-                 "--model", "local-model", "--cases", str(source), "--output", str(output)],
+                 "--model", "local-model", "--cases", str(source), "--output", str(output),
+                 *extra_args],
                 cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, encoding="utf-8", errors="replace", timeout=20,
             )
@@ -130,6 +131,48 @@ class RolloutTest(unittest.TestCase):
         self.assertNotEqual(run.returncode, 0)
         self.assertIn("reasoning_content", run.stdout)
         self.assertEqual([req["messages"][-1]["content"] for req in requests], [first, second])
+        self.assertFalse(output.exists())
+
+    def test_llama_fingerprint_preserves_omitted_and_explicit_channels(self):
+        """构建匹配时，省略、显式空串与带空白的推理串各自原样落盘。"""
+        build = "b1234-0e7ac1"
+        turns = ["u-1", "u-2", "u-3"]
+        absent = completion("unused", " body-1\n", "stop")
+        del absent["choices"][0]["message"]["reasoning_content"]
+        replies = {
+            turns[0]: absent,
+            turns[1]: completion("", "", "stop"),
+            turns[2]: completion("\n r-3 ", "body-3", "length"),
+        }
+        for reply in replies.values():
+            reply["system_fingerprint"] = build
+
+        run, _, output = self.run_rollout(
+            [{"id": "x", "turns": turns}], replies, "--llama-fingerprint", build
+        )
+        self.assertEqual(run.returncode, 0, run.stdout)
+        recorded = json.loads(output.read_text(encoding="utf-8"))[0]["turns"]
+        channels = [(t["reasoning_content"], t["content"], t["finish_reason"]) for t in recorded]
+        self.assertEqual(channels, [
+            (None, " body-1\n", "stop"),
+            ("", "", "stop"),
+            ("\n r-3 ", "body-3", "length"),
+        ])
+
+    def test_llama_fingerprint_change_on_later_turn_does_not_publish(self):
+        """首轮核验通过后，第二轮指纹多一个空格也必须指明字段并停止发布。"""
+        build = "b1234-0e7ac1"
+        turns = ["u-1", "u-2"]
+        replies = {
+            turns[0]: dict(completion("r-1", "body-1", "stop"), system_fingerprint=build),
+            turns[1]: dict(completion("r-2", "body-2", "stop"), system_fingerprint=build + " "),
+        }
+        run, requests, output = self.run_rollout(
+            [{"id": "x", "turns": turns}], replies, "--llama-fingerprint", build
+        )
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("system_fingerprint", run.stdout)
+        self.assertEqual([req["messages"][-1]["content"] for req in requests], turns)
         self.assertFalse(output.exists())
 
 
