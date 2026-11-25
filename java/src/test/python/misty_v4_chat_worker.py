@@ -35,7 +35,7 @@ class MistyV4ChatWorker(unittest.TestCase):
         })
         self.assertEqual(status, 200, payload)
         reply = json.loads(payload)
-        self.assertEqual(reply["node"], "chat-worker")
+        self.assertEqual(reply["type"], "chat_worker_reply")
         self.assertIn("白", reply["data"]["text"])
 
     def test_model_endpoint_rejects_missing_credential(self):
