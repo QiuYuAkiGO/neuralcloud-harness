@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 会话记忆读取门面，为各模型节点（Chat Worker、Task Worker、Master）提供按轮次隔离的只读取证入口。
@@ -31,7 +32,13 @@ public final class ConversationMemory {
 
     /** 为指定节点在当前会话轮次上绑定一个只读记忆调用句柄，并以 {@code parent} 作为审计因果父节点。 */
     public MemoryCall bind(Trace trace, MemoryCall.Caller caller, int parent) {
-        return new MemoryCall(this, trace, caller, parent);
+        return new MemoryCall(this, trace, caller, parent, false);
+    }
+
+    /** 为 Master 的意图签发当轮句柄，只有 v2 的授权读取快照能把模型序号还原为确切的记录版本。 */
+    public Optional<MemoryCall> bindMasterIntent(Trace trace, int parent) {
+        return v2() == null ? Optional.empty()
+                : Optional.of(new MemoryCall(this, trace, MemoryCall.Caller.MASTER, parent, true));
     }
 
     /**
@@ -57,7 +64,8 @@ public final class ConversationMemory {
      * v2 通过 {@link ResidentV2#lookup} 获取一致快照，过滤掉非 {@code ONLINE} 条目，
      * 并在服务端评估为 {@code CONFLICT} 或 {@code INCOMPLETE} 时在结果头部插入明确的风险提示。
      */
-    Recall retrieve(Trace trace, int event, QueryKind kind, String query, String role, String input)
+    Recall retrieve(Trace trace, int event, QueryKind kind, String query, String role, String input,
+                    boolean numberEvidence)
             throws IOException, InterruptedException {
         ResidentV2 v = v2();
         if (v == null)
@@ -73,7 +81,9 @@ public final class ConversationMemory {
         for (var item : snap.items()) {
             if (!"ONLINE".equals(ResidentV2.string(item, "status"))) continue;
             rows.add(ResidentV2.binding(trace.scope(), role, kind.name(), item, snap, input));
-            messages.add(ResidentV2.render(item, kind.name()));
+            // 序号只属于实际交给模型的记录。后面插入的冲突、空结果等说明不会占用或移动序号。
+            String sentence = ResidentV2.render(item, kind.name());
+            messages.add(numberEvidence ? "【证据 " + rows.size() + "】" + sentence : sentence);
         }
         int count = rows.size();
         // recent 模式下的 HISTORY 查询本质上是回读当前会话近期对话，并非按话题检索，因此命中计数归零。

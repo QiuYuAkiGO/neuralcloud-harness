@@ -1,0 +1,120 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="1128" viewBox="0 0 1160 1128" role="img" aria-labelledby="title description" xml:lang="zh-CN">
+  <title id="title">NeuralCloud 的记忆怎样存进 SQLite</title>
+  <desc id="description">Harness 先登记待发事件。Memory v2 在每角色独立的 SQLite 库中，用一次事务保存记录、修订、变更与回执。会议从周五改到周六产生第二条通知 B，编辑这条通知产生 B 的第二版，旧版本和来源关系可追溯。查询先按受众过滤，再用全文索引找出原文。Harness 按变更序号追踪已使用的证据。</desc>
+  <defs>
+    <style>
+      text { font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #19323b; }
+      .title { font-size: 39px; font-weight: 700; }
+      .subtitle { font-size: 20px; fill: #49616a; }
+      .section { font-size: 26px; font-weight: 650; }
+      .header { font-size: 22px; font-weight: 650; }
+      .smallhead { font-size: 20px; font-weight: 650; }
+      .body { font-size: 18px; }
+      .muted { fill: #415e66; }
+      .client { fill: #275771; }
+      .store { fill: #08665f; }
+      .code { font-family: Consolas, "SFMono-Regular", "Liberation Mono", "Microsoft YaHei", monospace; font-size: 21px; font-weight: 600; }
+      .inline { font-family: Consolas, "SFMono-Regular", "Liberation Mono", "Microsoft YaHei", monospace; }
+      .wirelabel { font-size: 16px; fill: #395961; text-anchor: middle; }
+      .time { font-size: 26px; font-weight: 650; }
+      .rule { stroke: #cbd9da; stroke-width: 1.1; }
+      .wire { fill: none; stroke: #536f78; stroke-width: 1.7; marker-end: url(#arrow); }
+      .result { stroke-dasharray: 5 4; }
+    </style>
+    <marker id="arrow" viewBox="0 0 9 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L9 5 L0 10 Z" fill="#536f78"/>
+    </marker>
+  </defs>
+  <rect width="1160" height="1128" fill="#fff"/>
+  <text class="title" x="44" y="62">NeuralCloud 的记忆怎样存进 SQLite</text>
+  <text class="subtitle" x="45" y="100">Memory v2 为每个角色维护一个数据库。Harness 通过本机 HTTP 写入事件、取回证据。</text>
+
+  <!-- 写入路径。回执箭头必须从 Memory 指向 Harness，且位于事务提交之后。 -->
+  <g aria-label="写入和持久回执">
+    <text class="section" x="44" y="155">一次写入怎样落盘？</text>
+    <rect x="44" y="177" width="254" height="237" rx="9" fill="#f0f5f9" stroke="#b6cbd7"/>
+    <text class="header client" x="65" y="213">neuralcloud-harness</text>
+    <text class="body muted" x="65" y="242">本地 SQLite 写前日志</text>
+    <line class="rule" x1="65" y1="259" x2="276" y2="259"/>
+    <text class="code client" x="65" y="292">commands</text>
+    <text class="body" x="65" y="320">先保存事件 ID 和请求。</text>
+    <text class="body" x="65" y="363">恢复时先查入库回执，</text>
+    <text class="body" x="65" y="390">缺失时才补发原请求。</text>
+
+    <text class="wirelabel inline" x="385" y="242">POST /v2/ingest</text>
+    <path class="wire" d="M300 256 H468"/>
+    <text class="wirelabel inline store" x="385" y="317">DURABLE</text>
+    <path class="wire result" d="M468 331 H301"/>
+    <text class="wirelabel" x="385" y="357">记录 ID、版本、序号</text>
+
+    <rect x="472" y="177" width="644" height="237" rx="9" fill="#edf6f2" stroke="#a2c6bb"/>
+    <text class="header store" x="495" y="213">neuralcloud-memory</text>
+    <text class="smallhead inline store" x="1092" y="213" text-anchor="end">memory.sqlite</text>
+    <text class="body muted" x="495" y="242">同一事务写入，提交成功后返回回执。</text>
+    <text class="wirelabel inline" x="969" y="241">WAL · synchronous=FULL</text>
+    <line class="rule" x1="495" y1="259" x2="1093" y2="259"/>
+    <text class="code store" x="495" y="292">records</text>
+    <text class="body" x="495" y="317">每条记录的会话、当前版本与状态</text>
+    <path class="wire" d="M616 285 H801"/>
+    <text class="wirelabel" x="711" y="278">一条记录可有多版</text>
+    <text class="code store" x="826" y="292">revisions</text>
+    <text class="body" x="826" y="317">每一版的完整正文 JSON</text>
+    <text class="code store" x="495" y="362">changes</text>
+    <text class="body" x="495" y="388">按序登记哪条记录发生了什么变更</text>
+    <text class="code store" x="826" y="362">receipts</text>
+    <text class="body" x="826" y="388">按写入方和事件 ID 保存回执</text>
+  </g>
+
+  <!-- A、B 是两个事件的记录 ID 简写。箭头表示操作先后，显式替代引用由 B 指回 A。 -->
+  <g aria-label="会议通知的版本示例">
+    <text class="section" x="44" y="468">新发通知和编辑原消息，分别留下什么？</text>
+    <text class="body muted" x="45" y="499">A 和 B 代表两条通知的记录 ID。@ 后面的数字是这条记录的修订号。</text>
+    <rect x="44" y="522" width="1072" height="114" rx="8" fill="#f3f6f6"/>
+    <text class="code store" x="68" y="553">A@1</text>
+    <text class="time" x="68" y="588">周五 15 点</text>
+    <text class="body muted" x="68" y="616">首次通知</text>
+    <text class="wirelabel" x="324" y="560">另发一条通知</text>
+    <path class="wire" d="M239 579 H410"/>
+    <text class="code store" x="440" y="553">B@1</text>
+    <text class="time" x="440" y="588">周六 10 点</text>
+    <text class="body muted" x="440" y="616">新记录，第一版</text>
+    <text class="wirelabel" x="703" y="560">编辑这条通知</text>
+    <path class="wire" d="M615 579 H792"/>
+    <text class="code store" x="822" y="553">B@2</text>
+    <text class="time" x="822" y="588">周日 14 点</text>
+    <text class="body muted" x="822" y="616">同一记录，第二版</text>
+    <text class="body" x="47" y="672">B@1 通过 <tspan class="inline">supersedes_ref</tspan> 指向 A@1，接替原安排。编辑 B 会追加一个版本，撤回则追加空正文版本。</text>
+    <text class="body" x="47" y="704">摘要通过 <tspan class="inline">sources</tspan> 引用 B@1。B 被编辑后，旧摘要标为 <tspan class="inline">SOURCE_CHANGED</tspan>，对旧版的跨会话授权也失效。</text>
+  </g>
+
+  <!-- 展示默认 CELLS 查询、按版本回读和 Harness 依变更流复核的两个方向。 -->
+  <g aria-label="检索、授权与证据更新">
+    <text class="section" x="44" y="768">查询怎样找到可引用的原文？</text>
+    <line class="rule" x1="44" y1="789" x2="1116" y2="789"/>
+    <text class="header" x="46" y="827">限定谁能使用</text>
+    <text class="smallhead inline store" x="46" y="857">visibility_grants</text>
+    <text class="body" x="46" y="887">跨会话授权绑定目标会话、</text>
+    <text class="body" x="46" y="914">原文版本和 READ / CITE 用途。</text>
+    <path class="wire" d="M303 824 H380"/>
+    <text class="header" x="402" y="827">检索可见记录</text>
+    <text class="smallhead inline store" x="402" y="857">cell_search · FTS5</text>
+    <text class="body" x="402" y="887">默认 CELLS 按词项查找，再沿</text>
+    <text class="body" x="402" y="914">带版本的回复关系最多扩展两跳。</text>
+    <path class="wire" d="M668 824 H746"/>
+    <text class="header" x="769" y="827">返回带出处的证据</text>
+    <text class="smallhead inline store" x="769" y="857">ref + source_refs</text>
+    <text class="body" x="769" y="887">记录与原始来源都带版本，</text>
+    <text class="body" x="769" y="914">按需用 /v2/read 回读原文。</text>
+
+    <rect x="44" y="948" width="1072" height="64" rx="7" fill="#edf6f2"/>
+    <text class="smallhead store" x="64" y="986">人物与事项目录</text>
+    <text class="body" x="242" y="986">L0 找标题</text>
+    <path class="wire" d="M340 979 H392"/>
+    <text class="body" x="413" y="986">L1 看带来源的摘录</text>
+    <path class="wire" d="M594 979 H647"/>
+    <text class="body" x="668" y="986">L2 查原文窗口，每次读取都核对权限</text>
+
+    <text class="smallhead client" x="46" y="1052">Harness 怎样发现旧依据已变？</text>
+    <text class="body" x="46" y="1084">它记下读到的 <tspan class="inline">stream_id</tspan> 和 <tspan class="inline">read_seq</tspan>，通过 <tspan class="inline">/v2/changes</tspan> 获取后续变更，再按记录 ID 重读受影响的证据。</text>
+  </g>
+</svg>

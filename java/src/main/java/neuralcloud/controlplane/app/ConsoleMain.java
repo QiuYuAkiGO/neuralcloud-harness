@@ -13,6 +13,7 @@ import neuralcloud.controlplane.memory.MemoryCall.Caller;
 import neuralcloud.controlplane.memory.ResidentMemory;
 import neuralcloud.controlplane.memory.ResidentV2;
 import neuralcloud.controlplane.memory.MemoryJournal;
+import neuralcloud.controlplane.orchestration.Orchestrator;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.router.RouterMemoryWriter;
@@ -29,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * 网页控制台与全链路控制面的主启动入口。
@@ -154,6 +156,10 @@ public final class ConsoleMain {
                             masterConversation(master, settings.masterMaxTokens(), settings.masterTemperature(),
                                     memory.map(MemoryAccess::reads)),
                             master::probeStartup)));
+            // 只有已握手的 Memory v2 能把意图证据解析为具体版本，才开放正式的对话派单入口。
+            memory.filter(store -> store.writes().supportsAttestation()).ifPresent(store ->
+                    nodes.add(new Node("conversation", "对话编排", routerSettings.endpoint().toString(), routerSettings.model(),
+                            plannedConversation(master, router, chat, store, settings.masterMaxTokens(), settings.masterTemperature()), null)));
             nodes.addAll(extension.nodes(new Components(chat, routerInference, master, routerSettings, masterSettings)));
 
             // 仅对已配置 Prometheus /metrics 端点的节点注册指标抓取，随后启动后台周期监控。
@@ -207,7 +213,7 @@ public final class ConsoleMain {
      * v2 模式下会在审计目录下挂载角色专属 SQLite 持久日志 {@link MemoryJournal}，并在 {@code verify} 期间
      * 核对版本、角色、必需能力列表以及回放未落盘的写入队列；只有核验完全通过才返回读写封装。
      */
-    private static Optional<MemoryAccess> openMemory(Optional<MemoryConfig> settings,
+    static Optional<MemoryAccess> openMemory(Optional<MemoryConfig> settings,
                                                      Deque<AutoCloseable> opened, AuditLog audit, boolean qqPrivateEnabled)
             throws IOException, InterruptedException {
         if (settings.isEmpty()) {
@@ -274,11 +280,56 @@ public final class ConsoleMain {
     static ConsoleServer.Exchange masterConversation(Master master, int maxTokens, double temperature,
                                                      Optional<ConversationMemory> memory) {
         return (text, trace) -> {
+            // 操作者在 Master 节点请求一份结构化意图。事件保存宿主解析后的证据版本，供后续派单引用。
+            if (text.equals("/intent") || text.startsWith("/intent ")) {
+                String prompt = text.substring("/intent".length()).stripLeading();
+                if (prompt.isBlank()) throw new IOException("/intent 需要非空事项正文");
+                var read = memory.flatMap(store -> store.bindMasterIntent(trace, trace.request()))
+                        .orElseThrow(() -> new IOException("submit_intent 需要配置 Memory v2 以核对证据版本"));
+                var intent = master.submitIntent(prompt, maxTokens, temperature, read);
+                return new Reply("intent", intent.data(), read.eventId());
+            }
             var read = memory.map(store -> store.bind(trace, Caller.MASTER, trace.request()));
             var completion = read.isPresent() ? master.completeWithMemory(text, maxTokens, temperature, read.orElseThrow())
                     : master.complete(text, maxTokens, temperature, List.of());
             return new Reply("master_completion", Map.of("text", completion.text(), "finishReason", completion.finishReason(),
                     "reasoningFieldPresent", completion.reasoningFieldPresent()), read.map(MemoryCall::eventId).orElse(trace.request()));
+        };
+    }
+
+    /** 控制台的自然语言入口。先持久化原话、分流，再交 Master 查证；只有日常对话进入此单步计划。 */
+    static ConsoleServer.Exchange plannedConversation(Master master, Router<Route> router, ChatWorker chat,
+                                                       MemoryAccess store, int maxTokens, double temperature) {
+        var orchestrator = new Orchestrator();
+        return (text, trace) -> {
+            int inbound = store.writes().rememberInbound(trace, trace.request(), text);
+            var route = router.route(text);
+            if (route != Route.CONVERSATION) {
+                return new Reply("router_route", Map.of("route", route.name()), inbound);
+            }
+            int routed = trace.write(inbound, "router", "router_route", Map.of("route", route.name()));
+            var read = store.reads().bindMasterIntent(trace, routed).orElseThrow();
+            var intent = master.submitIntent(text, maxTokens, temperature, read);
+            int accepted = trace.write(read.eventId(), "master", "intent", intent.data());
+            var scope = new Orchestrator.Scope(trace.scope().conversationId(), UUID.randomUUID());
+            var submission = router.submitPlan(intent, scope);
+            if (submission.isEmpty()) return new Reply("conversation_no_reply", Map.of(), accepted);
+
+            var submitted = submission.orElseThrow();
+            var plan = submitted.plan();
+            int planned = trace.write(accepted, "router", "router_plan", Map.of("tool", "submit_plan",
+                    "toolCallId", submitted.toolCallId(), "workflowId", scope.workflowId(), "steps", plan.steps()));
+            // Router 生成计划与角色撰写回复期间，证据都可能发生变化。派发及交给渠道前分别复核。
+            read.verifyEvidence();
+            var receipts = orchestrator.<Reply>execute(plan, (bound, step, dependencies) -> {
+                int dispatched = trace.write(planned, "orchestrator", "worker_dispatch", Map.of(
+                        "workflowId", bound.workflowId(), "action", step.id(), "worker", step.worker(), "text", step.text()));
+                String reply = chat.replyToPlan(step.text(), intent.replyIntent());
+                return new Orchestrator.Receipt<>(bound, step.id(), new Reply("chat_worker_reply", Map.of(
+                        "workflowId", bound.workflowId(), "stepId", step.id(), "text", reply), dispatched));
+            });
+            read.verifyEvidence();
+            return receipts.get(plan.steps().getFirst().id()).result();
         };
     }
 

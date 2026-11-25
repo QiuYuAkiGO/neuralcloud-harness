@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # 本机启动包装脚本（适用于 WSL 与 Git Bash）：
-# 负责将 Bash 风格路径及 GEMINI_API_KEY 环境变量透传给 Windows PowerShell 7（start-local.ps1），
-# 由 PowerShell 侧统一编排本机 Windows llama.cpp、WSL vLLM 与 Java 控制台的生命周期。
+# 将 Bash 路径和云端模型的密钥环境变量传给 Windows PowerShell 7，由它启动控制台。
 set -euo pipefail
 
 if [[ ${1:-} == --help || ${1:-} == -h ]]; then
@@ -20,14 +19,16 @@ if [[ -n ${WSL_DISTRO_NAME:-} ]]; then
     path_converter=wslpath
     default_pwsh='/mnt/c/Program Files/PowerShell/7/pwsh.exe'
     # 把 Bash 中设置的密钥传给 Windows 子进程。沿用已有的 WSLENV 设置。
-    if [[ -v GEMINI_API_KEY && ! ${WSLENV:-} =~ (^|:)GEMINI_API_KEY(/[^:]*)?($|:) ]]; then
-        export WSLENV="${WSLENV:+$WSLENV:}GEMINI_API_KEY/w"
-    fi
+    for key_env in GEMINI_API_KEY DEEPSEEK_API_KEY; do
+        if [[ -v $key_env && ! ${WSLENV:-} =~ (^|:)${key_env}(/[^:]*)?($|:) ]]; then
+            export WSLENV="${WSLENV:+$WSLENV:}${key_env}/w"
+        fi
+    done
 elif [[ ${OSTYPE:-} == msys* || ${OSTYPE:-} == cygwin* ]]; then
     path_converter=cygpath
     default_pwsh='/c/Program Files/PowerShell/7/pwsh.exe'
 else
-    printf '%s\n' '本机启动配置使用 Windows llama.cpp 和 WSL vLLM，请从 WSL 或 Git Bash 运行。' >&2
+    printf '%s\n' '此启动器调用 Windows PowerShell 7，请从 WSL 或 Git Bash 运行。' >&2
     exit 2
 fi
 

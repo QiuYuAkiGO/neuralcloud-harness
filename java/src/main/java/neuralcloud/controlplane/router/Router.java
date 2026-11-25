@@ -7,16 +7,19 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
 import neuralcloud.controlplane.master.Master;
+import neuralcloud.controlplane.master.MasterIntent;
+import neuralcloud.controlplane.orchestration.Orchestrator;
 
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
- * 基于受限函数调用（Function Calling）的泛型请求路由器。
+ * 通过原生工具调用进行流程分类，并将已验收的回复意图拆成对话计划。
  * 职责：根据调用方提供的流程枚举 {@code R} 动态生成严格 JSON Schema 的 {@code select_route} 工具定义，
- * 强制小模型在 temperature=0 下通过工具参数提交唯一合法的路由枚举值，杜绝自由文本解析带来的漂移。
+ * 要求模型在 temperature=0 下通过工具参数提交唯一的路由枚举值。
  *
  * @param <R> 允许分流的目标业务流程枚举类型
  */
@@ -73,4 +76,24 @@ public final class Router<R extends Enum<R>> {
         throw new IOException("Router 须通过一次 select_route 调用提交唯一的 route 字段");
     }
 
+    /** 回带模型工具调用标识，审计可从实际派单追到产生它的那次推理。 */
+    public record Submission(Orchestrator.Plan plan, String toolCallId) {}
+
+    /** 仅把已批准的回复意图交给 Router 模型；会话、证据及执行权限由宿主持有。 */
+    public Optional<Submission> submitPlan(MasterIntent intent, Orchestrator.Scope scope) throws IOException, InterruptedException {
+        if (!intent.needsReply()) return Optional.empty();
+        var response = inference.chat(List.of(
+                Map.of("role", "system", "content", """
+                        你是派单 Router。输入是 Master 已批准的回复意图。调用一次 submit_plan，生成一个步骤。
+                        id 是步骤名，worker 填 CHAT_WORKER，dependsOn 填空数组。text 用中文指示 Chat Worker 如何表达该意图，
+                        保留其中的事实、时间及不确定性。不得新增行动或事实。"""),
+                Map.of("role", "user", "content", intent.replyIntent())), List.of(ChatPlan.TOOL), 512, 0, ChatPlan.NAME);
+        var calls = response.calls();
+        if ("tool_calls".equals(response.content().finishReason()) && calls.size() == 1
+                && ChatPlan.NAME.equals(calls.getFirst().name())) {
+            var call = calls.getFirst();
+            return Optional.of(new Submission(ChatPlan.parse(call.arguments(), scope), call.id()));
+        }
+        throw new IOException("Router 须完整提交一次 submit_plan 工具调用");
+    }
 }

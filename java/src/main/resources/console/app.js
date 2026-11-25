@@ -70,12 +70,16 @@ function summary(event) {
     case 'router_memory_result': return data.sentences?.join('\n') || 'Router 已回传 ' + data.count + ' 条材料';
     case 'memory_write_failed': return '记忆写入失败：' + data.detail;
     case 'chat_worker_reply': return data.text;
+    case 'conversation_no_reply': return 'Master 已确认本轮无需回复。';
     case 'chat_worker_router_request': return '已将本轮消息交给 Router 分流';
     case 'task_worker_dispatch': return '已派发给任务 Worker';
     case 'task_worker_result': return '已读取当前 Linux 服务器的状态';
     case 'task_worker_unavailable': return '本轮请求没有可用的执行能力';
     case 'router_route': return `流程：${data.route}`;
     case 'master_completion': return data.text || '（空正文）';
+    // 对话页呈现已接受的评价与回复意图，具体记录版本可在同一事件的审计数据中查看。
+    case 'intent': return [data.assessment, data.needsReply ? '回复意图　' + data.replyIntent : '本轮无需回复',
+      data.impression && '新印象　' + data.impression].filter(Boolean).join('\n');
     case 'node_failed': return `失败：${data.detail}`;
     case 'probe_requested': return '请求探测';
     case 'probe_passed': return `探测通过，${data.latencyMs} ms`;
@@ -102,8 +106,8 @@ function summary(event) {
 }
 
 // 对话页只显示操作者能直接看到的往返，链路中间步骤在审计链里查看。
-const CHAT_TYPES = new Set(['operator_message', 'chat_worker_reply', 'router_route', 'master_completion',
-  'node_failed', 'chat_worker_draft', 'router_rejected', 'pipeline_completed']);
+const CHAT_TYPES = new Set(['operator_message', 'chat_worker_reply', 'router_route', 'master_completion', 'intent',
+  'node_failed', 'chat_worker_draft', 'router_rejected', 'pipeline_completed', 'conversation_no_reply']);
 
 function latency(event) {
   return event.data.latencyMs === undefined ? '' : ` · ${event.data.latencyMs} ms`;
@@ -177,7 +181,16 @@ async function loadChat(chain, linked = false) {
   state.chain = chain;
   localStorage.setItem('neuralcloud.chain', chain);
   document.getElementById('chat-chain').textContent = chain;
-  log.replaceChildren(...events.filter((event) => CHAT_TYPES.has(event.type)).map((event) => {
+  // 一个会话可同时使用独立节点和对话编排。沿 causedBy 辨认编排内部事件，保留独立节点的返回。
+  const planned = new Set();
+  const visible = events.filter((event) => {
+    const inPlan = (event.type === 'operator_message' && event.node === 'conversation')
+      || planned.has(auditEventKey(event.runId, event.causedBy));
+    if (inPlan) planned.add(auditEventKey(event.runId, event.eventId));
+    return CHAT_TYPES.has(event.type) && !(inPlan && ['intent', 'router_route'].includes(event.type)
+      && event.data.latencyMs === undefined);
+  });
+  log.replaceChildren(...visible.map((event) => {
     const operator = event.type === 'operator_message';
     const meta = operator ? `操作者 → ${nodeName(event.node)}` : `${nodeName(event.node)}${latency(event)}`;
     const extra = event.type === 'master_completion' && event.data.finishReason

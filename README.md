@@ -1,6 +1,14 @@
 # neuralcloud-harness
 
-NeuralCloud 的 Java 控制面。Chat Worker 处理对话，Router 分派任务并统一写入记忆，Master 根据证据作出决策。Worker 和 Master 可以直接查询独立的常驻记忆服务。[架构提案](docs/proposals/master-worker-cognitive-architecture-20261117.md) · [记忆服务 HTTP 契约](contracts/resident/v1/openapi.v1.json)
+NeuralCloud 的 Java 控制面。Chat Worker 处理对话，Router 分派任务并统一写入记忆，Master 根据证据作出决策。Worker 和 Master 可以直接查询独立的常驻记忆服务。[架构提案](docs/proposals/master-worker-cognitive-architecture-20261117.md) · [记忆服务 v1 HTTP 契约](contracts/resident/v1/openapi.v1.json)
+
+## Memory v2 怎样存储记忆
+
+Memory 把一次发言保存成有稳定 ID 的记录，每次编辑都追加一个版本。下图沿着一次会议改期，展示原文写到哪张表、旧摘要如何失效，以及 Harness 怎样找回当前会话可引用的依据。
+
+![NeuralCloud Memory v2 的 SQLite 写入事务、修订关系、全文检索与证据复核](docs/harness/memory-v2-storage.svg)
+
+图中采用 `apiVersion=2` 和 `recallMode=scoped`。开发者详解给出了表名、接口、会议样例与对应的实现入口。[记忆存储开发者详解](docs/harness/memory-v2-storage.md) · [Memory v2 HTTP 契约](https://github.com/QiuYuAkiGO/neuralcloud-memory/blob/45c9c2934483185423b1acf5c62b1abfe05caabd/contracts/v2/openapi.json)
 
 ## 构建与测试
 

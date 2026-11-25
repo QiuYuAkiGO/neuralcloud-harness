@@ -71,6 +71,13 @@ public final class ConsoleServer implements AutoCloseable {
         /** QQ 群聊渠道身份标识（机器人账号、白名单群号、本条消息发件人 QQ 号）。 */
         record QqGroup(long accountId, long groupId, long senderId) {}
 
+        /** 由 MistyAI 渠道认证的群成员，私聊按实例与稳定的成员编号隔离。 */
+        record MobileMember(String instance, long memberId) {
+            public String conversationId() {
+                return "c2c:mistyai:" + instance + ":" + memberId;
+            }
+        }
+
         /**
          * 会话隔离作用域：
          * {@code sessionId()} 按渠道与审计链划分；{@code conversationId()} 在 QQ 渠道下映射为跨重启稳定的平台对话 ID，
@@ -81,7 +88,11 @@ public final class ConsoleServer implements AutoCloseable {
                 String chain,
                 String runId,
                 Optional<QqPrivate> qq,
-                Optional<QqGroup> group) {
+                Optional<QqGroup> group,
+                Optional<MobileMember> mobile) {
+            public Scope(String channel, String chain, String runId, Optional<QqPrivate> qq, Optional<QqGroup> group) {
+                this(channel, chain, runId, qq, group, Optional.empty());
+            }
             public Scope(String channel, String chain, String runId, Optional<QqPrivate> qq) {
                 this(channel, chain, runId, qq, Optional.empty());
             }
@@ -95,6 +106,7 @@ public final class ConsoleServer implements AutoCloseable {
             }
 
             public String conversationId() {
+                if (mobile.isPresent()) return mobile.get().conversationId();
                 if (group.isPresent())
                     return "group:onebot:" + group.get().accountId() + ":" + group.get().groupId();
                 return qq.map(QqPrivate::conversationId).orElseGet(this::sessionId);
@@ -134,6 +146,12 @@ public final class ConsoleServer implements AutoCloseable {
         static Trace forQqPrivate(AuditLog audit, String chain, int request, long accountId, long peerId) {
             return bound(audit, new Scope("openqq", chain, audit.runId(), Optional.of(new QqPrivate(accountId, peerId))),
                     request);
+        }
+
+        /** 入口须先验证成员凭据；私聊审计链和 Memory 受众取自同一份身份。 */
+        static Trace forMobilePrivate(AuditLog audit, int request, MobileMember member) {
+            return bound(audit, new Scope("mistyai", member.conversationId(), audit.runId(),
+                    Optional.empty(), Optional.empty(), Optional.of(member)), request);
         }
 
         static Trace forQqGroup(AuditLog audit, String chain, int request, QqGroup group) {
@@ -346,7 +364,7 @@ public final class ConsoleServer implements AutoCloseable {
         var observationData = new LinkedHashMap<String, Object>();
         observationData.put("text", message.text());
         if (message.observation() != null) {
-            if (!node.id().equals("chat-worker")
+            if (!(node.id().equals("chat-worker") || node.id().equals("conversation"))
                     || writes.isEmpty()
                     || !writes.orElseThrow().supportsAttestation()) {
                 return json(400, Map.of("error", "来源凭据只用于启用 Memory v2 的会话入站"));
@@ -368,7 +386,9 @@ public final class ConsoleServer implements AutoCloseable {
         var data = new LinkedHashMap<>(reply.data());
         data.put("latencyMs", latency);
         int parent = reply.causedBy() == null ? request : reply.causedBy();
-        int event = audit.write(message.chain(), parent, node.id(), reply.type(), data);
+        // 对话编排是入口，最终回复的作者是完成派单的 Chat Worker。
+        String author = node.id().equals("conversation") && "chat_worker_reply".equals(reply.type()) ? "chat-worker" : node.id();
+        int event = audit.write(message.chain(), parent, author, reply.type(), data);
         monitor.recordCall(node.id(), new NodeMonitor.Outcome(Instant.now().toString(), true, latency, ""));
         var response = json(200, Map.of("eventId", event, "type", reply.type(), "data", data));
         if ("chat_worker_reply".equals(reply.type()) && writes.isPresent()) {
