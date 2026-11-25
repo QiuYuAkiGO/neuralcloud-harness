@@ -28,13 +28,13 @@ def run(t):
     t.start_dreaming()
     assert t.announcements, "宿主必须经过 Memory v2 握手"
     health = t.announcements[-1]
-    required = {"dreaming", "dreaming_qq_aliases", "identity_lookup"}
+    required = {"dreaming", "dreaming_qq_aliases", "dreaming_group_history", "identity_lookup"}
     assert health.get("session_isolation") is False and required <= set(health["capabilities"]), health
     t.ready(lambda: call(t.hp, "/api/nodes")[0] == 200, t.hproc)
     t.stop_harness()
 
     # 空库正例已经从正式入口领取了首批并开放控制台。缺少所选功能的能力时，启动应在握手边界退出。
-    for capability in ("dreaming", "dreaming_qq_aliases"):
+    for capability in ("dreaming", "dreaming_qq_aliases", "dreaming_group_history"):
         seen, batches = len(t.announcements), len(t.batches)
         t.withhold = capability
         t.launch(t.settings(), t.console)
@@ -44,7 +44,7 @@ def run(t):
         assert denied["session_isolation"] is False
         assert set(denied["capabilities"]) == set(health["capabilities"]) - {capability}
     assert not t.failures, t.failures
-    print("PASS 成对能力握手通过；分别移除两项整理能力时均在取证前退出。")
+    print("PASS 启用 Dreaming 后，分别移除任一必需整理能力时均在取证前退出。")
 
 
 if __name__ == "__main__":

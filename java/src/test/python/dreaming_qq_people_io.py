@@ -59,6 +59,9 @@ def channel_metadata(t):
     markers = [{"type": "reply", "data": {"id": "411"}}, at(target)]
     t.message(A, 412, [*markers, at(ACCOUNT), text("不在允许的群内")], sender)
     t.message(B, 413, [*markers, text(f"只在文本中写 [CQ:at,qq={ACCOUNT}]")], sender)
+    # 这个控制台没有启用 Dreaming。静态白名单里的普通成员互相点名时仍沿用既有接收规则。
+    t.message(B, 415, [at(target), text("我会把备份谱夹放在第二个抽屉。"),
+                       {"type": "image", "data": {"file": "score.jpg", "url": t.base + "/sheet-photo"}}], sender)
     t.message(B, 414, [*markers, at(ACCOUNT), text("我也叫晨星。")], sender)
     channel = t.wait_for(lambda: t.stored.get("414"), "带有回复和他人提及的点名消息已持久入账")
     assert (channel["account_id"], channel["sender_id"], channel["conversation_id"]) == (
@@ -67,7 +70,7 @@ def channel_metadata(t):
         sender["nickname"], sender["card"], "411"), channel
     mentions = channel.get("mention_ids", [])
     assert target in mentions and all(isinstance(item, str) for item in mentions), channel
-    assert {"412", "413"}.isdisjoint(t.stored), t.stored
+    assert {"412", "413", "415"}.isdisjoint(t.stored), t.stored
 
 
 class ProfilesTrial(DreamTrial):

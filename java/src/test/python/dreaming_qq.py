@@ -38,6 +38,7 @@ class QqDreamTrial(DreamTrial):
     def __init__(self, args):
         super().__init__(args)
         self.roster, self.sent, self.claims = [A, B, C], [], []
+        self.bot_actions = []
         self.static = False
         self.bot = serve(self.onebot, "127.0.0.1", 0)
         threading.Thread(target=self.bot.serve_forever, daemon=True).start()
@@ -56,6 +57,7 @@ class QqDreamTrial(DreamTrial):
             for frame in ws:
                 cmd = json.loads(frame)
                 action, params = cmd["action"], cmd.get("params", {})
+                self.bot_actions.append(action)
                 status, code = "ok", 0
                 if action == "get_login_info":
                     data = dict(user_id=ACCOUNT, nickname="试验机器人")
