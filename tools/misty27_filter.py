@@ -64,7 +64,9 @@ def matrix(rows, vectors):
     return positions, torch.stack(embeddings)
 
 
-def screen(blind, candidates, encoder):
+def screen(blind, candidates, encoder, calibrated_review):
+    # 校准阈值仅用于自动排除高度近似项。该模式下其余项须经密封裁判逐条放行。
+    cutoff = 0.989 if calibrated_review else 0.85
     protected = {text for parts in blind.values() for _, text in parts}
     all_texts = protected | {text for parts in candidates.values() for _, text in parts}
     vectors = encode(sorted(all_texts), encoder)
@@ -82,12 +84,14 @@ def screen(blind, candidates, encoder):
         similarities = candidates_matrix @ blind_matrix.T
         i, j = divmod(int(similarities.argmax()), len(blind_positions))
         similarity = float(similarities[i, j])
-        if similarity >= 0.85:
+        if similarity >= cutoff:
             rejected.append({"id": key, "reason": "semantic"})
             continue
         retained.append(key)
         seen.add(sequence)
         neighbors.append({"candidate": positions[i], "protected": blind_positions[j], "cosine": similarity})
+    if calibrated_review:
+        return {"accepted": [], "pending": retained, "rejected": rejected}, neighbors
     return {"accepted": retained, "rejected": rejected}, neighbors
 
 
@@ -96,12 +100,15 @@ def main():
     for name in ("blind", "candidates", "encoder", "output"):
         parser.add_argument("--" + name, required=True, type=Path)
     parser.add_argument("--neighbors", type=Path)
+    parser.add_argument("--calibrated-review", action="store_true",
+                        help="仅自动剔除极近样本，保留私有近邻记录供全量独立复核")
     args = parser.parse_args()
-    if args.neighbors and args.neighbors.resolve() == args.output.resolve():
-        raise ValueError("neighbors 与 output 须使用不同文件")
+    if ((args.calibrated_review and not args.neighbors)
+            or (args.neighbors and args.neighbors.resolve() == args.output.resolve())):
+        parser.error("neighbors 须指定独立的私有文件，不能与 output 共用路径")
     blind = features(read_cases(args.blind))
     candidates = features(read_cases(args.candidates))
-    receipt, neighbors = screen(blind, candidates, args.encoder)
+    receipt, neighbors = screen(blind, candidates, args.encoder, args.calibrated_review)
     if args.neighbors:
         publish_json(args.neighbors, neighbors)
     publish_json(args.output, receipt)
