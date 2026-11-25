@@ -279,7 +279,11 @@ class DreamTrial(Trial):
         """按档案正文定位文件，核对适用范围、理由、精确引用与唯一发布路径，不约定文件名。"""
         profiles = self.profiles()
         def synchronized():
-            files = self.files()
+            # 正式导出器会原子替换 Markdown，Windows 可在枚举后、读取前短暂锁住或移走旧文件。
+            try:
+                files = self.files()
+            except (FileNotFoundError, PermissionError):
+                return False
             if len(files) != len(profiles):
                 return False
             paths = set()
