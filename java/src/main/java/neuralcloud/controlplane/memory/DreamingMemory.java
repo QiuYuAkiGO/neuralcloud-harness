@@ -11,7 +11,7 @@ import java.util.*;
 public final class DreamingMemory {
     private final ResidentV2 memory;
     private static final List<String> POSITION =
-            List.of("stream_id", "policy_version", "after", "through");
+            List.of("stream_id", "policy_version", "after", "through", "lane");
 
     DreamingMemory(ResidentV2 memory) {
         this.memory = memory;
@@ -51,7 +51,8 @@ public final class DreamingMemory {
         if (!memory.stream().equals(string(batch, "stream_id"))
                 || integer(batch, "through", 0) < integer(batch, "after", 0)
                 || !(batch.get("profiles") instanceof JsonArray)
-                || !(batch.get("evidence") instanceof JsonArray))
+                || !(batch.get("evidence") instanceof JsonArray)
+                || (batch.has("lane") && !"identity_backfill".equals(string(batch, "lane"))))
             throw new IOException("Dreaming 取证响应的流或材料无效");
         integer(batch, "policy_version", 1);
         return batch;
@@ -65,8 +66,14 @@ public final class DreamingMemory {
         return profiles;
     }
 
-    /** 模型结果只占 changes；命令身份及领取位置均来自宿主。 */
+    /** 旧调用方只提交认识，兼容既有命令入口。 */
     public JsonObject command(JsonObject batch, JsonArray changes) {
+        return command(batch, changes, new JsonArray());
+    }
+
+    /** 两类操作随同一个事件键登记。实时与历史回扫可有相同数字位置，回执及重发都须核对 lane。 */
+    public JsonObject command(JsonObject batch, JsonArray changes, JsonArray claims) {
+        String lane = batch.has("lane") ? batch.get("lane").getAsString() + ":" : "";
         var command =
                 object(
                         "context",
@@ -74,10 +81,13 @@ public final class DreamingMemory {
                         "source_instance",
                         SOURCE,
                         "event_id",
-                        "dreaming:" + UUID.randomUUID(),
+                        "dreaming:" + lane + UUID.randomUUID(),
                         "changes",
-                        changes);
-        for (String key : POSITION) command.add(key, batch.get(key));
+                        changes,
+                        "name_claims",
+                        claims);
+        for (String key : POSITION)
+            if (batch.has(key)) command.add(key, batch.get(key));
         return command;
     }
 

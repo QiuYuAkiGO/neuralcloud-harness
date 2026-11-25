@@ -43,7 +43,7 @@ DREAMING · 档案版本 1
 
 1. **空闲时领取变更。** 首次运行分批检查已有历史，之后从 Memory 上次确认的位置继续。会话授权范围改变时，会按新范围重新扫描历史。Hydrogen 配置每 15 秒检查一次，每批最多领取 8 条变更。前台开始处理对话时，后台推理让出。只有批次里有可用的一手材料才调用模型。[调度器](../../java/src/main/java/neuralcloud/controlplane/dreaming/DreamingScheduler.java) · [Hydrogen 配置](../../java/src/main/resources/config/dreaming-gemini.properties)
 2. **选出获准的一手材料。** Memory 读取仍然有效的观察原文、角色发言和已入账的工具结果。QQ 的范围来自允许私聊的对象及已启用接收的群。部署方还可指定非 QQ 会话，原作者也可对某条原文的特定版本明确授予 Dreaming 引用权。相关旧印象帮助模型找到要修订的档案，每个新判断的依据仍须来自本批提供的一手记录。[取证与授权契约](../proposals/dreaming.md#输入和输出)
-3. **模型提出修订。** 模型收到一手材料和相关档案，返回结构化的 `changes`。每项写明人物或主题、名称、预期的旧版号、以“我”开头的正文、适用范围、理由和来源引用。新档的预期版号为 0。材料不足以形成或改变认识时，模型可返回空列表，这一批只确认整理进度。Gemini 使用原生结构化输出，本地模型服务可通过 `OPENAI_CHAT` 工具调用提交同样的字段。[整理提示词](../../java/src/main/resources/config/dreaming-prompt.txt) · [模型适配器](../../java/src/main/java/neuralcloud/controlplane/dreaming/DreamingModel.java)
+3. **模型提出修订。** 模型从一手材料、相关档案和本批可识别的人物中提出认识（`changes`）与称呼（`name_claims`）。认识写明主体、预期档案版本、以“我”开头的正文和依据。称呼逐字引用原话，区分本人自称、指定首选、定向确认和第三方提及。一个 QQ 在不同场合沿用稳定的人物 ID，Memory 结合真实发件人、回复关系与授权范围复核称呼。可以只学到一个别称，也可以同时修订同一份认识。Gemini 原生结构化输出与本地 `OPENAI_CHAT` 使用同一契约。[整理提示词](../../java/src/main/resources/config/dreaming-prompt.txt) · [模型适配器](../../java/src/main/java/neuralcloud/controlplane/dreaming/DreamingModel.java)
 4. **确认后发布文件。** Harness 校验模型结果，经统一写入口 Router 提交给 Memory。Memory 在同一笔事务中复核批次、来源权限和档案版本，保存修订、更新进度并登记持久回执。Harness 收到回执后读取当前有效档案，先写临时文件，再原子替换对应的 Markdown。如果发送后连接中断，重启会按原事件 ID 查回执，导出失败也可以从已保存的版本重建文件。[Markdown 导出实现](../../java/src/main/java/neuralcloud/controlplane/dreaming/DreamingFiles.java)
 
 ## 原文更正或撤回时会怎样

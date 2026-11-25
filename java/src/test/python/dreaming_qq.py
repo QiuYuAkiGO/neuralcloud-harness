@@ -110,9 +110,12 @@ class QqDreamTrial(DreamTrial):
             subject = NOTES[note]
             prior = next((p for p in packet["profiles"] if p["subject"] == subject), {})
             if ref(e) not in prior.get("source_refs", []):
-                changes.append(dict(kind="person" if note == PRIVATE_NOTE else "topic", subject=subject,
-                                    expected_version=prior.get("version", 0), text=draft(note), scope=e["conversation_id"],
-                                    reason="本会话交接记录提供了直接依据。", source_refs=[ref(e)]))
+                entry = dict(kind="person" if note == PRIVATE_NOTE else "topic", subject=subject,
+                             expected_version=prior.get("version", 0), text=draft(note), scope=e["conversation_id"],
+                             reason="本会话交接记录提供了直接依据。", source_refs=[ref(e)])
+                if note == PRIVATE_NOTE and "speaker_person_id" in e:
+                    entry["person_id"] = e["speaker_person_id"]
+                changes.append(entry)
         result = {"changes": changes}
         if packet.get("persons"):
             result["name_claims"] = []
@@ -161,7 +164,8 @@ def run(t):
     t.scopes(dynamic)
     t.wait_for(lambda: t.panel()["connected"], "已核验 OneBot 群名单")
     t.ws.send(json.dumps(dict(post_type="message", message_type="private", sub_type="friend", self_id=ACCOUNT,
-                              user_id=PEER, message_id=801, message=[{"type": "text", "data": {"text": PRIVATE_NOTE}}])))
+                              user_id=PEER, sender=dict(user_id=PEER, nickname="牧晴"), message_id=801,
+                              message=[{"type": "text", "data": {"text": PRIVATE_NOTE}}])))
     t.published(PRIVATE_NOTE, PRIVATE)
     t.ingest("group-c", REPLY_GROUP, "成员", group(C))
     t.published(REPLY_GROUP, group(C))

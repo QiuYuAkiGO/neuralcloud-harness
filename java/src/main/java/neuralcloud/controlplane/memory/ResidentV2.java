@@ -53,7 +53,8 @@ public final class ResidentV2 extends ResidentMemory {
             try {
                 return decode(pending.get());
             } catch (ServiceError e) {
-                if (e.status == 409 && Set.of("DREAM_BATCH_CHANGED", "REVISION_CONFLICT", "SOURCE_CHANGED").contains(e.code))
+                if (e.status == 409 && Set.of("DREAM_BATCH_CHANGED", "REVISION_CONFLICT",
+                        "IDENTITY_VERSION_CONFLICT", "SOURCE_CHANGED").contains(e.code))
                     throw new SourceChanged(e);
                 throw e;
             } catch (java.util.concurrent.ExecutionException e) {
@@ -215,7 +216,9 @@ public final class ResidentV2 extends ResidentMemory {
         if (!(health.get("capabilities") instanceof JsonArray caps))
             throw new IOException("Memory v2 缺少能力列表");
         audienceReads = scopedRecall() && caps.contains(new JsonPrimitive("audience_reads"));
-        dreaming = audienceReads && caps.contains(new JsonPrimitive("dreaming"));
+        // 人物提案与认识共用提交。只有两项协议均已协商，才允许启用后台整理。
+        dreaming = audienceReads && caps.contains(new JsonPrimitive("dreaming"))
+                && caps.contains(new JsonPrimitive("dreaming_qq_aliases"));
         identityLookup = caps.contains(new JsonPrimitive("identity_lookup"));
         var required =
                 new HashSet<>(

@@ -11,7 +11,7 @@ python -m pip install -r playground/requirements.txt
 mvn -f java/pom.xml verify
 ```
 
-用 SQLite 的在线备份接口或 `.backup` 从有真实历史的 Memory v2 获取一致性快照，保存同批 Harness 的渠道审计 JSONL。实验室支持格式 4、含 Dreaming 档案的格式 5，以及含人物称呼绑定的格式 6。生成快照时使用与源端匹配的 Memory JAR。快照可能包含私聊，实验目录中也会有原文、模型输入和回复。将两者保存在只向操作者开放的目录中。
+用 SQLite 的在线备份接口或 `.backup` 从有真实历史的 Memory v2 获取一致性快照，保存同批 Harness 的渠道审计 JSONL。实验室只读支持格式 4 至 7，包括含 Dreaming 档案、人工称呼绑定、QQ 人物与称呼依据的版本。生成快照时使用与源端匹配的 Memory JAR。快照可能包含私聊，实验目录中也会有原文、模型输入和回复。将两者保存在只向操作者开放的目录中。
 
 ```sh
 sqlite3 -readonly /srv/memory/memory.sqlite ".backup '/srv/playground-input/memory.sqlite'"

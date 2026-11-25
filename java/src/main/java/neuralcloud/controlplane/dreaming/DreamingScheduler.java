@@ -27,7 +27,7 @@ public final class DreamingScheduler implements AutoCloseable {
     private final ExecutorService worker =
             Executors.newSingleThreadExecutor(Thread.ofVirtual().name("dreaming-model").factory());
     private final Thread clock;
-    private Future<JsonArray> inference;
+    private Future<DreamingModel.Proposal> inference;
     private JsonObject offered;
     private long offeredForeground;
     private Set<String> lastScopes;
@@ -109,26 +109,26 @@ public final class DreamingScheduler implements AutoCloseable {
         if (!foreground.idle()
                 || !roster.equals(scopes.get())
                 || batch.get("after").equals(batch.get("through"))) return;
-        JsonArray changes;
+        DreamingModel.Proposal proposal;
         if (inference != null) {
             if (!inference.isDone()) return;
             var done = inference;
             inference = null;
             offered = null;
             try {
-                changes = done.get();
+                proposal = done.get();
             } catch (ExecutionException e) {
                 if (e.getCause() instanceof IOException error) throw error;
                 if (e.getCause() instanceof InterruptedException) return;
                 throw new IllegalStateException("Dreaming 推理线程异常", e.getCause());
             }
         } else if (batch.getAsJsonArray("evidence").isEmpty()) {
-            changes = new JsonArray();
+            proposal = new DreamingModel.Proposal(new JsonArray(), new JsonArray());
         } else {
             offered = batch;
             offeredForeground = foreground.generation();
             var task =
-                    new FutureTask<JsonArray>(() -> model.organize(batch)) {
+                    new FutureTask<DreamingModel.Proposal>(() -> model.propose(batch)) {
                         @Override
                         protected void done() {
                             wake();
@@ -140,7 +140,7 @@ public final class DreamingScheduler implements AutoCloseable {
         }
         // 前台或群策略在模型执行期间变化时让出；Memory 在提交事务内再次核对证据。
         if (!foreground.idle() || !roster.equals(scopes.get())) return;
-        var command = memory.command(batch, changes);
+        var command = memory.command(batch, proposal.changes(), proposal.nameClaims());
         files.sending(command);
         send(command, allowed);
     }

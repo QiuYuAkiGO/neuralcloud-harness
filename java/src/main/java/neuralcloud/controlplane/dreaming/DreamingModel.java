@@ -22,6 +22,12 @@ public final class DreamingModel implements AutoCloseable {
     private static final Gson JSON =
             new GsonBuilder().setStrictness(Strictness.STRICT).disableHtmlEscaping().create();
     private static final String TOOL = "submit_dreaming";
+    private static final Set<String> CHANGE_FIELDS =
+            Set.of("kind", "subject", "expected_version", "text", "scope", "reason", "source_refs");
+    private static final Set<String> CLAIM_FIELDS =
+            Set.of("person_id", "expected_identity_version", "name", "relation", "scope", "source_refs");
+    private static final Set<String> RELATIONS =
+            Set.of("SELF_NAME", "PREFERRED_NAME", "DIRECT_CONFIRMATION", "MENTION");
     private static final Set<String> REQUIRED =
             Set.of(
                     "protocol",
@@ -156,8 +162,18 @@ public final class DreamingModel implements AutoCloseable {
         return interval;
     }
 
-    /** 屏蔽回执和水位等宿主字段，两个协议共用同一组一手依据、提示词和输出校验。 */
+    /** 旧调用方只消费认识修订；单独返回称呼的批次需要走完整提案入口。 */
     public JsonArray organize(JsonObject batch) throws IOException, InterruptedException {
+        var proposal = propose(batch);
+        if (!proposal.nameClaims().isEmpty()) throw new IOException("称呼提案需随认识一并提交");
+        return proposal.changes();
+    }
+
+    /** 两类操作归同一领取位置，宿主在一个带持久事件键的命令中交给 Memory。 */
+    record Proposal(JsonArray changes, JsonArray nameClaims) {}
+
+    /** 只向两个后端交付本批获准的原句、档案和人物提示，水位与提交权限留在宿主。 */
+    Proposal propose(JsonObject batch) throws IOException, InterruptedException {
         var material = new JsonObject();
         material.add("evidence", batch.get("evidence"));
         material.add("profiles", batch.get("profiles"));
@@ -177,6 +193,19 @@ public final class DreamingModel implements AutoCloseable {
                 }
             }
             material.add("person_names", names);
+        }
+        var people = new HashMap<String, JsonObject>();
+        if (batch.has("persons")) {
+            if (!(batch.get("persons") instanceof JsonArray persons)) throw invalid("persons");
+            for (var raw : persons) {
+                if (!(raw instanceof JsonObject person)
+                        || !(person.get("aliases") instanceof JsonArray)
+                        || people.putIfAbsent(string(person, "person_id", 128), person) != null)
+                    throw invalid("persons.person_id/aliases");
+                integer(person, "identity_version", 0);
+                if (person.has("subject")) string(person, "subject", 128);
+            }
+            material.add("persons", persons);
         }
         String input = JSON.toJson(material);
         var request =
@@ -246,7 +275,7 @@ public final class DreamingModel implements AutoCloseable {
                     protocol == Protocol.GEMINI
                             ? ChatWorker.geminiText(envelope)
                             : toolArguments(envelope);
-            return checked(JSON.fromJson(arguments, JsonObject.class), batch, aliases);
+            return checked(JSON.fromJson(arguments, JsonObject.class), batch, people, aliases);
         } catch (JsonParseException | IllegalStateException | NumberFormatException e) {
             throw new IOException("Dreaming 模型响应的 JSON 或类型无效", e);
         }
@@ -278,69 +307,141 @@ public final class DreamingModel implements AutoCloseable {
         throw invalid(key);
     }
 
-    /** 模型签入同一来源只能一次，旧印象与模型自报署名均不能成为证据。 */
-    private static JsonArray checked(JsonObject output, JsonObject batch, Map<String, String> aliases)
-            throws IOException {
-        if (output == null
-                || !output.keySet().equals(Set.of("changes"))
-                || !(output.get("changes") instanceof JsonArray changes)
-                || changes.size() > 8) throw invalid("changes");
-        var offered = new HashMap<String, Long>();
+    /** 核对两个操作数组及其各自的版本。未收到任何人物引用的旧批仍接受仅含 changes 的响应。 */
+    private static Proposal checked(JsonObject output, JsonObject batch, Map<String, JsonObject> people,
+                                    Map<String, String> aliases) throws IOException {
+        if (output == null || !(output.get("changes") instanceof JsonArray changes) || changes.size() > 8)
+            throw invalid("changes");
+        JsonArray claims;
+        if (people.isEmpty() && output.keySet().equals(Set.of("changes"))) {
+            claims = new JsonArray();
+        } else if (output.keySet().equals(Set.of("changes", "name_claims"))
+                && output.get("name_claims") instanceof JsonArray array && array.size() <= 16) {
+            claims = array;
+        } else {
+            throw invalid("name_claims");
+        }
+        var offered = new HashMap<String, JsonObject>();
         for (var entry : batch.getAsJsonArray("evidence")) {
             var evidence = entry.getAsJsonObject();
-            offered.put(
-                    evidence.get("record_id").getAsString(), evidence.get("revision").getAsLong());
+            offered.put(evidence.get("record_id").getAsString(), evidence);
         }
-        var versions = new HashMap<List<String>, Long>();
-        for (var entry : batch.getAsJsonArray("profiles")) {
+        var proposedNames = checkClaims(claims, people, offered);
+        checkChanges(changes, batch.getAsJsonArray("profiles"), people, aliases, proposedNames, offered);
+        return new Proposal(changes, claims);
+    }
+
+    /** 只有本批签发的身份版本和逐字原话可用于称呼；旧主名和同批可能生效的新主名交给 Memory 裁定。 */
+    private static Set<List<String>> checkClaims(JsonArray claims, Map<String, JsonObject> people,
+                                                 Map<String, JsonObject> offered) throws IOException {
+        var proposedNames = new HashSet<List<String>>();
+        for (var entry : claims) {
+            if (!(entry instanceof JsonObject claim) || !claim.keySet().equals(CLAIM_FIELDS))
+                throw invalid("name_claims.fields");
+            String id = string(claim, "person_id", 128);
+            var person = people.get(id);
+            if (person == null) throw invalid("name_claims.person_id");
+            if (integer(claim, "expected_identity_version", 0) != person.get("identity_version").getAsLong())
+                throw invalid("expected_identity_version");
+            String name = string(claim, "name", 128), relation = string(claim, "relation", 32);
+            if (!RELATIONS.contains(relation)) throw invalid("name_claims.relation");
+            String scope = string(claim, "scope", 256);
+            var sources = sources(claim, offered, true);
+            if (!scope.equals("global") && sources.stream().noneMatch(
+                    e -> e.has("conversation_id") && e.get("conversation_id").getAsString().equals(scope)))
+                throw invalid("name_claims.scope");
+            if (!relation.equals("MENTION") && (!person.has("subject")
+                    || (relation.equals("PREFERRED_NAME") && scope.equals("global"))))
+                proposedNames.add(List.of(id, name));
+        }
+        return proposedNames;
+    }
+
+    /** QQ 按签发 ID 和人物版本定位，同名的两份认识可独立修订。无身份材料的旧档沿用名称。 */
+    private static void checkChanges(JsonArray changes, JsonArray profiles, Map<String, JsonObject> people,
+                                     Map<String, String> aliases, Set<List<String>> proposedNames,
+                                     Map<String, JsonObject> offered) throws IOException {
+        var byId = new HashMap<String, JsonObject>();
+        var byName = new HashMap<List<String>, JsonObject>();
+        var ambiguous = new HashSet<List<String>>();
+        for (var entry : profiles) {
             var profile = entry.getAsJsonObject();
-            versions.put(
-                    List.of(
-                            profile.get("kind").getAsString(),
-                            profile.get("subject").getAsString()),
-                    profile.get("version").getAsLong());
+            if (profile.has("person_id")) byId.put(profile.get("person_id").getAsString(), profile);
+            var key = List.of(profile.get("kind").getAsString(), profile.get("subject").getAsString());
+            if (byName.putIfAbsent(key, profile) != null) ambiguous.add(key);
         }
         var identities = new HashSet<List<String>>();
         for (var entry : changes) {
-            if (!(entry instanceof JsonObject item)
-                    || !item.keySet()
-                            .equals(
-                                    Set.of(
-                                            "kind",
-                                            "subject",
-                                            "expected_version",
-                                            "text",
-                                            "scope",
-                                            "reason",
-                                            "source_refs"))) throw invalid("changes.fields");
+            if (!(entry instanceof JsonObject item) || !item.keySet().containsAll(CHANGE_FIELDS)
+                    || item.size() != CHANGE_FIELDS.size() + (item.has("person_id") ? 1 : 0))
+                throw invalid("changes.fields");
             String kind = string(item, "kind", 16);
             String subject = string(item, "subject", 128);
-            if ("person".equals(kind) && aliases.containsKey(subject))
-                throw invalid("subject 须使用主称呼 " + aliases.get(subject));
+            if (!Set.of("person", "topic").contains(kind)) throw invalid("kind");
+            var sources = sources(item, offered, false);
             var identity = List.of(kind, subject);
-            if (!Set.of("person", "topic").contains(kind) || !identities.add(identity))
-                throw invalid("kind/subject");
-            if (integer(item, "expected_version", 0) != versions.getOrDefault(identity, 0L))
+            JsonObject prior;
+            if (item.has("person_id")) {
+                String id = string(item, "person_id", 128);
+                var person = people.get(id);
+                if (!kind.equals("person") || person == null) throw invalid("changes.person_id");
+                if (!(person.has("subject") && person.get("subject").getAsString().equals(subject))
+                        && !proposedNames.contains(List.of(id, subject))
+                        && (person.has("subject") || !initialName(id, subject, offered.values())))
+                    throw invalid("changes.subject");
+                identity = List.of(kind, "person_id", id);
+                prior = byId.get(id);
+            } else {
+                if (ambiguous.contains(identity) || (kind.equals("person")
+                        && sources.stream().anyMatch(e -> e.has("speaker_person_id"))))
+                    throw invalid("changes.person_id");
+                if (kind.equals("person") && aliases.containsKey(subject))
+                    throw invalid("subject 须使用主称呼 " + aliases.get(subject));
+                prior = byName.get(identity);
+                if (prior != null && prior.has("person_id"))
+                    identity = List.of(kind, "person_id", prior.get("person_id").getAsString());
+            }
+            if (!identities.add(identity)) throw invalid("kind/subject/person_id");
+            if (integer(item, "expected_version", 0) != (prior == null ? 0L : prior.get("version").getAsLong()))
                 throw invalid("expected_version");
             if (!string(item, "text", 2048).startsWith("我")) throw invalid("text 须以我开头");
             string(item, "scope", 512);
             string(item, "reason", 1024);
-            if (!(item.get("source_refs") instanceof JsonArray refs)
-                    || refs.isEmpty()
-                    || refs.size() > 16) throw invalid("source_refs");
-            var seen = new HashSet<String>();
-            for (var raw : refs) {
-                if (!(raw instanceof JsonObject ref)
-                        || !ref.keySet().equals(Set.of("record_id", "revision")))
-                    throw invalid("source_refs");
-                String id = string(ref, "record_id", 64);
-                if (!id.matches("[0-9a-f]{64}")
-                        || !seen.add(id)
-                        || !Objects.equals(offered.get(id), integer(ref, "revision", 1)))
-                    throw invalid("source_refs.record_id/revision");
-            }
         }
-        return changes;
+    }
+
+    /** Memory 在本次提交内登记真实渠道称呼。首批尚无主名时，模型可引用该人的已签发显示名。 */
+    private static boolean initialName(String id, String name, Collection<JsonObject> evidence) {
+        var owner = new JsonPrimitive(id);
+        var label = new JsonPrimitive(name);
+        for (var source : evidence) {
+            if (owner.equals(source.get("speaker_person_id"))
+                    && (label.equals(source.get("nickname")) || label.equals(source.get("card")))) return true;
+            if (owner.equals(source.get("reviewed_person_id")) && label.equals(source.get("reviewed_name"))) return true;
+        }
+        return false;
+    }
+
+    /** 同项引用按记录去重，称呼还需逐字匹配该版获准原文；判断谁在说谁由权威端复核。 */
+    private static List<JsonObject> sources(JsonObject item, Map<String, JsonObject> offered, boolean quoted)
+            throws IOException {
+        if (!(item.get("source_refs") instanceof JsonArray refs) || refs.isEmpty() || refs.size() > 16)
+            throw invalid("source_refs");
+        var expected = quoted ? Set.of("record_id", "revision", "quote") : Set.of("record_id", "revision");
+        var seen = new HashSet<String>();
+        var sources = new ArrayList<JsonObject>();
+        for (var raw : refs) {
+            if (!(raw instanceof JsonObject ref) || !ref.keySet().equals(expected)) throw invalid("source_refs");
+            String id = string(ref, "record_id", 64);
+            var source = offered.get(id);
+            if (!id.matches("[0-9a-f]{64}") || !seen.add(id) || source == null
+                    || source.get("revision").getAsLong() != integer(ref, "revision", 1))
+                throw invalid("source_refs.record_id/revision");
+            if (quoted && !source.get("content").getAsString().contains(string(ref, "quote", 2048)))
+                throw invalid("source_refs.quote");
+            sources.add(source);
+        }
+        return sources;
     }
 
     private static long integer(JsonObject o, String k, long min) throws IOException {

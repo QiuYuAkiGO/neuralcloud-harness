@@ -17,6 +17,10 @@
             "type": "string",
             "description": "人物使用已确认的主要或唯一称呼，主题使用其名称。"
           },
+          "person_id": {
+            "type": "string",
+            "description": "有 QQ 身份依据的人物认识填本批签发的目标人物 ID。主题省略。"
+          },
           "expected_version": {
             "type": "integer"
           },
@@ -61,10 +65,41 @@
         ],
         "additionalProperties": false
       }
+    },
+    "name_claims": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "properties": {
+          "person_id": {"type": "string"},
+          "expected_identity_version": {"type": "integer", "minimum": 0},
+          "name": {"type": "string"},
+          "relation": {"type": "string", "enum": ["SELF_NAME", "PREFERRED_NAME", "DIRECT_CONFIRMATION", "MENTION"]},
+          "scope": {"type": "string", "description": "global 或原句所在的准确 conversation_id"},
+          "source_refs": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "items": {
+              "type": "object",
+              "properties": {
+                "record_id": {"type": "string"},
+                "revision": {"type": "integer", "minimum": 1},
+                "quote": {"type": "string", "description": "从该修订的 content 逐字摘取的原句"}
+              },
+              "required": ["record_id", "revision", "quote"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["person_id", "expected_identity_version", "name", "relation", "scope", "source_refs"],
+        "additionalProperties": false
+      }
     }
   },
   "required": [
-    "changes"
+    "changes", "name_claims"
   ],
   "additionalProperties": false
 }
