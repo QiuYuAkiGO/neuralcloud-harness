@@ -245,7 +245,7 @@ public final class ConsoleMain {
                 var model = dreaming.get();
                 var store = memory.orElseThrow();
                 var reader = store.writes().dreamingReads().orElseThrow(
-                        () -> new IOException("Memory v2 缺少 dreaming 或 dreaming_qq_aliases 能力"));
+                        () -> new IOException("Memory v2 的 Dreaming 需要 dreaming、dreaming_qq_aliases 和 dreaming_group_history 能力"));
                 var scheduler = new DreamingScheduler(reader, store.writes(), model, foreground,
                         () -> dreamingScopes(model, openQqSettings, groups), groups.<Object>map(g -> g).orElse(foreground), audit);
                 groups.ifPresent(g -> g.onScopeChange(scheduler::wake));
@@ -257,7 +257,7 @@ public final class ConsoleMain {
                     ConsoleServer.start(settings.listen(), audit, monitor, nodes, writes, groups);
             opened.push(server);
 
-            // 启用群策略时与控制台共用 MasterRuntime，静态白名单走带图片读取器的常规对话入口。
+            // 点名机器人的静态群消息走常规对话；启用整理后，其他成员互聊的原文走静默入账。
             openQqSettings.ifPresent(
                     configured -> {
                         var openQqClient = HttpClient.newHttpClient();
@@ -273,6 +273,7 @@ public final class ConsoleMain {
                                         audit,
                                         writes,
                                         groups,
+                                        dreaming.isPresent(),
                                         (text, trace, mode, addressed, images) -> foreground.run(() -> groups.isPresent()
                                                 ? managedQq(
                                                         text,

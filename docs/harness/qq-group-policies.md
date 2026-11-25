@@ -2,6 +2,8 @@
 
 在 OpenQQ 配置中设置 `groupPoliciesFile`，指向本账号可写的策略文件。动态管理使用已握手的 Memory v2 和 OneBot 的真实群名单。原静态配置使用 `allowedGroupId`，两项互斥。
 
+静态白名单群里，点名机器人的消息可发起对话。启用 `dreamingConfig` 后，其他成员之间的发言也会静默入账，图文消息只取成员写的正文。点名其他群友时仍按互聊处理。渠道按 OneBot 的有符号 32 位整数读取群友互聊的消息号，原号随审计、Memory 入账和 Dreaming 取证保留。动态群的收信和回复由下面的策略决定。[OneBot 11 群消息事件](https://github.com/botuniverse/onebot-11/blob/master/event/message.md#群消息)
+
 在正式控制台的「QQ 渠道」页签可查看群名、群号、收信与确认回复数、最近活动和审计链。新群的初始策略为「不接收」，已退群的策略会撤销。
 
 * **不接收**。在消息入队前过滤该群事件。

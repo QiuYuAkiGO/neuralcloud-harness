@@ -10,7 +10,7 @@ Dreaming 在 Harness 的控制台进程内使用独立的后台线程和模型�
 
 | POST 入口 | 输入 | 可观察结果 |
 | --- | --- | --- |
-| /v2/dreaming/batch | context、scopes、limit（每批 1–16 条变更） | stream_id、policy_version、after、through、evidence、profiles，以及本批可指到的 persons。格式 6 升级后的历史页另带 lane=identity_backfill。 |
+| /v2/dreaming/batch | context、scopes、limit（每批 1–16 条变更），宿主每次携带 `include_group_history: true` | stream_id、policy_version、after、through、evidence、profiles、本批可指到的 persons。历史页另带 lane，`identity_backfill` 回扫身份，`group_history` 回扫可核实的获准群聊。 |
 | /v2/dreaming/commit | context、source_instance、event_id、原流与批次位置（含已签发的 lane）、changes、name_claims | 单事务核验人物、来源、引用权限与版本，登记称呼及认识、DURABLE 回执和对应进度。两个数组均空时确认已查看。 |
 | /v2/dreaming/receipt | context、source_instance、event_id | NOT_FOUND 或原持久回执；同键不同命令返回冲突。 |
 | /v2/dreaming/profiles | context | profiles 只含当前可见的完整档案。来源失效时立即隐藏相应版本；档案重评沿用其原身份与版本序列。 |
@@ -39,17 +39,20 @@ Memory 的可选启动配置 `dreamingPeopleFile` 指向相对于 Memory 配置�
 
 领取批次时，`persons` 提供本批可指到的人物 ID、identity_version、可用的别称和已知主名。旧版人工绑定还可通过 `person_names` 交付主称呼和别称。`evidence[].speaker_person_id` 标识该原话的发言者；发言中谈及的人可指向另一人物。称呼的证据和认识的证据分别保留。模型用主称呼和现行档案版本提交，Memory 按当前受众复核支撑认识和归属的引用权。
 
+获准群成员之间的真实发言也可形成个人印象。甲 @ 乙后说明自己的习惯，归档到甲。若甲明确描述了乙的行为，才可用这句话支持关于乙的认识。转发或粘贴聊天只作为当前成员的转述。历史群消息须能从原始导入记录核实群、发件人和消息身份，适用当前群授权与原文修订。
+
 人物文件使用 `people/<主称呼>.md`。路径分隔符、保留字符和字面百分号使用百分号编码，设备保留名、过长或在文件系统上会重名的称呼有可区分的文件名。Markdown 标题保留完整称呼。导出器识别本角色的旧哈希文件和新托管文件，以便迁移与撤回；同名的手写文件或其他角色文件保留并报告冲突。主题继续使用原哈希命名。
 
 ## 部署与恢复
 
 生产使用配置了 Memory v2 scoped 的控制台，在其 properties 中设置 `dreamingConfig=classpath:/config/dreaming-gemini.properties`。该独立配置选择 Gemini 原生 generateContent、gemini-4-hydrogen 和环境变量 GEMINI_API_KEY。本地兼容服务用 OPENAI_CHAT、完整 /v1/chat/completions 地址和模型 ID。两种协议均按同一 JSON 业务契约校验。
 
-启用整理的宿主在启动握手中同时要求 `dreaming` 和 `dreaming_qq_aliases`。调度器在前台空闲时处理积压。模型失败时保留原覆盖位置。发送前持久保存命令，回执未知时按原键查证。格式 6 角色库升级后的身份回扫单独推进，回执的 lane 与原命令一致。同一个 after/through 在两个进度上可代表不同材料。当前 Markdown 由 Memory 权威版本原子替换，分别位于 impressions/people 与 impressions/topics。重启或导出失败时从权威档案重建。对外引用通过带受众的接口进行。
+启用整理的宿主在启动握手中同时要求 `dreaming`、`dreaming_qq_aliases` 和 `dreaming_group_history`。调度器在前台空闲时处理积压。模型失败时保留原覆盖位置。发送前持久保存命令，回执未知时按原键查证。实时、身份回扫与群聊历史各自推进，同一个 after/through 在不同进度上可代表不同材料。提交和回执必须匹配原页的 lane。当前 Markdown 由 Memory 权威版本原子替换，分别位于 impressions/people 与 impressions/topics。重启或导出失败时从权威档案重建。对外引用通过带受众的接口进行。
 
 动态群临时断线时保留已确认的档案和覆盖水位，名单重新核验后继续。关闭群策略或名单确认退群会收回失去依据的档案。正式验收可从 Harness 根目录运行以下命令，两个 JAR 均用 JDK 21 构建，最后一个路径参数须为全新目录。
 
 ```powershell
 python -X utf8 -u java/src/test/python/dreaming.py java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar ../neuralcloud-memory/target/neuralcloud-memory-2.0.0-SNAPSHOT.jar java/target/dreaming-live --live
 python -X utf8 -u java/src/test/python/dreaming_qq.py java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar ../neuralcloud-memory/target/neuralcloud-memory-2.0.0-SNAPSHOT.jar java/target/dreaming-qq
+python -X utf8 -u java/src/test/python/dreaming_group_members.py java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar ../neuralcloud-memory/target/neuralcloud-memory-2.0.0-SNAPSHOT.jar java/target/dreaming-group-members
 ```

@@ -38,6 +38,7 @@ public final class DreamingMemory {
 
     public JsonObject batch(Collection<String> scopes, int limit)
             throws IOException, InterruptedException {
+        // 新宿主主动领取可核实的已授权群聊旧页，Memory 在独立的历史进度上签发位置。
         var batch =
                 memory.request(
                         "v2/dreaming/batch",
@@ -47,13 +48,15 @@ public final class DreamingMemory {
                                 "scopes",
                                 scopes,
                                 "limit",
-                                limit));
+                                limit,
+                                "include_group_history",
+                                true));
         if (!memory.stream().equals(string(batch, "stream_id"))
                 || integer(batch, "through", 0) < integer(batch, "after", 0)
                 || !(batch.get("profiles") instanceof JsonArray)
                 || !(batch.get("evidence") instanceof JsonArray)
-                || (batch.has("lane") && !"identity_backfill".equals(string(batch, "lane"))))
-            throw new IOException("Dreaming 取证响应的流或材料无效");
+                || (batch.has("lane") && !Set.of("identity_backfill", "group_history").contains(string(batch, "lane"))))
+            throw new IOException("Dreaming 取证响应的流、材料或 lane 无效");
         integer(batch, "policy_version", 1);
         return batch;
     }

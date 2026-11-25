@@ -216,9 +216,10 @@ public final class ResidentV2 extends ResidentMemory {
         if (!(health.get("capabilities") instanceof JsonArray caps))
             throw new IOException("Memory v2 缺少能力列表");
         audienceReads = scopedRecall() && caps.contains(new JsonPrimitive("audience_reads"));
-        // 人物提案与认识共用提交。只有两项协议均已协商，才允许启用后台整理。
+        // 同一整理器会领取实时、身份和群聊历史材料，必须能在三个进度上提交认识并核对回执。
         dreaming = audienceReads && caps.contains(new JsonPrimitive("dreaming"))
-                && caps.contains(new JsonPrimitive("dreaming_qq_aliases"));
+                && caps.contains(new JsonPrimitive("dreaming_qq_aliases"))
+                && caps.contains(new JsonPrimitive("dreaming_group_history"));
         identityLookup = caps.contains(new JsonPrimitive("identity_lookup"));
         var required =
                 new HashSet<>(
@@ -456,8 +457,7 @@ public final class ResidentV2 extends ResidentMemory {
                                                 scope.conversationId())));
         if (inbound) {
             if (scope.group().map(Trace.QqGroup::managed).orElse(false)
-                    && (content.equals("/通知") || content.startsWith("/通知 ")
-                            || content.equals("/变更通知") || content.startsWith("/变更通知 ")))
+                    && Trace.QqGroup.isNoticeCommand(content))
                 return submitGroupText(scope, body, content, messageId, observation);
             // 普通 QQ 入站保留本条消息的渠道见证。角色的已送达回复及群通知各有自己的作者与来源。
             scope.qq().ifPresent(q -> q.message().addTo(body.getAsJsonObject("channel")));

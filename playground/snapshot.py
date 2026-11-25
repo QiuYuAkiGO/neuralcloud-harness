@@ -48,9 +48,9 @@ class Snapshot:
             self.digest = hashlib.file_digest(stream, "sha256").hexdigest()
         self.stat = self.signature()
         with closing(self.connect()) as db:
-            # 格式 5 至 7 增加档案、人工称呼和 QQ 身份依据，回放仍只读原文与授权历史。
-            if db.execute("PRAGMA user_version").fetchone()[0] not in (4, 5, 6, 7):
-                raise ValueError("需要包含修订、授权和目录的 Memory v2 格式 4 至 7 快照")
+            # 格式 5 至 8 陆续加入档案、人物称呼和群聊回扫，回放仅读取原文与授权历史。
+            if db.execute("PRAGMA user_version").fetchone()[0] not in (4, 5, 6, 7, 8):
+                raise ValueError("需要包含修订、授权和目录的 Memory v2 格式 4 至 8 快照")
             self.character, self.stream = db.execute("SELECT character_id,stream_id FROM meta").fetchone()
             self.watermark = db.execute("SELECT coalesce(max(seq),0) FROM changes").fetchone()[0]
         self.audit = audit_context(audit_dir)

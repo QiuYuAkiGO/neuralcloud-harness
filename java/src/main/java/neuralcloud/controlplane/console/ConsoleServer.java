@@ -118,6 +118,12 @@ public final class ConsoleServer implements AutoCloseable {
             public QqGroup(long accountId, long groupId, long senderId) {
                 this(accountId, groupId, senderId, false);
             }
+
+            /** 受管群的这两种控制消息走有作者、原通知号和版本的独立契约。 */
+            public static boolean isNoticeCommand(String text) {
+                return text.equals("/通知") || text.startsWith("/通知 ")
+                        || text.equals("/变更通知") || text.startsWith("/变更通知 ");
+            }
         }
 
         /** 由 MistyAI 渠道认证的群成员，私聊按实例与稳定的成员编号隔离。 */

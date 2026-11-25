@@ -62,7 +62,10 @@ public final class OpenQqChannel implements AutoCloseable {
             QqGroups.Policy policy,
             List<String> imageKeys,
             Trace.QqMessage metadata) {
-        boolean observeOnly() { return policy != null && policy.policy() == QqGroups.Mode.OBSERVE; }
+        /** 动态观察群和已受理的静态群互聊都只向记忆写入原文。 */
+        boolean observeOnly() {
+            return policy == null ? groupId != 0 && !addressed : policy.policy() == QqGroups.Mode.OBSERVE;
+        }
 
         Incoming(long messageId, String text, long groupId, long senderId) {
             this(messageId, text, groupId, senderId, true, null, List.of(), Trace.QqMessage.EMPTY);
@@ -94,6 +97,7 @@ public final class OpenQqChannel implements AutoCloseable {
     private final AuditLog audit;
     private final Optional<RouterMemoryWriter> writes;
     private final Optional<QqGroups> groups;
+    private final boolean observeStaticGroup;
     private final ManagedExchange managed;
     private final Thread runner;
     private volatile boolean closed;
@@ -109,6 +113,14 @@ public final class OpenQqChannel implements AutoCloseable {
             Optional<RouterMemoryWriter> writes,
             Optional<QqGroups> groups,
             ManagedExchange managed) {
+        this(client, endpoint, token, accountId, allowedUserId, allowedGroupId, audit, writes, groups, false, managed);
+    }
+
+    /** 启动方在 Dreaming 能力握手后才为静态白名单开启普通成员文本的观察入口。 */
+    public OpenQqChannel(
+            HttpClient client, URI endpoint, String token, long accountId, long allowedUserId, long allowedGroupId,
+            AuditLog audit, Optional<RouterMemoryWriter> writes, Optional<QqGroups> groups,
+            boolean dreamingEnabled, ManagedExchange managed) {
         this.client = client;
         this.endpoint = endpoint;
         this.token = token;
@@ -118,6 +130,7 @@ public final class OpenQqChannel implements AutoCloseable {
         this.audit = audit;
         this.writes = writes;
         this.groups = groups;
+        this.observeStaticGroup = dreamingEnabled && allowedGroupId != 0 && groups.isEmpty();
         this.managed = managed;
         this.runner = Thread.ofVirtual().name("openqq-channel").unstarted(this::run);
     }
@@ -211,7 +224,7 @@ public final class OpenQqChannel implements AutoCloseable {
                                         incoming.groupId(),
                                         incoming.senderId(),
                                         groups.isPresent(),
-                                        incoming.observeOnly() ? incoming.policy().revision() : 0,
+                                        groups.isPresent() && incoming.observeOnly() ? incoming.policy().revision() : 0,
                                         incoming.metadata()))
                         : Trace.forQqPrivate(
                                 audit,
@@ -355,7 +368,7 @@ public final class OpenQqChannel implements AutoCloseable {
     /**
      * OneBot v11 入站事件边界过滤器。
      * 过滤规则：
-     * 静态群白名单要求点名；管理模式按群策略接收。文本与图片可混排，其他消息段沿用现有过滤。
+     * 管理模式按群策略接收，静态白名单的对话要求点名；启用 Dreaming 后另接收成员互聊的文字。
      * 非白名单私聊用户仅能提交纯文本的原作者授权命令。
      */
     static Incoming incoming(
@@ -367,7 +380,7 @@ public final class OpenQqChannel implements AutoCloseable {
         return incoming(event, accountId, allowedUserId, allowedGroupId, authorCommands, null);
     }
 
-    /** 管理模式先核对群策略，只有受理的群才解析正文；静态白名单继续要求群内点名。 */
+    /** 保留未配置后台整理的接收入口。 */
     static Incoming incoming(
             JsonObject event,
             long accountId,
@@ -375,6 +388,13 @@ public final class OpenQqChannel implements AutoCloseable {
             long allowedGroupId,
             boolean authorCommands,
             QqGroups groups) {
+        return incoming(event, accountId, allowedUserId, allowedGroupId, authorCommands, groups, false);
+    }
+
+    /** 在解析正文前核对消息来源；静态群中未点名机器人的图文只取成员自己提交的文字。 */
+    private static Incoming incoming(
+            JsonObject event, long accountId, long allowedUserId, long allowedGroupId,
+            boolean authorCommands, QqGroups groups, boolean observeStaticGroup) {
         long sender = id(event.get("user_id"));
         boolean group = "group".equals(string(event.get("message_type")));
         long gid = id(event.get("group_id"));
@@ -395,8 +415,8 @@ public final class OpenQqChannel implements AutoCloseable {
                 || !(event.get("message") instanceof JsonArray segments)) {
             return null;
         }
-        long messageId = id(event.get("message_id"));
         var text = new StringBuilder();
+        var caption = observeStaticGroup && group ? new StringBuilder() : null;
         var images = new ArrayList<String>();
         var mentions = new LinkedHashSet<String>();
         String reply = "";
@@ -435,13 +455,27 @@ public final class OpenQqChannel implements AutoCloseable {
                 return null;
             }
             text.append(part.getAsString());
+            if (caption != null) caption.append(part.getAsString());
         }
-        String body = text.toString();
+        String body = caption != null && !addressed ? caption.toString() : text.toString();
         if (policy != null && addressed && body.isBlank()) body = "@" + accountId;
-        if (messageId <= 0
-                || body.isBlank()
+        if (body.isBlank()
                 || body.length() > MAX_MESSAGE_CHARS
-                || group && policy == null && !addressed) return null;
+                || group && policy == null && !addressed && !observeStaticGroup) return null;
+        // OneBot 群成员互聊的 message_id 是有符号 int32。账号、前台及通知仍使用各自原有的 ID 边界。
+        var field = event.get("message_id");
+        long messageId;
+        if (group && !addressed && (policy == null || !Trace.QqGroup.isNoticeCommand(body))) {
+            if (!(field instanceof JsonPrimitive number) || !number.isNumber()) return null;
+            try {
+                messageId = Integer.parseInt(number.getAsString());
+            } catch (NumberFormatException invalidMessageId) {
+                return null;
+            }
+        } else {
+            messageId = id(field);
+            if (messageId <= 0) return null;
+        }
         // 允许原作者发控制命令，无须开放其普通私聊。身份始终取自已认证连接的事件。
         if (authorCommand(body) && (!images.isEmpty() || !mentions.isEmpty() || !reply.isEmpty())
                 || !group && sender != allowedUserId && !(authorCommands && authorCommand(body)))
@@ -524,7 +558,8 @@ public final class OpenQqChannel implements AutoCloseable {
                 }
                 System.out.println("OpenQQ 私聊接入已就绪");
                 // 观察群原文有独立的有序接收线程，前台 QQ 推理和发送回执不会挡住其入库。
-                if (groups.isPresent()) observer = Thread.ofVirtual().name("openqq-observe-ingress").start(() -> observe(socket));
+                if (groups.isPresent() || observeStaticGroup)
+                    observer = Thread.ofVirtual().name("openqq-observe-ingress").start(() -> observe(socket));
                 long nextRoster = 0;
                 while (!closed && !ended) {
                     if (groups.isPresent()
@@ -704,7 +739,8 @@ public final class OpenQqChannel implements AutoCloseable {
                             allowedUserId,
                             allowedGroupId,
                             writes.map(RouterMemoryWriter::authorGrantsEnabled).orElse(false),
-                            groups.orElse(null));
+                            groups.orElse(null),
+                            observeStaticGroup);
             if (message != null && !(message.observeOnly() ? observations : inbox).offer(message)) {
                 System.err.println("OpenQQ 入站队列已满");
             }
