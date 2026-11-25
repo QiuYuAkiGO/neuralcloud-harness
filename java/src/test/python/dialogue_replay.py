@@ -236,6 +236,9 @@ def unavailable_versions(t, harness):
     for target in (ref(qq, "SELF_EXPRESSION"), ref(web, "OBSERVATION")):
         correct(t, audience(t, target, "ORCHESTRATOR"), target)
     correct(t, context(A), seeds[0], "青瓷门票已经移交。")
+    # 只有新版本重启后才测试规划中的撤回，生成旧审计的 Harness 仍使用原配置。
+    with t.hc.open("a", encoding="utf-8") as config:
+        config.write("chatReviewAfterPlan=true\n")
     t.restart_for_replay(harness, isolate=True)
     # 两次自述在 QQ 当前受众下均不可引用；直接从 Memory 核对造出的边界，保证不会因缺少测试数据而误过。
     states = t.mem("read", dict(context=audience(t, deliveries[0], "CHAT_WORKER"), kind="HISTORY", use="CITE",

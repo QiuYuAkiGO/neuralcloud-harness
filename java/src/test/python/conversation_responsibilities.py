@@ -65,6 +65,9 @@ class ConversationTrial(Trial):
 def run(t):
     memory = t.start("memory", ["-jar", t.mjar, "--config", t.mc])
     t.ready(lambda: t.mem("health")["status"] == "TEXT_READY", memory)
+    # 本用例在模型起草期间修订来源，显式启用草稿完成后的复核。
+    with t.hc.open("a", encoding="utf-8") as config:
+        config.write("chatReviewAfterDraft=true\n")
     t.harness()
     chain = "responsibilities"
 
