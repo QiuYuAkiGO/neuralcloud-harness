@@ -58,8 +58,23 @@ public final class MemoryCall {
     /** 单次记忆工具查询的结构化结果，供模型消费并原样写入 {@code memory_call_result} 审计事件。 */
     public record Result(QueryKind kind, int count, List<String> sentences) {}
 
+    /** 保留本轮账号依据，目录确认与当前共同群昵称在提供给模型时须可区分。 */
+    public enum AuthorSource {
+        QQ_ID("qq_id", "本次按指定的 QQ 账号 %2$s 查询本人原话。"),
+        CONFIRMED_IDENTITY("confirmed_identity", "已确认身份目录记载，「%1$s」对应 QQ 账号 %2$s。"),
+        GROUP_MEMBERS("group_members", "共同群成员名册确认，「%1$s」是 QQ 账号 %2$s 在群中使用的昵称或名片。");
+
+        private final String audit;
+        private final String description;
+        AuthorSource(String audit, String description) { this.audit = audit; this.description = description; }
+    }
+
     /** 一轮内对同一称呼的解析结果。id 为空时不执行按作者检索。 */
-    public record Author(String reference, String id, boolean ambiguous) {
+    public record Author(String reference, String id, boolean ambiguous, AuthorSource source) {
+        String identification() {
+            return source.description.formatted(reference, id);
+        }
+
         public String clarification() {
             return ambiguous ? "有多个账号可能对应「" + reference + "」，你指的是哪一位？可以告诉我 QQ 号。"
                     : "我还没找到「" + reference + "」对应的账号，可以告诉我 QQ 号或更具体的称呼吗？";
@@ -492,12 +507,12 @@ public final class MemoryCall {
         long started = System.nanoTime();
         var accounts = new java.util.LinkedHashSet<String>();
         boolean conflict = false;
-        String source = "qq_id";
+        AuthorSource source = AuthorSource.QQ_ID;
         try {
             if (ref.matches("[1-9][0-9]{4,15}")) {
                 accounts.add(ref);
             } else {
-                source = "confirmed_identity";
+                source = AuthorSource.CONFIRMED_IDENTITY;
                 var v = memory.v2();
                 if (v.identityLookup()) {
                     var directory = v.lookup(trace.scope(), caller.name(), QueryKind.IDENTITY, ref, memory.receivedAt(trace));
@@ -512,22 +527,22 @@ public final class MemoryCall {
                     }
                 }
                 if (!conflict && accounts.isEmpty()) {
-                    source = "group_members";
+                    source = AuthorSource.GROUP_MEMBERS;
                     accounts.addAll(trace.memberAccounts(ref));
                 }
             }
         } catch (IOException | InterruptedException failure) {
-            trace.write(eventId, "router", "qq_author_lookup_failed", Map.of("author_ref", ref, "source", source,
+            trace.write(eventId, "router", "qq_author_lookup_failed", Map.of("author_ref", ref, "source", source.audit,
                     "detail", failure.toString()));
             throw failure;
         }
         boolean ambiguous = conflict || accounts.size() > 1;
         String id = !ambiguous && accounts.size() == 1 ? accounts.getFirst() : null;
-        var author = new Author(ref, id, ambiguous);
+        var author = new Author(ref, id, ambiguous, source);
         authors.put(ref, author);
         var audit = new LinkedHashMap<String, Object>();
         audit.put("author_ref", ref);
-        audit.put("source", source);
+        audit.put("source", source.audit);
         audit.put("status", ambiguous ? "AMBIGUOUS" : id == null ? "NOT_FOUND" : "RESOLVED");
         if (id != null) audit.put("qq_sender_id", id);
         audit.put("elapsed_ms", (System.nanoTime() - started) / 1_000_000);
@@ -535,12 +550,18 @@ public final class MemoryCall {
         return author;
     }
 
-    /** 补查优先。相同材料只交付一次，规划时已消费的预查材料仅在本次剩余预算内重用。 */
-    public static List<String> mergeMaterials(List<String> result, List<String> earlier) {
-        if (earlier.isEmpty()) return result;
-        var messages = new java.util.LinkedHashSet<>(result);
+    /** 先给已确定的材料留足空间，后续读取只登记仍能放入模型输入的完整证据句。 */
+    public static int remainingBytes(List<String> primary) {
+        return Math.max(0, AUTOMATIC_INPUT_BYTES - String.join("\n", primary).getBytes(StandardCharsets.UTF_8).length
+                - (primary.isEmpty() ? 0 : 1));
+    }
+
+    /** 主材料保持顺序，相同原话只呈现一次。 */
+    public static List<String> mergeMaterials(List<String> primary, List<String> additional) {
+        if (additional.isEmpty()) return primary;
+        var messages = new java.util.LinkedHashSet<>(primary);
         int used = String.join("\n", messages).getBytes(StandardCharsets.UTF_8).length;
-        for (String line : earlier) {
+        for (String line : additional) {
             int needed = line.getBytes(StandardCharsets.UTF_8).length + (messages.isEmpty() ? 0 : 1);
             if (needed <= AUTOMATIC_INPUT_BYTES - used && messages.add(line)) used += needed;
         }

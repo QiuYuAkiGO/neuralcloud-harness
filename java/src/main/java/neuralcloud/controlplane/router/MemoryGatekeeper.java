@@ -8,7 +8,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
-/** 为当轮参与回复的前台选择一次只读操作。词组解析只决定查询目的，记录及确认关系由受众查询返回。 */
+/** 将分流所得的查询对象变成本轮唯一的前台预查。账号与原话由受众边界解析。 */
 public final class MemoryGatekeeper {
     private static final Pattern GREETING = Pattern.compile(
             "(?iu)(?:你好[呀啊哇]?|您好|嗨|哈[啰喽罗]|早[呀啊安上好]?|中午好|下午好|晚上好|晚安|谢谢[你啦]?|再见|拜拜|hi|hello|hey)");
@@ -29,14 +29,24 @@ public final class MemoryGatekeeper {
     private static final Pattern NEW_SUBJECT = Pattern.compile(
             "换(?:一?个)?(?:话题|问题)|关于|至于|我想(?:问|知道)|请问.+|帮我.+|谁|什么|哪[个些里位]|多少|怎么|是否|请(?:你)?(?:查|看|检查|执行|打开|重启)");
 
-    // 只提取问句里明确的人物槽位。提到人名、询问谁提及某人仍走普通主题查询。
-    private static final String PERSON = "([^，,。；;！？!?\\r\\n]{1,256}?)";
-    private static final String END = "\\s*(?:呢|吗|呀|啊)?[。？?！!]*\\s*$";
-    private static final Pattern OPINION = Pattern.compile("^(?:请问[，,]?\\s*)?(?:那)?(?:你(?:是)?怎么看(?:待)?\\s*"
-            + PERSON + "|你对\\s*" + PERSON + "\\s*(?:有(?:什么|哪些)印象|的印象(?:如何|怎么样)|印象(?:如何|怎么样)))" + END);
-    private static final Pattern UTTERANCE = Pattern.compile("^" + PERSON
-            + "\\s*(?:以前|之前|曾经|曾|过去)?\\s*(?:说过|提到过|谈过|提过)\\s*"
-            + "(?:(?:哪些|什么)?\\s*关于\\s*(.+?)\\s*的话|(?:什么|哪些话)|(.+?))?" + END);
+    /** 人物、开放话题和提及关系对应不同的召回对象，同名词的普通用法留给原主题入口。 */
+    public enum Focus { DEFAULT, PERSON, PERSON_OR_TOPIC, MENTION }
+
+    public record Intent(Focus focus, String authorRef, String query) {
+        public static final Intent DEFAULT = new Intent(Focus.DEFAULT, "", "");
+
+        /** 只接收已提供给分流器的称呼，受众、QQ 账号和查询时间由渠道提供。 */
+        boolean validFor(String current, String previous) {
+            return switch (focus) {
+                case DEFAULT -> authorRef.isEmpty() && query.isEmpty();
+                case MENTION -> authorRef.isEmpty() && MemoryCall.validQuery(true, query)
+                        && (current.contains(query) || previous.contains(query));
+                case PERSON, PERSON_OR_TOPIC -> MemoryCall.validQuery("HISTORY", query, authorRef)
+                        && !authorRef.matches("谁|我|你|他|她|它|自己|你自己|我自己|别人|大家|有人")
+                        && (current.contains(authorRef) || previous.contains(authorRef));
+            };
+        }
+    }
 
     /** 空查询计划表示本轮略过主题检索。只查既有记录的行动由这一只读能力兑现。 */
     public record Decision(Optional<QueryKind> kind, String query, String reason, boolean memoryOnly,
@@ -57,33 +67,30 @@ public final class MemoryGatekeeper {
 
     /** 未协商作者协议的调用方只使用原有的主题和本人查询。 */
     public static Decision decide(String text, List<DialogueMessage> dialogue, List<QueryKind> kinds) {
-        return decide(text, dialogue, kinds, false);
+        return decide(text, dialogue, kinds, Intent.DEFAULT);
     }
 
     /** 省略话题的追问只向后查看经过版本核验的同会话用户消息，不从角色旧答案提取事实。 */
-    public static Decision decide(String text, List<DialogueMessage> dialogue, List<QueryKind> kinds, boolean authorHistory) {
+    public static Decision decide(String text, List<DialogueMessage> dialogue, List<QueryKind> kinds, Intent intent) {
         String topic = text.strip();
+        // 问人物与找提及者在分流时已区分。只有“怎么看 X”一类开放问题允许在查无账号后回到话题。
+        if (intent.focus() == Focus.MENTION)
+            return new Decision(Optional.of(QueryKind.HISTORY), intent.query(), "mentioned_topic", true);
+        if (intent.focus() == Focus.PERSON || intent.focus() == Focus.PERSON_OR_TOPIC) {
+            String fallback = intent.focus() == Focus.PERSON_OR_TOPIC
+                    ? keyword(topic.contains(intent.authorRef()) ? topic : previousTopic(dialogue)) : null;
+            return new Decision(Optional.of(QueryKind.HISTORY), intent.query(), "qq_author_history", true,
+                    intent.authorRef(), fallback);
+        }
         String compact = PUNCT.matcher(topic).replaceAll("");
         if (compact.isEmpty() || GREETING.matcher(compact).matches()) return Decision.skip("greeting");
         boolean followup = followup(topic);
         if (followup) {
-            topic = "";
-            for (var message : dialogue.reversed()) {
-                if (message.speaker() != DialogueMessage.Speaker.USER) continue;
-                String prior = PUNCT.matcher(message.text()).replaceAll("");
-                if (!prior.isEmpty() && !GREETING.matcher(prior).matches() && !followup(message.text())) {
-                    topic = message.text();
-                    break;
-                }
-            }
+            topic = previousTopic(dialogue);
             if (topic.isEmpty()) return new Decision(Optional.empty(), "", "unresolved_reference", true);
         }
         // 创造者或发言人的提问只查证关系；明确另有现场动作的复合请求保留原有执行入口。
         boolean readOnly = followup || topic.matches("(?is).*(?:谁|什么|哪位|记得|知道|认得|记忆|称呼|[？?]).*");
-        if (authorHistory) {
-            var author = person(topic.strip());
-            if (author.isPresent()) return author.get();
-        }
         if (CREATOR.matcher(topic).find())
             return new Decision(Optional.of(QueryKind.HISTORY), "创造者", "creator_relation", readOnly);
         if (kinds.contains(QueryKind.SELF_IDENTITY) && SENDER.matcher(topic).find())
@@ -100,22 +107,15 @@ public final class MemoryGatekeeper {
                 : topic.substring(0, topic.offsetByCodePoints(0, 256)).stripTrailing();
     }
 
-    /** 姓名只从明确问句边界取得，归属账号随后由渠道与确认目录共同确定。 */
-    private static Optional<Decision> person(String topic) {
-        var opinion = OPINION.matcher(topic);
-        var speech = UTTERANCE.matcher(topic);
-        String ref, query = "", fallback = null;
-        if (opinion.matches()) {
-            ref = (opinion.group(1) != null ? opinion.group(1) : opinion.group(2)).strip();
-            fallback = keyword(topic);
-        } else if (speech.matches()) {
-            ref = speech.group(1).strip();
-            if (speech.group(2) != null) query = speech.group(2).strip();
-            else if (speech.group(3) != null) query = speech.group(3).strip();
-        } else return Optional.empty();
-        if (ref.matches("谁|我|你|他|她|它|自己|你自己|我自己|别人|大家|有人|.*(?:谁|哪些人)")
-                || !MemoryCall.validQuery("HISTORY", query, ref)) return Optional.empty();
-        return Optional.of(new Decision(Optional.of(QueryKind.HISTORY), query, "qq_author_history", true, ref, fallback));
+    /** 分流与省略话题的宿主预查只承接同会话授权窗口中的上一条实质用户原话。 */
+    public static String previousTopic(List<DialogueMessage> dialogue) {
+        for (var message : dialogue.reversed()) {
+            if (message.speaker() != DialogueMessage.Speaker.USER) continue;
+            String prior = PUNCT.matcher(message.text()).replaceAll("");
+            if (!prior.isEmpty() && !GREETING.matcher(prior).matches() && !followup(message.text()))
+                return message.text();
+        }
+        return "";
     }
 
     /** 仅当本轮操作省略了对象时回到上一问。铺垫可以有多句，任何明确的新问题或动作仍使用本轮原文。 */

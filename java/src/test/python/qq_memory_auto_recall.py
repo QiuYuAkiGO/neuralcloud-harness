@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from conversation_responsibilities import tool
-from qq_observe import ACCOUNT, Trial, call, until
+from qq_observe import ACCOUNT, Trial, call, route_fields, until
 from websockets.exceptions import ConnectionClosed
 
 
@@ -28,6 +28,7 @@ class RecallTrial(Trial):
     def __init__(self, args):
         self.packets_seen = []
         self.business_route = "CONVERSATION"
+        self.focus = {}
         self.answers = {FACT: f"{CREATOR}是我的唯一创造者。"}
         super().__init__(args)
 
@@ -40,7 +41,7 @@ class RecallTrial(Trial):
 
         names = [item["function"]["name"] for item in body.get("tools", [])]
         if names == ["select_route"]:
-            return tool("select_route", {"route": self.business_route})
+            return tool("select_route", route_fields(body, self.business_route, **self.focus))
         if names == ["plan_turn"]:
             self.packets_seen.append(("plan", body["messages"], None))
             kind = "ACTION" if self.business_route == "ACTION_REQUEST" else "REPLY"
@@ -74,7 +75,8 @@ class RecallTrial(Trial):
         except ConnectionClosed:
             pass
 
-    def ask_private(self, text, number):
+    def ask_private(self, text, number, *, memory_focus="DEFAULT", author_ref="", query=""):
+        self.focus = dict(memory_focus=memory_focus, author_ref=author_ref, query=query)
         start, delivered = len(self.packets_seen), len(self.sent)
         self.ws.send(json.dumps(dict(post_type="message", message_type="private", sub_type="friend",
                                     self_id=ACCOUNT, user_id=PEER, message_id=number,

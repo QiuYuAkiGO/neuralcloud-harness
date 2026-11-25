@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from conversation_responsibilities import tool
-from qq_observe import A, B, ACCOUNT, Trial, call, context, until
+from qq_observe import A, B, ACCOUNT, Trial, call, context, route_fields, until
 
 
 QUESTION = "查一下之前的青瓷交接回执，登记的编号是什么？"
@@ -45,7 +45,7 @@ class ActionTrial(Trial):
         names = [entry["function"]["name"] for entry in body.get("tools", [])]
         current = body["messages"][-1].get("content") or ""
         if names == ["select_route"]:
-            return tool("select_route", {"route": "CONVERSATION" if NEXT in current else "ACTION_REQUEST"})
+            return tool("select_route", route_fields(body, "CONVERSATION" if NEXT in current else "ACTION_REQUEST"))
         if names == ["select_reply"]:
             return tool("select_reply", {"decision": "SKIP"})
         if names == ["plan_turn"]:

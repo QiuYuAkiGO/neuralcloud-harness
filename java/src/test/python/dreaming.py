@@ -13,7 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from zipfile import ZipFile
 
-from qq_observe import Trial, call, port, until
+from qq_observe import Trial, call, port, route_fields, until
 
 
 SCOPE = "console:dreaming-north"
@@ -211,7 +211,7 @@ class DreamTrial(Trial):
             return 503, {"error": "验收期间 Master 离线"}
         if path == ROUTER_PATH:
             self.checkpoint("foreground")
-            return 200, tool_call("select_route", {"route": "CONVERSATION"})
+            return 200, tool_call("select_route", route_fields(body))
         if path in (GEMINI_PATH, OPENAI_PATH):
             assert not self.live, "真实模型模式调用了回环模型"
             return self.model_reply(path, body, headers)

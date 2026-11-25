@@ -29,6 +29,7 @@ import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.router.RouterMemoryWriter;
 import neuralcloud.controlplane.worker.ChatImage;
 import neuralcloud.controlplane.worker.ChatWorker;
+import neuralcloud.controlplane.worker.DialogueMessage;
 import neuralcloud.controlplane.worker.ReplySelector;
 import neuralcloud.controlplane.worker.TaskWorker;
 
@@ -442,14 +443,13 @@ public final class ConsoleMain {
                                                        MemoryAccess store) {
         return (text, trace) -> {
             int inbound = store.writes().rememberInbound(trace, trace.request(), text);
-            var route = router.route(text);
-            if (route == Route.UNSUPPORTED) {
-                return new Reply("router_route", Map.of("route", route.name()), inbound);
+            var routing = selectChatRoute(text, trace, inbound, store, router, true);
+            if (routing.route().orElseThrow() == Route.UNSUPPORTED) {
+                return new Reply("router_route", routing.audit(), inbound);
             }
-            int routed =
-                    trace.write(inbound, "router", "router_route", Map.of("route", route.name()));
+            int routed = trace.write(inbound, "router", "router_route", routing.audit());
             return workerTurn(new ObservedInput(text, routed), trace, store, chat, router, Optional.of(master),
-                    Optional.of(route), parent -> new Reply("router_route", Map.of("route", route.name()), parent));
+                    routing, parent -> new Reply("router_route", routing.audit(), parent));
         };
     }
 
@@ -482,17 +482,8 @@ public final class ConsoleMain {
                         "qq_participation",
                         Map.of("addressing", context.addressing(), "decision", decision));
         if (decision == ReplySelector.Decision.SKIP) return Optional.empty();
-        // 图片文字可帮助描述画面；外部动作仍须由用户配文发起。
-        var route = router.route(text);
-        int routed = trace.write(selected, "router", "router_route", Map.of("route", route.name()));
-        var request = new ChatWorker.RoutedConversation(ReplySelector.Context.direct(text), route);
-        if (route == Route.UNSUPPORTED)
-            return Optional.of(Reply.chat(chat.reply(request).orElseThrow(), routed, store.reads().chatReviews()));
-        var inputForWorker = new ObservedInput(route == Route.ACTION_REQUEST ? text : seen.text(), routed);
-        return Optional.of(workerTurn(inputForWorker, trace, store, chat, router, Optional.of(master), Optional.of(route),
-                parent -> task.isPresent()
-                        ? executeTask(chat, task.orElseThrow(), request, trace, parent, Optional.of(store))
-                        : Reply.chat(chat.reply(request).orElseThrow(), parent, store.reads().chatReviews())));
+        return Optional.of(foregroundTurn(text, new ObservedInput(seen.text(), selected), trace, store, chat,
+                router, Optional.of(master), task, true));
     }
 
     /** 本轮图片观察独立标注来源，沿审计因果链交给前台 Worker，不把模型识图文字写作群成员原话。 */
@@ -617,9 +608,51 @@ public final class ConsoleMain {
             // 先由 Router 写入口持久化用户观察事件，取得审计事件编号作为后续全部步骤的因果父节点。
             int input = store.writes().rememberInbound(trace, accepted, text);
             var seen = observeImages(text, trace, input, images, chat);
-            return workerTurn(seen, trace, store, chat, router, master, Optional.empty(),
-                    parent -> routeAction(chat, router, task, text, seen.text(), trace, parent, Optional.of(store)));
+            return foregroundTurn(text, seen, trace, store, chat, router, master, task, false);
         };
+    }
+
+    /** 身份协商成功的前台只读一次受众对话窗口，规划句柄继承同一批来源版本。 */
+    private record ChatRouting(Optional<Route> route, MemoryGatekeeper.Intent intent, MemoryCall read,
+                               Optional<List<DialogueMessage>> history) {
+        Map<String, Object> audit() {
+            String routeName = route.orElseThrow().name();
+            return history.isEmpty() ? Map.of("route", routeName) : Map.of(
+                    "route", routeName, "memory_focus", intent.focus().name(),
+                    "author_ref", intent.authorRef(), "query", intent.query());
+        }
+    }
+
+    /** 真实入站与受信私聊回放共用一次分流。仅把允许承接的上一条用户话题交给 Router。 */
+    private static ChatRouting selectChatRoute(String text, ConsoleServer.Trace trace, int parent, MemoryAccess store,
+                                                Router<Route> router, boolean alwaysRoute) throws IOException, InterruptedException {
+        var read = router.memoryCall().orElse(store.reads()).bind(trace, Caller.CHAT_WORKER, parent);
+        if (router.memoryCall().isPresent() && read.authorHistory()) {
+            var history = read.dialogue();
+            var selection = router.select(text, Optional.of(MemoryGatekeeper.previousTopic(history)));
+            return new ChatRouting(Optional.of(selection.route()), selection.intent(), read, Optional.of(history));
+        }
+        return new ChatRouting(alwaysRoute ? Optional.of(router.route(text)) : Optional.empty(),
+                MemoryGatekeeper.Intent.DEFAULT, read, Optional.empty());
+    }
+
+    /** 已分流的 QQ 动作沿用该次结果。图片描述只供对话使用，动作仍须由原始配文发起。 */
+    private static Reply foregroundTurn(String text, ObservedInput seen, ConsoleServer.Trace trace, MemoryAccess store,
+                                        ChatWorker chat, Router<Route> router, Optional<MasterRuntime> master,
+                                        Optional<TaskWorker> task, boolean alwaysRoute) throws IOException, InterruptedException {
+        var routing = selectChatRoute(text, trace, seen.event(), store, router, alwaysRoute);
+        if (routing.route().isEmpty())
+            return workerTurn(seen, trace, store, chat, router, master, routing,
+                    parent -> routeAction(chat, router, task, text, seen.text(), trace, parent, Optional.of(store)));
+        var route = routing.route().orElseThrow();
+        int routed = trace.write(seen.event(), "router", "router_route", routing.audit());
+        var request = new ChatWorker.RoutedConversation(ReplySelector.Context.direct(text), route);
+        if (route == Route.UNSUPPORTED)
+            return Reply.chat(chat.reply(request).orElseThrow(), routed, store.reads().chatReviews());
+        return workerTurn(new ObservedInput(route == Route.ACTION_REQUEST ? text : seen.text(), routed),
+                trace, store, chat, router, master, routing, parent -> task.isPresent()
+                        ? executeTask(chat, task.orElseThrow(), request, trace, parent, Optional.of(store))
+                        : Reply.chat(chat.reply(request).orElseThrow(), parent, store.reads().chatReviews()));
     }
 
     /** ACTION 只回到当前渠道原本具备的能力入口，终审不能授予新的现场操作。 */
@@ -631,10 +664,10 @@ public final class ConsoleMain {
     /** 复用已持久化的入站。普通对话与待执行动作均由 Worker 识别是否需要主体终审。 */
     private static Reply workerTurn(ObservedInput seen, ConsoleServer.Trace trace, MemoryAccess store,
                                     ChatWorker chat, Router<Route> router, Optional<MasterRuntime> master,
-                                    Optional<Route> route, Action action)
+                                    ChatRouting routing, Action action)
             throws IOException, InterruptedException {
         var handler = router.memoryCall().orElse(store.reads());
-        var read = handler.bind(trace, Caller.CHAT_WORKER, seen.event());
+        var read = routing.read().nextRead(seen.event());
         MemoryGatekeeper.Decision decision = null;
         MemoryCall push = null;
         MemoryCall.Result pushed = null;
@@ -643,10 +676,10 @@ public final class ConsoleMain {
         int cause;
         try {
             var updates = read.startTurn();
-            var dialogue = read.dialogue();
+            var dialogue = routing.history().isPresent() ? routing.history().get() : read.dialogue();
             cause = read.eventId();
             if (router.memoryCall().isPresent() && handler.supportsAutomaticRecall()) {
-                decision = MemoryGatekeeper.decide(seen.text(), dialogue, read.queryKinds(), read.authorHistory());
+                decision = MemoryGatekeeper.decide(seen.text(), dialogue, read.queryKinds(), routing.intent());
                 cause = trace.write(cause, "router", "router_memory_gate", Map.of(
                         "capability", MemoryCall.NAME, "consumer", "CHAT_WORKER",
                         "operation", decision.kind().isPresent() ? "RECALL" : "SKIP",
@@ -668,7 +701,7 @@ public final class ConsoleMain {
                 }
             }
             read.reviewChatEvidence(ChatReview.BEFORE_PLAN);
-            turn = chat.planTurn(seen.text(), dialogue, read.queryKinds(), updates, route,
+            turn = chat.planTurn(seen.text(), dialogue, read.queryKinds(), updates, routing.route(),
                     pushed == null ? List.of() : pushed.sentences(), read.authorHistory());
         } catch (IOException error) {
             throw new ChatWorker.PlanningFailure(error);
@@ -716,9 +749,22 @@ public final class ConsoleMain {
                         automaticAuthor == null ? null : automaticAuthor.id());
                 if (push != null && sameAuthor && pushed.kind() == kind && decision.query().equals(turn.query()))
                     yield Reply.chat(chat.replyWithMemory(turn, push, pushed, List.of()).orElseThrow(), recall.eventId(), reviews);
-                var result = recall.read(kind, turn.query(), push == null ? Integer.MAX_VALUE : MemoryCall.AUTOMATIC_INPUT_BYTES, author);
-                String answer = chat.replyWithMemory(turn, recall, result,
-                        push == null || !sameAuthor ? List.of() : push.withoutNoticeTexts(pushed.sentences())).orElseThrow();
+                // 一旦预查定位了用户所问人物，起草继续携带账号依据与本人原话。
+                // 即便 Worker 另查正文提及，也只把它作为有自己发言者的补充材料。
+                var prior = push != null && (automaticAuthor != null || sameAuthor)
+                        ? push.withoutNoticeTexts(pushed.sentences()) : List.<String>of();
+                int budget = push == null ? Integer.MAX_VALUE : MemoryCall.AUTOMATIC_INPUT_BYTES;
+                if (automaticAuthor != null) {
+                    String label = kind == ConversationMemory.QueryKind.HISTORY && author == null
+                            ? "以下是普通历史正文检索的补充材料，各条原话归其标注的发言者。"
+                            : "以下是本轮补查的材料，各条归属以其来源为准。";
+                    prior = MemoryCall.mergeMaterials(prior, List.of(label));
+                    budget = MemoryCall.remainingBytes(prior);
+                }
+                var result = recall.read(kind, turn.query(), budget, author);
+                var materials = automaticAuthor == null ? MemoryCall.mergeMaterials(result.sentences(), prior)
+                        : MemoryCall.mergeMaterials(prior, result.sentences());
+                String answer = chat.replyWithMemory(turn, recall, materials).orElseThrow();
                 yield Reply.chat(answer, recall.eventId(), reviews);
             }
             case SUBJECT_CONFLICT -> {

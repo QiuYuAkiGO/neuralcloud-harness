@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from conversation_responsibilities import tool
-from qq_observe import A, ACCOUNT, Trial, call, context, until
+from qq_observe import A, ACCOUNT, Trial, call, context, route_fields, until
 from websockets.exceptions import ConnectionClosed
 
 
@@ -55,7 +55,7 @@ class ReplayTrial(Trial):
         names = [item["function"]["name"] for item in body.get("tools", [])]
         self.inputs.append((names, body["messages"]))
         if names == ["select_route"]:
-            return tool("select_route", {"route": "CONVERSATION"})
+            return tool("select_route", route_fields(body))
         if names == ["plan_turn"]:
             self.checkpoint("replay-plan")
             return tool("plan_turn", {"kind": "HISTORY" if self.query else "REPLY", "query": self.query})

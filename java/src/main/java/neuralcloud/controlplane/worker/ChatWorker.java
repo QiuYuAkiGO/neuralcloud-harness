@@ -68,6 +68,7 @@ public final class ChatWorker implements ReplySelector {
 历史回答可能早于本轮查证；旧答复里的猜测或“不知道”不覆盖本轮查到的确认材料。
 工具尝试只证明发起过请求，执行结果以同一动作的回执为依据。
 已确认的账号称呼不能当作法定姓名。
+共同群名册核实的昵称或名片可以说明用户所问称呼对应哪个 QQ 账号。谈到本人说过什么时，只引用该账号的发言。
 如实说明本次查询的范围和结果。对话里问过某个话题，可以说记得对方提过。
 复述当时说过的具体内容，需要对应的发言作依据。引用本人的历史原话时保留原意、否定和转述关系。
 用户问事情经过时，按材料交代谁在哪里先说了什么、后来怎样变更、最后能确认什么。原因以记录为准。
@@ -372,7 +373,8 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
                 + (queryKinds.contains(QueryKind.IDENTITY) ? IDENTITY_INSTRUCTION : "")
                 + (queryKinds.contains(QueryKind.SELF_HISTORY) ? SELF_HISTORY_INSTRUCTION : "")
                 + (authorHistory ? "\nHISTORY 查某人的原话时，author_ref 填 QQ 号或完整称呼，query 填话题或空串。"
-                        + "只问人物印象时话题为空。已给出该作者的原话就选 REPLY，据原话说明印象；姓名属于 author_ref。"
+                        + "只问身份、是否认识或印象时话题为空。已给出称呼、账号与所问材料就选 REPLY，"
+                        + "按本轮账号来源和本人原话回答。只有账号也可说明该依据和发言查询结果。姓名属于 author_ref。"
                         + "用户明确问谁提到某个名字时才把名字用作正文检索词。\n" : "");
         String planningInput = materials.isEmpty() ? text
                 : text + "\n\n记忆服务返回的查询材料：\n" + String.join("\n", materials);
@@ -476,7 +478,12 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
     /** 已执行的预查可直接交给规划后的回复。补查沿用各自的来源校验，只合并实际查到的材料。 */
     public Optional<String> replyWithMemory(Turn turn, MemoryCall memory, MemoryCall.Result result, List<String> earlier)
             throws IOException, InterruptedException {
-        var materials = MemoryCall.mergeMaterials(result.sentences(), earlier);
+        return replyWithMemory(turn, memory, MemoryCall.mergeMaterials(result.sentences(), earlier));
+    }
+
+    /** 使用本轮已经组好的授权材料起草，保留实际补查的交付凭据和既有群通知处理。 */
+    public Optional<String> replyWithMemory(Turn turn, MemoryCall memory, List<String> materials)
+            throws IOException, InterruptedException {
         var notices = List.copyOf(memory.noticeEvidence().values());
         var quotes = List.<String>of();
         if (!notices.isEmpty()) {

@@ -186,8 +186,8 @@ public final class ConversationMemory {
             case "INCOMPLETE" -> "目前依据不足以确认执行结果。";
             default -> "";
         };
-        if (author != null && !snap.items().isEmpty())
-            messages.add("按「" + author.reference() + "」查询 QQ 账号 " + author.id() + " 的原话。");
+        // 名册或目录对账号的定位独立于历史发言。零条原话时首次规划同样需要这条依据。
+        if (author != null) messages.add(author.identification());
         if (!qualification.isEmpty()) messages.add(qualification);
         int bytes = String.join("\n", messages).getBytes(StandardCharsets.UTF_8).length;
         // 仅保留当前仍在线的条目生成证据绑定与自然语言呈现，避免把已撤回或离线记录交给模型。
@@ -202,7 +202,7 @@ public final class ConversationMemory {
             rows.add(ResidentV2.binding(trace.scope(), role, kind.name(), item, snap, input));
         }
         int count = rows.size();
-        if (author != null && count == 0) messages.clear();
+        if (author != null && count == 0) messages.add("本次查询没有可引用的本人原话。");
         // recent 模式下的 HISTORY 查询本质上是回读当前会话近期对话，并非按话题检索，因此命中计数归零。
         if (!v.scopedRecall() && kind == QueryKind.HISTORY) {
             messages.addFirst("本次只回读了当前会话的近期对话，共 " + count + " 条。");

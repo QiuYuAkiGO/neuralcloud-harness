@@ -35,6 +35,8 @@ class PlanningTrial(ReplayTrial):
             self.transcript.append((body["context"]["role"], (body.get("qq_sender_id"), body["query"])))
         if path == "/v1/chat/completions":
             functions = {t["function"]["name"]: t["function"] for t in body.get("tools", [])}
+            if "select_route" in functions and self.question == QUESTION:
+                return tool("select_route", dict(route="CONVERSATION", memory_focus="PERSON", author_ref=FIRST, query=""))
             for name, choice in (("plan_turn", self.plan), ("memory_call", self.native)):
                 if name in functions:
                     self.transcript.append((name, functions[name]["parameters"]))
@@ -49,6 +51,7 @@ class PlanningTrial(ReplayTrial):
 
     def ask(self, chain, text, plan):
         self.transcript.clear()
+        self.question = text
         self.plan = plan
         self.turn(chain, text, ANSWER)
         return self.transcript.copy()

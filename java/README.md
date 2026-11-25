@@ -107,7 +107,9 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 
 审计中的 `memory_call` 归属发起查询的节点，`memory_recall` 列出读取的记录 ID，`memory_call_result.data` 包含 `kind`、实际命中数 `count` 和原样交给调用方的 `sentences`。Router 的写入请求为 `router_memory_write`，持久化成功后才有 `memory_durable` 回执。生产历史检索零命中时，材料说明当前会话的查询结果。`recent` 模式只按回执重读近期对话，在材料中注明回读条数，话题命中数为零。
 
-QQ 私聊中，问人物印象或明确问某人的原话时，Router 在首次规划前按 QQ 号、完整确认称呼、已核实共同群的昵称或名片解析发言者。重名时请求澄清。Memory 按提问者的引用权限读取该账号的原话，空话题取最近 4 条。审计的 `qq_author_lookup` 记录解析来源、结果及耗时，`memory_call` 记录实际作者条件。
+协商了 `qq_author_history` 的 QQ 私聊在同一次 `select_route` 中提交 `route`、`memory_focus`、`author_ref`、`query`。问某人是谁、是否认识或本人说过什么用 `PERSON`，也可能是一般话题的开放评价用 `PERSON_OR_TOPIC`。称呼来自本轮原话或承接的上一用户话题，话题可空。询问谁提到过某词用 `MENTION`，仅填写被提及的词作为 `query`。`DEFAULT` 的后两个字段均为空。其他渠道和未协商作者能力的分流只提交 `route`。
+
+Router 在 Chat Worker 首次规划前解析账号。完整称呼先查确认目录，零命中再查已核实共同群的精确昵称或名片。重名或明确问人却未匹配时请求澄清。开放评价零命中时回到一般话题。Memory 按原提问者的引用权限取该账号的原话，空话题最多取最近四条。规划和起草均保留账号依据与本人原话，后续正文检索按各项原始说话人补充。审计的 `router_route` 记录检索意图，`qq_author_lookup` 记录来源和解析结果，`memory_call` 记录实际作者条件。
 
 生产 QQ 私聊另提供 `SELF_HISTORY`。当用户问自己以前说过什么，Chat Worker 提交话题关键词，只读接口使用入站私聊绑定的本人账号，向记忆服务查询本轮之前在 QQ 群聊或私聊的原话。审计记录查询类别、命中数以及 Worker 收到的带时间、渠道来源的节选。`HISTORY` 查询接收会话可引用的历史，`SELF_IDENTITY` 用来查询本人已确认的称呼。
 

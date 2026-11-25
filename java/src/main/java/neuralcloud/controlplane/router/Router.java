@@ -12,7 +12,9 @@ import neuralcloud.controlplane.master.MasterIntent;
 import neuralcloud.controlplane.orchestration.Orchestrator;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -34,6 +36,7 @@ public final class Router<R extends Enum<R>> {
     private final Optional<ConversationMemory> memoryCall;
     /** 预构造的 OpenAI tools 声明，枚举候选集合直接取自 {@code routeType} 的枚举常量。 */
     private final List<Map<String, Object>> tools;
+    private final List<Map<String, Object>> personTools;
 
     /**
      * 构造路由器实例。
@@ -51,12 +54,23 @@ public final class Router<R extends Enum<R>> {
         this.rolePrompt = rolePrompt.replace("\r\n", "\n");
         this.routeType = routeType;
         var routes = Arrays.stream(routeType.getEnumConstants()).map(Enum::name).toList();
-        tools = List.of(Map.of(
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("route", Map.of("type", "string", "enum", routes));
+        tools = routeTool(fields);
+        fields.put("memory_focus", Map.of("type", "string", "enum",
+                Arrays.stream(MemoryGatekeeper.Focus.values()).map(Enum::name).toList()));
+        fields.put("author_ref", Map.of("type", "string", "maxLength", 256));
+        fields.put("query", Map.of("type", "string", "maxLength", 256));
+        personTools = routeTool(fields);
+    }
+
+    /** 按本轮协商能力选取工具，普通分流保留原来的单字段契约。 */
+    private static List<Map<String, Object>> routeTool(Map<String, Object> fields) {
+        return List.of(Map.of(
                 "type", "function",
                 "function", Map.of("name", ROUTE_TOOL, "description", "选择当前事项的业务流程", "strict", true,
                         "parameters", Map.of("type", "object", "additionalProperties", false,
-                                "required", List.of("route"), "properties", Map.of("route", Map.of(
-                                        "type", "string", "enum", routes))))));
+                                "required", List.copyOf(fields.keySet()), "properties", Map.copyOf(fields)))));
     }
 
     /** 宿主预查和角色主动查证共用已注册的 memory_call，不额外请求一次 Router 模型。 */
@@ -64,29 +78,57 @@ public final class Router<R extends Enum<R>> {
         return memoryCall;
     }
 
-    /**
-     * 对给定的待分类报告或用户消息进行路由判定。
-     * 强制要求模型执行恰好一次 {@code select_route} 调用，且参数 JSON 只包含合法的 {@code route} 字符串字段；
-     * 否则视为违反路由契约并抛出 {@link IOException}。
-     */
+    /** 普通路由仅返回业务流程。 */
     public R route(String report) throws IOException, InterruptedException {
-        // 分类必须通过唯一指定的工具输出，避免把小模型的正文当作有效路由。
-        var response = inference.chat(List.of(
-                Map.of("role", "system", "content", rolePrompt),
-                Map.of("role", "user", "content", report)), tools, 96, 0, ROUTE_TOOL);
+        return select(report, Optional.empty()).route();
+    }
+
+    /** 同次强制分流产生业务流程及预查意图。账号、成员权限和时间均不属于模型参数。 */
+    public record Selection<R>(R route, MemoryGatekeeper.Intent intent) {}
+
+    /** 有能力的私聊提供上一用户话题（首轮为空串），其余调用方只获得业务路由字段。 */
+    public Selection<R> select(String report, Optional<String> previousUserTopic) throws IOException, InterruptedException {
+        boolean people = previousUserTopic.isPresent();
+        String previous = previousUserTopic.orElse("");
+        var messages = new ArrayList<Map<String, Object>>();
+        messages.add(Map.of("role", "system", "content", people ? rolePrompt + """
+
+                同一次 select_route 还须识别最后一条用户消息的查询对象。按语义填写，不回答用户。
+                问某个有名称的人是谁、是否认识、其印象或该人说过什么，选 CONVERSATION 和 PERSON。
+                对象有完整称呼但也可能是一般话题的开放评价，选 PERSON_OR_TOPIC。
+                这两类的 author_ref 原样摘取对象的完整称呼或 QQ 号，去掉称呼外的引号。
+                单问人物时 query 填空串；只在用户明确限定发言话题时填写话题。
+                问“哪些人提及某词”时选 MENTION，query 填被提及的原词，author_ref 填空串。
+                其他请求（包括形容词用法、问我自己或创造者和现场动作）选 DEFAULT，另两字段均填空串。
+                仅当本轮省略对象而明显承接上一用户话题时才从上一话题取称呼。本轮说明的新对象优先。
+                """ : rolePrompt));
+        if (!previous.isEmpty())
+            messages.add(Map.of("role", "user", "content", "上一条用户话题，供省略指代时参考：\n" + previous));
+        messages.add(Map.of("role", "user", "content", report));
+        var response = inference.chat(messages, people ? personTools : tools, people ? 1024 : 96, 0, ROUTE_TOOL);
         var calls = response.calls();
-        if (calls.size() == 1 && ROUTE_TOOL.equals(calls.getFirst().name())) {
-            try {
-                var input = JSON.fromJson(calls.getFirst().arguments(), JsonObject.class);
-                if (input != null && input.size() == 1 && input.get("route") instanceof JsonPrimitive value
-                        && value.isString()) {
-                    return Enum.valueOf(routeType, value.getAsString());
+        try {
+            if (calls.size() == 1 && ROUTE_TOOL.equals(calls.getFirst().name())) {
+                var in = JSON.fromJson(calls.getFirst().arguments(), JsonObject.class);
+                var fields = people ? List.of("route", "memory_focus", "author_ref", "query") : List.of("route");
+                if (in != null && in.size() == fields.size()
+                        && fields.stream().allMatch(k -> in.get(k) instanceof JsonPrimitive p && p.isString())) {
+                    var route = Enum.valueOf(routeType, in.get("route").getAsString());
+                    var intent = people ? new MemoryGatekeeper.Intent(
+                            MemoryGatekeeper.Focus.valueOf(in.get("memory_focus").getAsString()),
+                            in.get("author_ref").getAsString(), in.get("query").getAsString()) : MemoryGatekeeper.Intent.DEFAULT;
+                    if (intent.validFor(report, previous)) return new Selection<>(route, intent);
                 }
-            } catch (JsonParseException | IllegalArgumentException error) {
-                throw new IOException("Router 的 select_route.route 不符合流程枚举契约", error);
             }
+        } catch (JsonParseException | IllegalArgumentException error) {
+            throw new IOException(routeRule(people), error);
         }
-        throw new IOException("Router 须通过一次 select_route 调用提交唯一的 route 字段");
+        throw new IOException(routeRule(people));
+    }
+
+    private static String routeRule(boolean people) {
+        return people ? "select_route 须一次提交有效 route、memory_focus、author_ref 和 query，称呼须来自用户话题"
+                : "Router 须通过一次 select_route 调用提交唯一的 route 字段，符合流程枚举契约";
     }
 
     /** 回带模型工具调用标识，审计可从实际派单追到产生它的那次推理。 */
