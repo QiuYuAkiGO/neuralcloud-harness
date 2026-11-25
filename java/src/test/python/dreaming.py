@@ -27,6 +27,7 @@ GEMINI_PATH = "/v1beta/models/dream-trial:generateContent"
 OPENAI_PATH = "/dream/v1/chat/completions"
 ROUTER_PATH = "/router/v1/chat/completions"
 MASTER_PATH = "/master/v1/chat/completions"
+UNRELATED_ALIAS = "栖桥"
 
 
 def context(conversation, role="ORCHESTRATOR"):
@@ -196,7 +197,10 @@ class DreamTrial(Trial):
         elif UPDATE in by_text:
             change("person", "林澄", UPDATE, "我会先给林澄留一段语音，再确认交班。", "近三次交接和新的明确偏好改变了我的判断。")
         elif PERSON in by_text:
-            change("person", "林澄", PERSON, "我觉得和林澄交班时先备好纸质清单会更顺利。", "连续六次交班和本人表述一致。")
+            subject = UNRELATED_ALIAS if mode == "guess-alias-once" else "林澄"
+            change("person", subject, PERSON, "我觉得和林澄交班时先备好纸质清单会更顺利。", "连续六次交班和本人表述一致。")
+            if mode == "guess-alias-once":
+                self.mode = "valid"  # 只有重新调用模型才会得到正确称呼。
         if TOPIC in by_text and not any(p["kind"] == "topic" and p["subject"] == "青砾星图" for p in profiles):
             change("topic", "青砾星图", TOPIC, "我把交叉校准看作青砾星图发布前的必要步骤。", "六版发布记录采用同一标准。")
         result = {"changes": changes}
@@ -224,6 +228,11 @@ class DreamTrial(Trial):
             assert set(body["scopes"]) == {SCOPE} and SECRET not in json.dumps(data, ensure_ascii=False)
             self.batches.append(data)
         elif path == "/v2/dreaming/commit":
+            if status == 422:
+                # 在明确拒绝送回宿主之前查回执，此时重新推理尚无机会提交。
+                query = dict(context=context("dreaming:trial"), source_instance=body["source_instance"],
+                             event_id=body["event_id"])
+                assert self.mem("dreaming/receipt", query)["status"] == "NOT_FOUND"
             self.commits.append(dict(command=body, status=status, response=data))
             if status == 200 and body["changes"]:
                 self.checkpoint("after-commit")
@@ -332,6 +341,12 @@ def profile_for(profiles, kind, source, subject_part):
 
 
 def run(t):
+    if not t.live:
+        # 真实 Memory 登记另一个人的别称。本批材料只提到林澄，模型无权获知那条绑定。
+        people = {"character_id": "trial", "people": [{"subject": "南音", "aliases": [UNRELATED_ALIAS]}]}
+        (t.dir / "people.json").write_text(json.dumps(people, ensure_ascii=False), encoding="utf-8")
+        with t.mc.open("a", encoding="utf-8") as config:
+            config.write("dreamingPeopleFile=people.json\n")
     memory = t.start("memory", ["-jar", t.mjar, "--config", t.mc])
     t.ready(lambda: t.mem("health")["status"] == "TEXT_READY", memory)
     if not t.live:
@@ -345,6 +360,8 @@ def run(t):
     t.stop_harness()
     t.epochs["before"] = t.epoch_counts()
     t.start_dreaming()
+    if not t.live:
+        t.mode = "guess-alias-once"
 
     # 挡住一个正式 Router 前台请求，期间写入两条可见原文和一条名称近似的隔离会话原文。
     busy = t.arm("foreground")
@@ -359,7 +376,19 @@ def run(t):
     finally:
         busy.release.set()
     assert future.result(timeout=8)[0] == 200
-    t.wait_committed(person)
+    if not t.live:
+        rejected = t.wait_for(lambda: next((r for r in t.commits if r["status"] == 422), None),
+                              "Memory 明确拒绝本批未提示的人物别称")
+        command = rejected["command"]
+        assert rejected["response"]["code"] == "INVALID_FIELD" and "subject" in rejected["response"]["field"]
+        assert any(c["kind"] == "person" and c["subject"] == UNRELATED_ALIAS for c in command["changes"])
+        guessed, = [c["input"] for c in t.model_calls if c["mode"] == "guess-alias-once"]
+        assert not any(UNRELATED_ALIAS in p["aliases"] for p in guessed.get("person_names", []))
+    written = t.wait_committed(person)
+    if not t.live:
+        assert any(c["mode"] == "valid" and c["input"]["evidence"] == guessed["evidence"] for c in t.model_calls)
+        assert all(command[key] == written["command"][key] for key in ("stream_id", "policy_version", "after", "through"))
+        assert sum(r["command"] == command for r in t.commits) == 1
     t.wait_committed(topic)
     initial = t.snapshot("新增")
     old_person = profile_for(initial, "person", person, "林澄")
