@@ -13,6 +13,9 @@ from qq_observe import A, ACCOUNT, B
 DIRECTORY_NAME, DIRECTORY_ID = "纸舟样例七", "6543219"
 MISSING, TOPIC = "薄荷样例塔", "翻谱"
 QUOTE = "翻谱前，我先逐页核对了页码。"
+PACKING = "装匣时我给铜角垫了两层软布。"
+REGISTER = f"漂签簿的借签栏上出现了{roster.NAME}，我还没核实借件。"
+OLD_ANSWER = "上次我只认出了信封的颜色。"
 NO_QUOTES = (r"(?:未|没有|没|无|零|0).{0,28}(?:发言|原话|言论|本人记录|作者记录)"
              r"|(?:发言|原话|言论|作者历史).{0,24}(?:未找到|没有|为空|零条|0\s*条)")
 ASK_WHICH = r"哪(?:一)?[位个]|(?:提供|告诉|给出|确认|给我).{0,16}(?:QQ\s*号|账号|称呼)|具体.{0,10}(?:人|称呼)"
@@ -180,6 +183,77 @@ class PersonIntentCases(unittest.TestCase):
         self.assertFalse(any(r["kind"] == "IDENTITY" and r["query"] not in ("", str(roster.PEER)) for r, _ in reads))
         self.assertFalse(any("qq_sender_id" in r for kind, r, _ in events if kind == "/v2/recall"))
         self.assertEqual([], t.listed_groups)
+
+    def seed_draft_records(self, t, records):
+        """每个片段都由相应的合成群账号入账，正文中出现别人的名字也保留实际作者。"""
+        for number, (author, text) in enumerate(records, 731400):
+            roster.AuthorRecallCases.seed_quote(t, author, number, "2026-01-17T02:37:48Z", text)
+
+    def draft_after_lookup(self, t, events, query, author, hit):
+        """核对模型已选择的补查实际返回了指定原文，再从后续起草请求取本轮可见材料。"""
+        order = [kind for kind, _, _ in events]
+        first_plan = order.index("plan")
+        last_draft = max(i for i, kind in enumerate(order) if kind == "draft")
+        self.assertTrue(any(kind == "/v2/recall" and req["kind"] == "HISTORY" and req["use"] == "CITE"
+                            and req["query"] == query and req.get("qq_sender_id") == author
+                            and any(row["text"] == hit for row in result["items"])
+                            for kind, req, result in events[first_plan + 1:last_draft]), query)
+        messages = events[last_draft][1]
+        return messages, current_material(messages, t.question)
+
+    def test_draft_keeps_the_resolved_nickname_after_supplemental_history(self):
+        """正例。补查他人正文或同号另一话题后，起草仍能识别原称呼、本人原话及补查来源。"""
+        t = self.open_trial()
+        self.seed_draft_records(t, [(roster.AUTHOR, QUOTE), (roster.AUTHOR, PACKING), (roster.OTHER, REGISTER)])
+        t.harness()
+        previous = "上次见到信封时，你认出了什么？"
+        t.answers = {previous: OLD_ANSWER}
+        self.assertEqual(OLD_ANSWER, t.ask(previous, "DEFAULT")[1])
+        answer = "他当时说自己逐页核对过。"
+        t.answers = {QUOTE: answer, OLD_ANSWER: OLD_ANSWER}
+        for query, author, extra in (("漂签簿", None, REGISTER), ("装匣", str(roster.AUTHOR), PACKING)):
+            with self.subTest(query=query):
+                plan = dict(kind="HISTORY", query=query)
+                if author:
+                    plan["author_ref"] = author
+                question = f"{roster.NAME}自己谈翻谱时怎么说的？也看看{query}那份记录。"
+                events, reply = t.ask(question, "PERSON", roster.NAME, TOPIC, plan=plan)
+                _, first = self.before_plan(t, events)
+                self.assertIn(QUOTE, first)
+                messages, current = self.draft_after_lookup(t, events, query, author, extra)
+                self.assertTrue(any(m["role"] == "assistant" and m["content"] == OLD_ANSWER for m in messages))
+                self.assertNotIn(OLD_ANSWER, current)
+                self.assertIn(QUOTE, current)
+                self.assertIn(extra, current)
+                # 删掉原文本身，单靠他人正文提及的昵称不能充当“该称呼属于这个账号”的证据。
+                provenance = current.replace(QUOTE, "").replace(extra, "")
+                self.assertIn(roster.NAME, provenance)
+                self.assertIn(str(roster.AUTHOR), provenance)
+                self.assertRegex(provenance, r"共同群|同群|共享群|shared[ _-]?group")
+                self.assertRegex(provenance, r"昵称|名片|nickname|group[ _-]?card")
+                if author is None:
+                    self.assertRegex(provenance, rf"{roster.OTHER}|他人|其他人|关键词|正文检索|普通历史")
+                self.assertEqual(answer, reply)
+
+    def test_mention_followup_does_not_inherit_a_previous_persons_evidence(self):
+        """反例。同一私聊曾问过该人，本轮只问谁提到该词，补查应保留提及者的记录。"""
+        t = self.open_trial()
+        self.seed_draft_records(t, [(roster.AUTHOR, QUOTE), (roster.OTHER, REGISTER)])
+        t.harness()
+        t.answers = {QUOTE: OLD_ANSWER}
+        self.assertEqual(OLD_ANSWER, t.ask(f"{roster.NAME}之前怎么翻谱？", "PERSON", roster.NAME, TOPIC)[1])
+        mention_answer = "有人在借签栏看到过这个名字。"
+        t.answers = {REGISTER: mention_answer}
+        events, reply = t.ask(f"漂签簿里谁提到过{roster.NAME}？", "MENTION", query="漂签簿",
+                              plan=dict(kind="HISTORY", query="借签"))
+        messages, current = self.draft_after_lookup(t, events, "借签", None, REGISTER)
+        self.assertTrue(any(m["role"] == "assistant" and m["content"] == OLD_ANSWER for m in messages))
+        self.assertIn(REGISTER, current)
+        self.assertNotIn(QUOTE, current)
+        self.assertNotIn(str(roster.AUTHOR), current)
+        self.assertNotIn(OLD_ANSWER, current)
+        self.assertFalse(any("qq_sender_id" in req for kind, req, _ in events if kind == "/v2/recall"))
+        self.assertEqual(mention_answer, reply)
 
 
 if __name__ == "__main__":
