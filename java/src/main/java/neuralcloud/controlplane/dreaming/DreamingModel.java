@@ -177,6 +177,8 @@ public final class DreamingModel implements AutoCloseable {
         var material = new JsonObject();
         material.add("evidence", batch.get("evidence"));
         material.add("profiles", batch.get("profiles"));
+        boolean groupHistory = new JsonPrimitive("group_history").equals(batch.get("lane"));
+        if (groupHistory) material.add("lane", batch.get("lane"));
         var aliases = new HashMap<String, String>();
         if (batch.has("person_names")) {
             // 属于本批次的已确认称呼同时约束提示词和模型输出，旧版 Memory 可省略此字段。
@@ -275,7 +277,7 @@ public final class DreamingModel implements AutoCloseable {
                     protocol == Protocol.GEMINI
                             ? ChatWorker.geminiText(envelope)
                             : toolArguments(envelope);
-            return checked(JSON.fromJson(arguments, JsonObject.class), batch, people, aliases);
+            return checked(JSON.fromJson(arguments, JsonObject.class), batch, people, aliases, groupHistory);
         } catch (JsonParseException | IllegalStateException | NumberFormatException e) {
             throw new IOException("Dreaming 模型响应的 JSON 或类型无效", e);
         }
@@ -309,7 +311,7 @@ public final class DreamingModel implements AutoCloseable {
 
     /** 核对两个操作数组及其各自的版本。未收到任何人物引用的旧批仍接受仅含 changes 的响应。 */
     private static Proposal checked(JsonObject output, JsonObject batch, Map<String, JsonObject> people,
-                                    Map<String, String> aliases) throws IOException {
+                                    Map<String, String> aliases, boolean groupHistory) throws IOException {
         if (output == null || !(output.get("changes") instanceof JsonArray changes) || changes.size() > 8)
             throw invalid("changes");
         JsonArray claims;
@@ -327,7 +329,7 @@ public final class DreamingModel implements AutoCloseable {
             offered.put(evidence.get("record_id").getAsString(), evidence);
         }
         var proposedNames = checkClaims(claims, people, offered);
-        checkChanges(changes, batch.getAsJsonArray("profiles"), people, aliases, proposedNames, offered);
+        checkChanges(changes, batch.getAsJsonArray("profiles"), people, aliases, proposedNames, offered, groupHistory);
         return new Proposal(changes, claims);
     }
 
@@ -346,7 +348,7 @@ public final class DreamingModel implements AutoCloseable {
             String name = string(claim, "name", 128), relation = string(claim, "relation", 32);
             if (!RELATIONS.contains(relation)) throw invalid("name_claims.relation");
             String scope = string(claim, "scope", 256);
-            var sources = sources(claim, offered, true);
+            var sources = sources(claim, offered, true, null);
             if (!scope.equals("global") && sources.stream().noneMatch(
                     e -> e.has("conversation_id") && e.get("conversation_id").getAsString().equals(scope)))
                 throw invalid("name_claims.scope");
@@ -360,7 +362,7 @@ public final class DreamingModel implements AutoCloseable {
     /** QQ 按签发 ID 和人物版本定位，同名的两份认识可独立修订。无身份材料的旧档沿用名称。 */
     private static void checkChanges(JsonArray changes, JsonArray profiles, Map<String, JsonObject> people,
                                      Map<String, String> aliases, Set<List<String>> proposedNames,
-                                     Map<String, JsonObject> offered) throws IOException {
+                                     Map<String, JsonObject> offered, boolean groupHistory) throws IOException {
         var byId = new HashMap<String, JsonObject>();
         var byName = new HashMap<List<String>, JsonObject>();
         var ambiguous = new HashSet<List<String>>();
@@ -378,7 +380,6 @@ public final class DreamingModel implements AutoCloseable {
             String kind = string(item, "kind", 16);
             String subject = string(item, "subject", 128);
             if (!Set.of("person", "topic").contains(kind)) throw invalid("kind");
-            var sources = sources(item, offered, false);
             var identity = List.of(kind, subject);
             JsonObject prior;
             if (item.has("person_id")) {
@@ -391,7 +392,10 @@ public final class DreamingModel implements AutoCloseable {
                     throw invalid("changes.subject");
                 identity = List.of(kind, "person_id", id);
                 prior = byId.get(id);
+                // 群历史页只签发群成员原话。修订同一人物时可以连同旧档既有的精确引用提交。
+                sources(item, offered, false, groupHistory ? prior : null);
             } else {
+                var sources = sources(item, offered, false, null);
                 if (ambiguous.contains(identity) || (kind.equals("person")
                         && sources.stream().anyMatch(e -> e.has("speaker_person_id"))))
                     throw invalid("changes.person_id");
@@ -422,8 +426,9 @@ public final class DreamingModel implements AutoCloseable {
         return false;
     }
 
-    /** 同项引用按记录去重，称呼还需逐字匹配该版获准原文；判断谁在说谁由权威端复核。 */
-    private static List<JsonObject> sources(JsonObject item, Map<String, JsonObject> offered, boolean quoted)
+    /** 每项至少有一条本页依据。只有修订同人旧档可以附带该档的引用，不读取其原文或据此认领称呼。 */
+    private static List<JsonObject> sources(JsonObject item, Map<String, JsonObject> offered, boolean quoted,
+                                             JsonObject previousProfile)
             throws IOException {
         if (!(item.get("source_refs") instanceof JsonArray refs) || refs.isEmpty() || refs.size() > 16)
             throw invalid("source_refs");
@@ -434,14 +439,30 @@ public final class DreamingModel implements AutoCloseable {
             if (!(raw instanceof JsonObject ref) || !ref.keySet().equals(expected)) throw invalid("source_refs");
             String id = string(ref, "record_id", 64);
             var source = offered.get(id);
-            if (!id.matches("[0-9a-f]{64}") || !seen.add(id) || source == null
-                    || source.get("revision").getAsLong() != integer(ref, "revision", 1))
+            long revision = integer(ref, "revision", 1);
+            if (!id.matches("[0-9a-f]{64}") || !seen.add(id)
+                    || (source == null ? !hasProfileRef(previousProfile, id, revision)
+                                       : source.get("revision").getAsLong() != revision))
                 throw invalid("source_refs.record_id/revision");
+            if (source == null) continue;
             if (quoted && !source.get("content").getAsString().contains(string(ref, "quote", 2048)))
                 throw invalid("source_refs.quote");
             sources.add(source);
         }
+        if (sources.isEmpty() || (sources.size() < refs.size() && sources.stream().noneMatch(
+                source -> previousProfile.get("person_id").equals(source.get("speaker_person_id")))))
+            throw invalid("source_refs 须有本页依据，保留旧档引用时须有该人物的本页发言");
         return sources;
+    }
+
+    /** 核对 Memory 随该人物当前版本签发的引用。退役档案只提供版本，不能提供旧来源。 */
+    private static boolean hasProfileRef(JsonObject profile, String id, long revision) {
+        if (profile == null || !profile.has("source_refs")) return false;
+        for (var entry : profile.getAsJsonArray("source_refs")) {
+            var ref = entry.getAsJsonObject();
+            if (id.equals(ref.get("record_id").getAsString()) && revision == ref.get("revision").getAsLong()) return true;
+        }
+        return false;
     }
 
     private static long integer(JsonObject o, String k, long min) throws IOException {

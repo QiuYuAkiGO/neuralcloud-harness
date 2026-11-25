@@ -15,7 +15,7 @@ Dreaming 在 Harness 的控制台进程内使用独立的后台线程和模型�
 | /v2/dreaming/receipt | context、source_instance、event_id | NOT_FOUND 或原持久回执；同键不同命令返回冲突。 |
 | /v2/dreaming/profiles | context | profiles 只含当前可见的完整档案。来源失效时立即隐藏相应版本；档案重评沿用其原身份与版本序列。 |
 
-模型输出 `changes` 和 `name_claims`。没有签发人物的批次也接受只含 `changes` 的旧结果。每项认识包含 kind、subject、expected_version（新建为 0）、text（以“我”开头）、scope、reason 和 source_refs（本批的一手 record_id 与 revision）。引用 QQ 人物材料时填本批签发的目标 person_id。同名人物按不同 ID 取各自的档案版本，同一身份每批最多修订一次。作者由宿主绑定。退役档案仅交付重评身份。
+模型输出 `changes` 和 `name_claims`。没有签发人物的批次也接受只含 `changes` 的旧结果。每项认识包含 kind、subject、expected_version（新建为 0）、text（以“我”开头）、scope、reason 和 source_refs。每项修订至少引用本页一条证据的 record_id 与 revision。引用 QQ 人物材料时填本批签发的目标 person_id。群历史页把 `lane=group_history` 和该页获准群成员的原话交给模型。依据某位群成员本页的发言修订其 person_id 下的旧档时，可额外保留该档已有的精确引用。模型仅收到旧档已有的认识和引用。称呼提案的每条原话均须来自本页 evidence。同名人物按不同 ID 取各自的档案版本，同一身份每批最多修订一次。作者由宿主绑定。退役档案仅交付重评身份。
 
 每项称呼提案含 person_id、expected_identity_version、name、relation、scope 和 source_refs。relation 接受 SELF_NAME（本人自称）、PREFERRED_NAME（指定首选）、DIRECT_CONFIRMATION（明确的定向问答）、MENTION（提及线索）。scope 为 global 或原句的会话 ID，每条来源还须给出该修订 content 内逐字存在的 quote。每批最多 16 项，每项引用 1–16 条原句。可单独登记称呼，也可与人物认识一同提交。Memory 从已签发人物、真实渠道作者、定向关系、证据版本及权限核验，决定是否登记为有效称呼及是否修改主名。
 
