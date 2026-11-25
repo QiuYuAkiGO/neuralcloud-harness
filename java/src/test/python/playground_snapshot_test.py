@@ -1,10 +1,11 @@
-"""用真实 Memory v2 创建全合成 QQ 快照，通过 Playground 公开读取入口验收隔离。"""
+"""通过 Playground 公开入口验收 QQ 快照。分别用 NC_PLAYGROUND_MEMORY_JAR 指定生成格式 4、5 的真实 JAR。"""
 
 import hashlib
 import http.client
 import json
 import os
 import secrets
+import shutil
 import socket
 import sqlite3
 import subprocess
@@ -18,6 +19,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT))
+from playground.snapshot import Snapshot
+
+
 ACCOUNT, AUTHOR, PEER = "12345", "34567", "45678"
 GROUP = f"group:onebot:{ACCOUNT}:23456"
 AUTHOR_DM = f"c2c:onebot:{ACCOUNT}:{AUTHOR}"
@@ -127,36 +131,47 @@ class PlaygroundSnapshotTest(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         cls.addClassCleanup(temporary.cleanup)
         path, cls.ids = write_fixture(Path(temporary.name))
-        from playground.snapshot import Snapshot
-
         cls.path, cls.before = path, hashlib.sha256(path.read_bytes()).digest()
-        cls.snapshot = Snapshot(path)
 
     def test_group_and_private_history_keep_the_target_separate(self):
         """同一发言先从时间线定位，再从截点读取。有效授权进入材料，另一私聊有自己的对话前缀。"""
-        kinds = {row["id"]: row["kind"] for row in self.snapshot.conversations()}
+        snapshot = Snapshot(self.path)
+        kinds = {row["id"]: row["kind"] for row in snapshot.conversations()}
         self.assertEqual((kinds[GROUP], kinds[PEER_DM]), ("group", "private"))
-        timeline = self.snapshot.timeline(GROUP)
+        timeline = snapshot.timeline(GROUP)
         self.assertEqual([row["id"] for row in timeline],
                          [self.ids[k] for k in ("group-before", "group-target", "group-future")])
-        case = self.snapshot.cut(GROUP, self.ids["group-target"])
+        case = snapshot.cut(GROUP, self.ids["group-target"])
         self.assertEqual(case["target"]["id"], self.ids["group-target"])
         self.assertEqual([row["text"] for row in case["prefix"]], ["group-before"])
         self.assertEqual((case["target"]["seq"], case["target"]["revision"]), (timeline[1]["seq"], 1))
         records = {(row["id"], row["revision"]) for row in case["records"]}
         self.assertTrue({(self.ids["group-before"], 1), (self.ids["shared"], 1)} <= records)
-        private = self.snapshot.cut(PEER_DM, self.ids["private-target"])
+        private = snapshot.cut(PEER_DM, self.ids["private-target"])
         self.assertEqual([row["text"] for row in private["prefix"]], ["private-only"])
 
     def test_no_future_foreign_withdrawn_or_late_granted_evidence(self):
         """一个沙箱起点同时受到入账序、会话和导出时引用权限制，重复取样也必须保持源文件完整。"""
-        case = self.snapshot.cut(GROUP, self.ids["group-target"])
+        case = Snapshot(self.path).cut(GROUP, self.ids["group-target"])
         visible = {row["id"] for row in [*case["records"], *case["prefix"]]}
         for hidden in ("group-target", "group-future", "private-only", "withdrawn",
                        "later-authorized", "authorization-revoked"):
             with self.subTest(hidden=hidden):
                 self.assertNotIn(self.ids[hidden], visible)
         self.assertEqual(hashlib.sha256(self.path.read_bytes()).digest(), self.before)
+
+    def test_unrecognized_versions_are_rejected_without_rewriting_the_file(self):
+        """仅变更独立副本的 SQLite 格式号，分别检验早于 4、晚于 5 的快照在打开时被拒绝。"""
+        for version in (3, 6):
+            with self.subTest(version=version):
+                other = self.path.with_name(f"unsupported-{version}.sqlite")
+                shutil.copyfile(self.path, other)
+                with closing(sqlite3.connect(other)) as connection:
+                    connection.execute(f"PRAGMA user_version={version}")
+                before = hashlib.sha256(other.read_bytes()).digest()
+                with self.assertRaises(ValueError):
+                    Snapshot(other)
+                self.assertEqual(hashlib.sha256(other.read_bytes()).digest(), before)
 
 
 if __name__ == "__main__":
