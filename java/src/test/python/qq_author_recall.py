@@ -16,6 +16,7 @@ NAME = "MarShFiNch47"
 QUESTION = f"你怎么看{NAME}呢"
 AUTHOR, OTHER = 54321, 76543
 FACT = "我把这次的星图按观测日期整理好了。"
+FACT_UTC = "2026-01-17T02:37:48Z"
 ANSWER = "从整理星图这件事看，这位朋友做事很有条理。"
 CLARIFY = "你指的是哪位？可以告诉我对方的 QQ 号吗？"
 
@@ -85,14 +86,19 @@ class AuthorRecallCases(unittest.TestCase):
         trial.ready(lambda: trial.mem("health")["status"] == "TEXT_READY", memory)
         return trial
 
+    @staticmethod
+    def seed_quote(trial, sender, number, at, text):
+        """通过公开入账接口固定原话、作者和原始 UTC，随后只观察正式渠道及模型边界。"""
+        group = context(A)
+        return trial.mem("ingest", dict(context=group, source_instance="neuralcloud-java", event_id=str(number),
+                         kind="observation", occurred_at=at, content=text, speaker=str(sender),
+                         channel=dict(platform="qq", type="qq_group", account_id=str(ACCOUNT), sender_id=str(sender),
+                                      conversation_id=group["conversation_id"], message_id=str(number))))
+
     def test_shared_nickname_and_card_resolve_to_one_author_before_planning(self):
         """正例。正文没有账号或昵称；仅按两群名册共同指向的作者，才能拿到预存原话。"""
         t = self.open_trial(ambiguous=False)
-        group = context(A)
-        receipt = t.mem("ingest", dict(context=group, source_instance="neuralcloud-java", event_id="author-star-map",
-                        kind="observation", occurred_at="2026-01-01T00:00:00Z", content=FACT, speaker=str(AUTHOR),
-                        channel=dict(platform="qq", type="qq_group", account_id=str(ACCOUNT), sender_id=str(AUTHOR),
-                                     conversation_id=group["conversation_id"], message_id="481190")))
+        receipt = self.seed_quote(t, AUTHOR, 481190, FACT_UTC, FACT)
         source = {key: receipt[key] for key in ("record_id", "revision")}
         t.harness()
         observed, reply = t.ask_private(QUESTION, 481201)
@@ -111,18 +117,32 @@ class AuthorRecallCases(unittest.TestCase):
         self.assertEqual(request["context"]["qq"]["peer_id"], str(PEER))
         inbound = next(req for kind, req, _ in before if kind == "/v2/ingest" and req["content"] == QUESTION)
         self.assertLessEqual(datetime.fromisoformat(request["before"]), datetime.fromisoformat(inbound["occurred_at"]))
-        self.assertTrue(any(item["ref"] == source and item["text"] == FACT for item in result["items"]))
-        self.assertIn(FACT, json.dumps(observed[first][1], ensure_ascii=False))
+        item, = [row for row in result["items"] if row["ref"] == source and row["text"] == FACT]
+        self.assertTrue(item["occurred_at"].endswith("Z"))
+        self.assertEqual(datetime.fromisoformat(item["occurred_at"]), datetime.fromisoformat(FACT_UTC))
+        drafts = [messages for kind, messages, _ in observed if kind == "draft"]
+        self.assertTrue(drafts, "需要核对实际起草请求里的作者材料")
+        for messages in (observed[first][1], *drafts):
+            material = "\n".join(row["content"] for row in messages if FACT in (row.get("content") or ""))
+            self.assertRegex(material, r"10(?:[:：]37|时37分)", "目标原话应按北京时间提交给模型")
+            self.assertRegex("\n".join(row.get("content") or "" for row in messages),
+                             r"北京时间|东八区|Asia/Shanghai|\+08:00|UTC\+8\b", "模型需要知道所用时区")
         self.assertEqual(reply, ANSWER)
         self.assertEqual(len(t.sent), 1)
         status, audit = call(t.hp, f"/api/audit/chains/qq-private-{ACCOUNT}-{PEER}")
         self.assertEqual(status, 200)
         self.assertTrue(any(e["type"] == "memory_call" and e["data"].get("author_ref") == NAME
                             for e in audit["events"]))
+        stored = [b["item"] for e in audit["events"] if e["type"] == "memory_recall"
+                  for b in e["data"]["bindings"] if b["item"]["ref"] == source]
+        self.assertTrue(stored)
+        self.assertTrue(all(row["occurred_at"] == item["occurred_at"] for row in stored))
 
     def test_same_name_on_two_accounts_and_mention_only_question(self):
         """反例。同名不同号时请求辨认；随后问谁提到这个名字时应按正文查，两个入口均不指定作者。"""
         t = self.open_trial(ambiguous=True)
+        other_quote = "朱砂样片分装到提匣里了。"
+        self.seed_quote(t, OTHER, 481191, "2026-01-23T02:53:11Z", other_quote)
         t.harness()
         ambiguous, reply = t.ask_private(QUESTION, 481202)
         self.assertEqual(set(t.listed_groups), {A, B})
@@ -135,6 +155,17 @@ class AuthorRecallCases(unittest.TestCase):
         self.assertTrue(any(NAME in req["query"] for req in histories))
         self.assertTrue(all("qq_sender_id" not in req for req in histories))
         self.assertEqual(t.listed_groups, [])
+
+        # 直接指定另一账号，名册歧义不影响此轮；只有同群其他人的原话，目标作者应为零命中。
+        empty, _ = t.ask_private(f"你怎么看{AUTHOR}呢", 481204)
+        reads = [result for kind, req, result in empty
+                 if kind == "/v2/recall" and req.get("qq_sender_id") == str(AUTHOR)]
+        self.assertTrue(reads and all(not result["items"] for result in reads))
+        for kind, messages, _ in empty:
+            if kind in ("plan", "draft"):
+                material = json.dumps(messages, ensure_ascii=False)
+                self.assertNotIn(other_quote, material)
+                self.assertNotRegex(material, r"(?:2026[-/.]0?1[-/.]23|0?1月23日)\D{0,16}10(?:[:：]53|时53分)")
 
 
 if __name__ == "__main__":
