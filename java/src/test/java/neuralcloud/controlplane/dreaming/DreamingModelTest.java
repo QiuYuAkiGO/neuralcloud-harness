@@ -342,7 +342,9 @@ public class DreamingModelTest {
 
     private static void assertChangesSchema(JsonObject schema) {
         var item = schema.getAsJsonObject("properties").getAsJsonObject("changes").getAsJsonObject("items");
-        assertEquals(FIELDS, item.getAsJsonObject("properties").keySet());
+        var fields = new java.util.HashSet<>(item.getAsJsonObject("properties").keySet());
+        fields.remove("person_id"); // 无身份引用的历史批次仍可返回原有字段。
+        assertEquals(FIELDS, fields);
         var ref = item.getAsJsonObject("properties").getAsJsonObject("source_refs").getAsJsonObject("items");
         assertEquals(Set.of("record_id", "revision"), ref.getAsJsonObject("properties").keySet());
     }

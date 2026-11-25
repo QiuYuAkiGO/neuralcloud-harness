@@ -7,17 +7,17 @@ from qq_observe import call
 
 
 class HandshakeTrial(DreamTrial):
-    """正例透传真实健康响应。反例只撤去 dreaming，使用相同的 Memory 库和控制台配置。"""
+    """透传真实健康响应，或在相同配置下单独撤去一项整理能力。"""
     def __init__(self, args):
         super().__init__(args)
-        self.withhold = False
+        self.withhold = None
         self.announcements = []
 
     def route(self, path, body, headers):
         status, result = super().route(path, body, headers)
         if path == "/v2/health" and status == 200:
             if self.withhold:
-                result = dict(result, capabilities=[c for c in result["capabilities"] if c != "dreaming"])
+                result = dict(result, capabilities=[c for c in result["capabilities"] if c != self.withhold])
             self.announcements.append(result)
         return status, result
 
@@ -28,21 +28,23 @@ def run(t):
     t.start_dreaming()
     assert t.announcements, "宿主必须经过 Memory v2 握手"
     health = t.announcements[-1]
-    assert health.get("session_isolation") is False and {"dreaming", "identity_lookup"} <= set(health["capabilities"]), (
-        "这对用例需要共享模式、支持身份目录与 Dreaming 的 Memory v2 JAR", health)
+    required = {"dreaming", "dreaming_qq_aliases", "identity_lookup"}
+    assert health.get("session_isolation") is False and required <= set(health["capabilities"]), health
     t.ready(lambda: call(t.hp, "/api/nodes")[0] == 200, t.hproc)
     t.stop_harness()
 
     # 空库正例已经从正式入口领取了首批并开放控制台。缺少所选功能的能力时，启动应在握手边界退出。
-    seen, batches = len(t.announcements), len(t.batches)
-    t.withhold = True
-    t.launch(t.settings(), t.console)
-    assert t.hproc.wait(timeout=15) == 1, "缺少 dreaming 的对端应导致启动失败"
-    assert len(t.announcements) > seen and len(t.batches) == batches
-    denied = t.announcements[-1]
-    assert denied["session_isolation"] is False and set(denied["capabilities"]) == set(health["capabilities"]) - {"dreaming"}
+    for capability in ("dreaming", "dreaming_qq_aliases"):
+        seen, batches = len(t.announcements), len(t.batches)
+        t.withhold = capability
+        t.launch(t.settings(), t.console)
+        assert t.hproc.wait(timeout=15) == 1, f"缺少 {capability} 的对端应导致启动失败"
+        assert len(t.announcements) > seen and len(t.batches) == batches
+        denied = t.announcements[-1]
+        assert denied["session_isolation"] is False
+        assert set(denied["capabilities"]) == set(health["capabilities"]) - {capability}
     assert not t.failures, t.failures
-    print("PASS 共享 Memory 已就绪并接受首批取证；仅撤去 dreaming 时宿主在启动阶段拒绝。")
+    print("PASS 成对能力握手通过；分别移除两项整理能力时均在取证前退出。")
 
 
 if __name__ == "__main__":

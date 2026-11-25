@@ -204,6 +204,8 @@ class DreamTrial(Trial):
         if TOPIC in by_text and not any(p["kind"] == "topic" and p["subject"] == "青砾星图" for p in profiles):
             change("topic", "青砾星图", TOPIC, "我把交叉校准看作青砾星图发布前的必要步骤。", "六版发布记录采用同一标准。")
         result = {"changes": changes}
+        if packet.get("persons"):
+            result["name_claims"] = []
         if path == OPENAI_PATH:
             return 200, tool_call("submit_dreaming", result)
         content = dict(role="model", parts=[{"text": json.dumps(result, ensure_ascii=False)}])

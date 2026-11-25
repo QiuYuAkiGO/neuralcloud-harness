@@ -1,4 +1,4 @@
-"""通过 Playground 公开入口验收 QQ 快照。可用 NC_PLAYGROUND_MEMORY_JAR 指定生成格式 4、5、6 的真实 JAR。"""
+"""通过 Playground 公开入口验收 QQ 快照。可用 NC_PLAYGROUND_MEMORY_JAR 指定生成格式 4 至 7 的真实 JAR。"""
 
 import hashlib
 import http.client
@@ -170,7 +170,7 @@ class PlaygroundSnapshotTest(unittest.TestCase):
 
     def test_supported_versions_read_the_expected_message_without_rewriting_the_file(self):
         """各支持格式都能定位同一条真实入账的 QQ 发言，取样后副本逐字节保持一致。"""
-        for version in (4, 5, 6):
+        for version in (4, 5, 6, 7):
             with self.subTest(version=version):
                 other, before = self.copy_with_version(version)
                 case = Snapshot(other).cut(GROUP, self.ids["group-target"])
@@ -178,8 +178,8 @@ class PlaygroundSnapshotTest(unittest.TestCase):
                 self.assertEqual(hashlib.sha256(other.read_bytes()).digest(), before)
 
     def test_unrecognized_versions_are_rejected_without_rewriting_the_file(self):
-        """早于 4 或晚于 6 的格式在打开时被拒绝，版本号和历史均保留。"""
-        for version in (3, 7):
+        """早于 4 或晚于 7 的格式在打开时被拒绝，版本号和历史均保留。"""
+        for version in (3, 8):
             with self.subTest(version=version):
                 other, before = self.copy_with_version(version)
                 with self.assertRaises(ValueError):
