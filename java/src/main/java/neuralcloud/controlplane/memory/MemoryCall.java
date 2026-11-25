@@ -29,7 +29,7 @@ import java.util.regex.Pattern;
  *   1. 轮次起始的变更刷新（{@link #startTurn} / {@link #refreshed}）；
  *   2. Master 专用的受众热目录卡片组装与精确分词预算裁剪（{@link #hotIndex}）；
  *   3. 控制台 Master 专用的印象修订证据核验与落盘（{@link #impressionEvidence} / {@link #saveImpression}）；
- *   4. 交付前的跨会话引用来源登记与有效期/授权复核（{@link #verifyDeliverySources} / {@link #verifyEvidence}）。
+ *   4. 跨会话引用来源登记与可选的轮内复读（{@link #registerDeliverySources} / {@link #reviewChatEvidence}）。
  */
 public final class MemoryCall {
     /** 暴露给模型调用的函数工具名。 */
@@ -158,7 +158,7 @@ public final class MemoryCall {
         if (!v.cardPointers(trace.scope()).asList().containsAll(selected)) return "";
         hotBindings = List.copyOf(watches.values());
         v.prepareHot(inputId + "-hot", trace.scope(), block, hotBindings);
-        verifyDeliverySources(hotBindings);
+        registerDeliverySources(hotBindings);
         eventId =
                 trace.write(
                         eventId,
@@ -230,7 +230,7 @@ public final class MemoryCall {
         }
         bindings = List.copyOf(reads);
         memory.v2().prepare(inputId, caller.name(), trace.scope(), evidence, bindings);
-        verifyDeliverySources(bindings);
+        registerDeliverySources(bindings);
         return JSON.toJson(evidence);
     }
 
@@ -281,7 +281,7 @@ public final class MemoryCall {
                     trace.scope(),
                     refresh.messages(),
                     refresh.evidence());
-            verifyDeliverySources(refresh.evidence());
+            registerDeliverySources(refresh.evidence());
             eventId =
                     trace.write(
                             eventId,
@@ -310,11 +310,10 @@ public final class MemoryCall {
 
     /**
      * 筛选出受时效限制或依赖原作者授权（{@code grant_dependent}）的敏感/共享证据：
-     * 1. 立即向 Memory v2 复核当前有效性，防止在取证到装入上下文的空档中已过期或被撤权；
-     * 2. 将它们的查询用途、记录 ID 和最小版本号登记到 {@link Trace#sharedSources()}，
-     *    并收紧 {@link Trace#validUntil()} 截止时间，供渠道层在最终发消息前做二次交付门禁复核。
+     * 记录实际取到的用途、版本与已知截止时间，供交付回执及下轮重放使用。
+     * Chat Worker 可单独启用此处的远端复读，其他角色使用原有取证契约。
      */
-    private void verifyDeliverySources(List<MemoryJournal.Read> evidence)
+    private void registerDeliverySources(List<MemoryJournal.Read> evidence)
             throws IOException, InterruptedException {
         var shared = evidence.stream().filter(read -> {
             var item = read.item();
@@ -323,8 +322,8 @@ public final class MemoryCall {
                     || (item.has("grant_dependent") && item.get("grant_dependent").getAsBoolean());
         }).toList();
         if (shared.isEmpty()) return;
-        // 保存实际输入后复核渠道授权和期限，两者都可能在取证与交付之间变化。
-        memory.v2().verifyEvidence(trace.scope(), caller.name(), shared);
+        if (caller != Caller.CHAT_WORKER || memory.chatReviews().contains(ChatReview.RECALL_SOURCES))
+            memory.v2().verifyEvidence(trace.scope(), caller.name(), shared);
         for (var read : shared) {
             long revision = ResidentV2.integer(read.item().getAsJsonObject("ref"), "revision", 1);
             trace.sharedSources().merge(new Trace.MemoryTarget(read.kind(), read.id()), revision, Math::min);
@@ -355,6 +354,11 @@ public final class MemoryCall {
             for (var r : refresh.evidence())
                 if ("ONLINE".equals(ResidentV2.string(r.item(), "status"))) current.add(r);
         memory.v2().verifyEvidence(trace.scope(), caller.name(), current);
+    }
+
+    /** 前台用阶段开关决定是否再查本轮依据；现场动作和 Master 仍直接使用 verifyEvidence。 */
+    public void reviewChatEvidence(ChatReview stage) throws IOException, InterruptedException {
+        if (memory.chatReviews().contains(stage)) verifyEvidence();
     }
 
     MemoryCall(ConversationMemory memory, Trace trace, Caller caller, int parent, boolean numberEvidence) {
@@ -518,7 +522,7 @@ public final class MemoryCall {
             memory.v2().prepare(inputId, caller.name(), trace.scope(), sentences, bindings);
             preparedRead = true;
         }
-        verifyDeliverySources(bindings);
+        registerDeliverySources(bindings);
         var result = new Result(kind, recalled.matchCount(), sentences);
         eventId = trace.write(recalled.eventId(), "memory", "memory_call_result", result);
         return result;

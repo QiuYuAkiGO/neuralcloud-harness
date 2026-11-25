@@ -9,6 +9,7 @@ import neuralcloud.controlplane.console.ConsoleServer.Reply;
 import neuralcloud.controlplane.console.NodeMonitor;
 import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.master.MasterRuntime;
+import neuralcloud.controlplane.memory.ChatReview;
 import neuralcloud.controlplane.memory.ConversationMemory;
 import neuralcloud.controlplane.memory.MemoryCall;
 import neuralcloud.controlplane.memory.MemoryCall.Caller;
@@ -41,6 +42,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -160,7 +162,7 @@ public final class ConsoleMain {
                             openQqSettings.isPresent(),
                             openQqSettings
                                     .flatMap(OpenQqConfig.Settings::groupPoliciesFile)
-                                    .isPresent());
+                                    .isPresent(), settings.chatReviews());
             var chatClient = chatSettings.newClient();
             opened.push(chatClient);
             var routerClient = routerSettings.newClient();
@@ -328,7 +330,7 @@ public final class ConsoleMain {
     static Optional<MemoryAccess> openMemory(Optional<MemoryConfig> settings,
                                                      Deque<AutoCloseable> opened, AuditLog audit, boolean qqPrivateEnabled)
             throws IOException, InterruptedException {
-        return openMemory(settings, opened, audit, qqPrivateEnabled, false);
+        return openMemory(settings, opened, audit, qqPrivateEnabled, false, Set.of());
     }
 
     /** 群策略管理依赖服务端的群通知受众契约，握手不通过时不会开放渠道。 */
@@ -337,7 +339,8 @@ public final class ConsoleMain {
             Deque<AutoCloseable> opened,
             AuditLog audit,
             boolean qqPrivateEnabled,
-            boolean managedGroups)
+            boolean managedGroups,
+            Set<ChatReview> chatReviews)
             throws IOException, InterruptedException {
         if (settings.isEmpty()) {
             return Optional.empty();
@@ -401,7 +404,7 @@ public final class ConsoleMain {
                         : Optional.<ObservationAccess>empty();
         return Optional.of(
                 new MemoryAccess(
-                        new ConversationMemory(audit, memory),
+                        new ConversationMemory(audit, memory, chatReviews),
                         new RouterMemoryWriter(audit, memory),
                         observation));
     }
@@ -484,12 +487,12 @@ public final class ConsoleMain {
         int routed = trace.write(selected, "router", "router_route", Map.of("route", route.name()));
         var request = new ChatWorker.RoutedConversation(ReplySelector.Context.direct(text), route);
         if (route == Route.UNSUPPORTED)
-            return Optional.of(new Reply("chat_worker_reply", Map.of("text", chat.reply(request).orElseThrow()), routed));
+            return Optional.of(Reply.chat(chat.reply(request).orElseThrow(), routed, store.reads().chatReviews()));
         var inputForWorker = new ObservedInput(route == Route.ACTION_REQUEST ? text : seen.text(), routed);
         return Optional.of(workerTurn(inputForWorker, trace, store, chat, router, Optional.of(master), Optional.of(route),
                 parent -> task.isPresent()
                         ? executeTask(chat, task.orElseThrow(), request, trace, parent, Optional.of(store))
-                        : new Reply("chat_worker_reply", Map.of("text", chat.reply(request).orElseThrow()), parent)));
+                        : Reply.chat(chat.reply(request).orElseThrow(), parent, store.reads().chatReviews())));
     }
 
     /** 本轮图片观察独立标注来源，沿审计因果链交给前台 Worker，不把模型识图文字写作群成员原话。 */
@@ -651,11 +654,11 @@ public final class ConsoleMain {
                     // 刷新游标和自动查证各自记账；只有模型实际接收输入后，才确认消费。
                     push = read.nextRead(cause);
                     pushed = push.read(decision.kind().orElseThrow(), decision.query(), MemoryCall.AUTOMATIC_INPUT_BYTES);
-                    push.verifyEvidence();
+                    push.reviewChatEvidence(ChatReview.BEFORE_PLAN);
                     cause = push.eventId();
                 }
             }
-            read.verifyEvidence();
+            read.reviewChatEvidence(ChatReview.BEFORE_PLAN);
             turn = chat.planTurn(seen.text(), dialogue, read.queryKinds(), updates, route,
                     pushed == null ? List.of() : pushed.sentences());
         } catch (IOException error) {
@@ -670,34 +673,34 @@ public final class ConsoleMain {
         if (push != null) planData.put("automaticInput", push.consumedInput(pushed));
         int planned = trace.write(cause, "chat-worker", "chat_worker_turn_plan", planData);
         try {
-            read.verifyEvidence();
-            if (push != null) push.verifyEvidence();
+            read.reviewChatEvidence(ChatReview.AFTER_PLAN);
+            if (push != null) push.reviewChatEvidence(ChatReview.AFTER_PLAN);
         } catch (IOException changed) {
             throw new ChatWorker.PlanningFailure(changed);
         }
+        // 普通回复将这次启动选定的交付开关传给渠道。派给其他节点的回复沿用该节点的交付契约。
+        var reviews = handler.chatReviews();
         var reply = switch (turn.kind()) {
-            case REPLY -> new Reply("chat_worker_reply", Map.of("text", push == null
+            case REPLY -> Reply.chat(push == null
                     ? chat.replyToTurn(turn, List.of()).orElseThrow()
-                    : chat.replyWithMemory(turn, push, pushed, List.of()).orElseThrow()), planned);
-            case CLARIFY -> new Reply("chat_worker_reply",
-                    Map.of("text", chat.replyToTurn(turn, List.of()).orElseThrow()), planned);
+                    : chat.replyWithMemory(turn, push, pushed, List.of()).orElseThrow(), planned, reviews);
+            case CLARIFY -> Reply.chat(chat.replyToTurn(turn, List.of()).orElseThrow(), planned, reviews);
             case ACTION -> {
                 // 当本轮指令只要求查记忆，ACTION 的执行目标是 Router 注册的只读能力。
                 if (decision == null || !decision.memoryOnly()) yield action.run(planned);
                 String answer = push == null ? "你想让我再查哪件事？"
                         : chat.replyWithMemory(turn, push, pushed, List.of()).orElseThrow();
-                yield new Reply("chat_worker_reply", Map.of("text", answer), planned);
+                yield Reply.chat(answer, planned, reviews);
             }
             case HISTORY, SELF_IDENTITY, SELF_HISTORY, IDENTITY -> {
                 var kind = ConversationMemory.QueryKind.valueOf(turn.kind().name());
                 if (push != null && pushed.kind() == kind && decision.query().equals(turn.query()))
-                    yield new Reply("chat_worker_reply", Map.of("text",
-                            chat.replyWithMemory(turn, push, pushed, List.of()).orElseThrow()), planned);
+                    yield Reply.chat(chat.replyWithMemory(turn, push, pushed, List.of()).orElseThrow(), planned, reviews);
                 var recall = read.nextRead(planned);
                 String answer = push == null ? chat.replyWithMemory(turn, recall).orElseThrow()
                         : chat.replyWithMemory(turn, recall, recall.read(kind, turn.query(), MemoryCall.AUTOMATIC_INPUT_BYTES),
                                 push.withoutNoticeTexts(pushed.sentences())).orElseThrow();
-                yield new Reply("chat_worker_reply", Map.of("text", answer), recall.eventId());
+                yield Reply.chat(answer, recall.eventId(), reviews);
             }
             case SUBJECT_CONFLICT -> {
                 if (master.isEmpty() || !store.writes().supportsAttestation())
@@ -705,8 +708,8 @@ public final class ConsoleMain {
                 yield arbitrate(turn, trace, planned, master.get(), router, chat, store);
             }
         };
-        read.verifyEvidence();
-        if (push != null) push.verifyEvidence();
+        read.reviewChatEvidence(ChatReview.BEFORE_RETURN);
+        if (push != null) push.reviewChatEvidence(ChatReview.BEFORE_RETURN);
         return reply;
     }
 
@@ -738,7 +741,8 @@ public final class ConsoleMain {
         }
         if (conversation.route() == Route.CONVERSATION)
             conversation = new ChatWorker.RoutedConversation(ReplySelector.Context.direct(observedText), Route.CONVERSATION);
-        return new Reply("chat_worker_reply", Map.of("text", chat.reply(conversation).orElseThrow()), routed);
+        return Reply.chat(chat.reply(conversation).orElseThrow(), routed,
+                memory.map(store -> store.reads().chatReviews()).orElse(Set.of()));
     }
 
     /**

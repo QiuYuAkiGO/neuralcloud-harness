@@ -1140,21 +1140,27 @@ public final class ResidentV2 extends ResidentMemory {
 
     /**
      * 渠道向外发送回复前的最终交付门禁复核：
-     * 以原查询用途复核每条来源的引用权及修订号，同时检查回执的来源数量和本轮最早有效截止时间。
+     * 独立执行回执的来源数量、已知截止时间检查，以及按需启用的原用途来源复读。
      */
     public void verifyDelivery(Trace trace) throws IOException, InterruptedException {
+        verifyDelivery(trace, true);
+    }
+
+    /** 本地检查使用本轮首次取数时保存的截止时间和版本清单。 */
+    public void verifyDelivery(Trace trace, boolean rereadSources) throws IOException, InterruptedException {
         var sources = trace.sharedSources();
         // 送达后的自述须能按 Memory 写入契约持久化，不能先外发再发现来源超过上限。
         if (sources.keySet().stream().map(Trace.MemoryTarget::recordId).distinct().count() > 128)
             throw new IOException("自述的 source_refs 超过 Memory 允许的 128 项");
-        var current = reread(trace.scope(), "ROUTER", sources.keySet());
-        for (var entry : current.entrySet()) {
-            var item = entry.getValue().item();
-            if (!"ONLINE".equals(string(item, "status"))) throw new IOException("渠道交付前引用权已失效");
-            var ref = item.getAsJsonObject("ref");
-            if (!Objects.equals(
-                    sources.get(entry.getKey()), integer(ref, "revision", 1)))
-                throw new IOException("渠道交付前引用依据已修订");
+        if (rereadSources) {
+            var current = reread(trace.scope(), "ROUTER", sources.keySet());
+            for (var entry : current.entrySet()) {
+                var item = entry.getValue().item();
+                if (!"ONLINE".equals(string(item, "status"))) throw new IOException("渠道交付前引用权已失效");
+                var ref = item.getAsJsonObject("ref");
+                if (!Objects.equals(sources.get(entry.getKey()), integer(ref, "revision", 1)))
+                    throw new IOException("渠道交付前引用依据已修订");
+            }
         }
         // 受众复核本身也可能经过到期时刻，须用复核完成时的时间判定。
         if (!Instant.now().isBefore(trace.validUntil())) throw new IOException("渠道交付前引用的证据已到期");

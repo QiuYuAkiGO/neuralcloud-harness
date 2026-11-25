@@ -13,6 +13,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 会话记忆读取门面，为各模型节点（Chat Worker、Task Worker、Master）提供按轮次隔离的只读取证入口。
@@ -27,10 +28,21 @@ public final class ConversationMemory {
     private static final String DURABLE = "memory_durable";
     private final AuditLog audit;
     private final ResidentMemory memory;
+    private final Set<ChatReview> chatReviews;
 
     public ConversationMemory(AuditLog audit, ResidentMemory memory) {
+        this(audit, memory, Set.of());
+    }
+
+    /** 同一实例上的前台轮次共用启动配置。首次授权读取始终由 Memory 执行。 */
+    public ConversationMemory(AuditLog audit, ResidentMemory memory, Set<ChatReview> chatReviews) {
         this.audit = audit;
         this.memory = memory;
+        this.chatReviews = Set.copyOf(chatReviews);
+    }
+
+    public Set<ChatReview> chatReviews() {
+        return chatReviews;
     }
 
     /** 为指定节点在当前会话轮次上绑定一个只读记忆调用句柄，并以 {@code parent} 作为审计因果父节点。 */
