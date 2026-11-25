@@ -59,6 +59,70 @@ public class DreamingModelTest {
                 """.formatted(MESSAGE, RECEIPT));
     }
 
+    /** 经确认的青禾已建档。同一条原话还提到同名刊物和另一位署名相近的校对者。 */
+    private static JsonObject namedBatch() {
+        return object("""
+                {"stream_id":"memory-test","policy_version":1,"after":12,"through":13,
+                 "evidence":[{"record_id":"%s","revision":2,"content":"青穗说我来领读《青穗》，青穗子校对。"}],
+                 "profiles":[{"kind":"person","subject":"青禾","version":4,"author":"DREAMING",
+                              "text":"我记得青禾领读过。","scope":"读书会","reason":"领读时的发言",
+                              "source_refs":[{"record_id":"%s","revision":2}]}],
+                 "person_names":[{"subject":"青禾","aliases":["青穗"]}]}
+                """.formatted(MESSAGE, MESSAGE));
+    }
+
+    private static JsonObject namedChange(String kind, String subject, int version, String text) {
+        var value = person();
+        value.addProperty("kind", kind);
+        value.addProperty("subject", subject);
+        value.addProperty("expected_version", version);
+        value.addProperty("text", text);
+        value.addProperty("scope", "读书会");
+        value.addProperty("reason", "本次发言说明了刊名和分工。");
+        return value;
+    }
+
+    /** 两种模型都收到同一份主称呼与别称映射；修订人物、建立刊物与另一人的身份可以共存。 */
+    @Test public void sendsConfirmedNamesAndAcceptsThePrimaryPersonInBothProtocols() throws Exception {
+        var packet = namedBatch();
+        var expected = changes(
+                namedChange("person", "青禾", 4, "我记得青禾会领读这本刊物。"),
+                namedChange("topic", "青穗", 0, "我记下《青穗》是本次领读的刊物。"),
+                namedChange("person", "青穗子", 0, "我记下青穗子负责校对。"));
+        for (String path : List.of(GEMINI, OPENAI)) {
+            try (var provider = new Provider()) {
+                boolean nativeGemini = GEMINI.equals(path);
+                var config = settings(nativeGemini ? "GEMINI" : "OPENAI_CHAT", provider.base() + path);
+                if (nativeGemini) config.setProperty("apiKeyEnv", credentialEnv());
+                provider.reply = nativeGemini ? gemini("STOP", expected.toString())
+                        : openAi("tool_calls", tool(FUNCTION, expected.toString()));
+                try (var model = DreamingModel.open(config)) {
+                    assertEquals(expected.get("changes"), model.organize(packet));
+                }
+                var request = provider.onlyRequest(path).body();
+                var messages = request.getAsJsonArray(nativeGemini ? "contents" : "messages");
+                var user = messages.asList().stream().map(entry -> entry.getAsJsonObject())
+                        .filter(message -> message.get("role").getAsString().equals("user"))
+                        .findFirst().orElseThrow();
+                String input = nativeGemini
+                        ? user.getAsJsonArray("parts").get(0).getAsJsonObject().get("text").getAsString()
+                        : user.get("content").getAsString();
+                assertEquals(path, packet.get("person_names"), object(input).get("person_names"));
+            }
+        }
+    }
+
+    /** 别称即使能新建一份第 1 版人物档案，也必须在模型边界报告错误字段。 */
+    @Test public void rejectsAnAliasUsedAsAPersonSubject() throws Exception {
+        var proposal = changes(namedChange("person", "青穗", 0, "我记下青穗会领读。"));
+        try (var provider = new Provider();
+             var model = DreamingModel.open(settings("OPENAI_CHAT", provider.base() + OPENAI))) {
+            provider.reply = openAi("tool_calls", tool(FUNCTION, proposal.toString()));
+            var failure = assertThrows(IOException.class, () -> model.organize(namedBatch()));
+            assertTrue(failure.getMessage(), failure.getMessage().contains("subject"));
+        }
+    }
+
     /** Gemini 发送原生内容与结构约束，然后从正常结束的候选读取可见 JSON。 */
     @Test public void geminiReturnsNewAndRevisedProfilesFromNativeStructuredContent() throws Exception {
         var expected = changes(person(), topic());
