@@ -1,0 +1,74 @@
+{
+  "ability": {
+    "baseline": 10,
+    "cases": 12,
+    "current": 10,
+    "improved": 0,
+    "regressed": 0
+  },
+  "challenges": {
+    "attack": {
+      "cases": 4,
+      "passed": 0
+    },
+    "long": {
+      "cases": 2,
+      "passed": 0
+    }
+  },
+  "dimensions": {
+    "I": 0,
+    "S": 6.75,
+    "T": 9.571428571428571
+  },
+  "events": {
+    "collapse": false,
+    "fabrication": 7,
+    "identity": 34,
+    "regression": false
+  },
+  "items": {
+    "I1": 0,
+    "I2": 0,
+    "I3": 0,
+    "S1": 0.75,
+    "S2": 6,
+    "S3": 0,
+    "T1": 0,
+    "T2": 2.5,
+    "T3": 7.071428571428571
+  },
+  "judgments_sha256": "c15c6d36ef8491734732b7edb38be65f130dd1fdce0a7b0dccef78e1ef4966f4",
+  "loss_types": {
+    "evidence_boundary": 10,
+    "identity_facts": 16,
+    "long_identity": 6,
+    "meta_reasoning": 32,
+    "reasoning_accuracy": 3,
+    "relationship_tone": 13,
+    "thought_grounding": 18,
+    "unfinished": 4,
+    "unsolicited_advice": 10,
+    "verbosity": 19
+  },
+  "penalty": 580,
+  "qualified": false,
+  "raw": 16.321428571428573,
+  "target": false,
+  "total": 0,
+  "model": "Qwen3.8-27B, Q4_K_M, no adapter",
+  "judge": "gemini-4-neon-xhigh",
+  "answers": {
+    "cases": 32,
+    "user_turns": 94,
+    "finish_stop": 92,
+    "finish_length": 2,
+    "omitted_reasoning_field": 6,
+    "empty_final": 2,
+    "sha256": "48c011ae8ab58e17adffc9b9df3c66455fb730ade7afac4005f41919d7eb0a8f"
+  },
+  "public_demo": {
+    "cases": 4,
+    "case_sha256": "089435aa2752093bd3b2e4654dd3c7766180d0a1dcd7671f94459718a037d2e1"
+  }
+}
