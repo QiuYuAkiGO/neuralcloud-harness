@@ -24,6 +24,14 @@ A, B, C = 23456, 34567, 45678
 ACCOUNT = 12345
 
 
+def route_fields(request, route="CONVERSATION", *, memory_focus="DEFAULT", author_ref="", query=""):
+    """旧版回放和其他渠道只声明 route。受控模型依据收到的工具协议提交本例指定的选择。"""
+    fields = {"route": route}
+    if "memory_focus" in request["tools"][0]["function"]["parameters"]["properties"]:
+        fields.update(memory_focus=memory_focus, author_ref=author_ref, query=query)
+    return fields
+
+
 def port():
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))

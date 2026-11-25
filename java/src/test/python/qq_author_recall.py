@@ -101,7 +101,7 @@ class AuthorRecallCases(unittest.TestCase):
         receipt = self.seed_quote(t, AUTHOR, 481190, FACT_UTC, FACT)
         source = {key: receipt[key] for key in ("record_id", "revision")}
         t.harness()
-        observed, reply = t.ask_private(QUESTION, 481201)
+        observed, reply = t.ask_private(QUESTION, 481201, memory_focus="PERSON_OR_TOPIC", author_ref=NAME)
         first = next(i for i, (kind, _, _) in enumerate(observed) if kind == "plan")
         before = observed[:first]
         self.assertEqual(set(t.listed_groups), {A, B})
@@ -144,12 +144,12 @@ class AuthorRecallCases(unittest.TestCase):
         other_quote = "朱砂样片分装到提匣里了。"
         self.seed_quote(t, OTHER, 481191, "2026-01-23T02:53:11Z", other_quote)
         t.harness()
-        ambiguous, reply = t.ask_private(QUESTION, 481202)
+        ambiguous, reply = t.ask_private(QUESTION, 481202, memory_focus="PERSON_OR_TOPIC", author_ref=NAME)
         self.assertEqual(set(t.listed_groups), {A, B})
         self.assertFalse(any("qq_sender_id" in req for kind, req, _ in ambiguous if kind == "/v2/recall"))
         self.assertRegex(reply, r"哪[一位个]|QQ\s*号|具体.*称呼|如何区分")
         t.listed_groups.clear()
-        mention, _ = t.ask_private(f"谁提到过{NAME}？", 481203)
+        mention, _ = t.ask_private(f"谁提到过{NAME}？", 481203, memory_focus="MENTION", query=NAME)
         first = next(i for i, (kind, _, _) in enumerate(mention) if kind == "plan")
         histories = [req for kind, req, _ in mention[:first] if kind == "/v2/recall" and req["kind"] == "HISTORY"]
         self.assertTrue(any(NAME in req["query"] for req in histories))
@@ -157,7 +157,7 @@ class AuthorRecallCases(unittest.TestCase):
         self.assertEqual(t.listed_groups, [])
 
         # 直接指定另一账号，名册歧义不影响此轮；只有同群其他人的原话，目标作者应为零命中。
-        empty, _ = t.ask_private(f"你怎么看{AUTHOR}呢", 481204)
+        empty, _ = t.ask_private(f"你怎么看{AUTHOR}呢", 481204, memory_focus="PERSON", author_ref=str(AUTHOR))
         reads = [result for kind, req, result in empty
                  if kind == "/v2/recall" and req.get("qq_sender_id") == str(AUTHOR)]
         self.assertTrue(reads and all(not result["items"] for result in reads))
