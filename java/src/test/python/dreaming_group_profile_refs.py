@@ -50,6 +50,7 @@ class HistorySources(QqDreamTrial):
         assert [ref(e) for e in packet["evidence"]] == NEW and PRIVATE_QUOTE not in user
         assert [p["source_refs"] for p in packet["profiles"]] == [[OLD[0]], [OLD[1]]]
         choices = [("只有旧引用", [OLD[0]]), ("借同名人旧引用", [NEW[0], OLD[1]]),
+                   ("本页只有另一人的发言", [NEW[1], OLD[0]]),
                    ("改写旧修订", [NEW[0], dict(OLD[0], revision=1)]), ("用旧引用报称呼", [NEW[0]]),
                    ("同人承接", [NEW[0], OLD[0]])]
         assert len(self.model_calls) < len(choices), "宿主未接受合法的同人旧档引用"
