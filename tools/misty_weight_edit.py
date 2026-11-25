@@ -68,10 +68,8 @@ def prompt_ids(tokenizer, messages):
     )
 
 
-def evaluate(args):
-    """仅把留出题的消息送入 generate，逐条保存可见回复、长度与停止条件。"""
-    tokenizer, model = load_text(args.model, args.device)
-    rows = read_json(args.cases)
+def generate_cases(tokenizer, model, rows, args):
+    """仅把留出题的消息送入 generate，逐条记录可见回复、长度与停止条件。"""
     if not rows:
         raise ValueError("cases 至少需要一道留出题")
     result = []
@@ -100,7 +98,16 @@ def evaluate(args):
                 "tokens": len(ids), "stop": "im_end" if ended else "limit",
             })
         print(f"已生成 {len(result)}/{len(rows)} 条", flush=True)
-    write_json(args.output, result)
+    return result
+
+
+def evaluate(args):
+    """同一检查点加载一次，各套题独立分批，以便和各自的基线逐条对照。"""
+    if len(args.cases) != len(args.output) or len(set(args.output)) != len(args.output):
+        raise ValueError("每份 cases 需要各自唯一的 output 路径")
+    tokenizer, model = load_text(args.model, args.device)
+    for cases, output in zip(args.cases, args.output, strict=True):
+        write_json(output, generate_cases(tokenizer, model, read_json(cases), args))
 
 
 def training_rows(tokenizer, rows):
@@ -239,13 +246,13 @@ def copy_official_file(source, destination):
     return destination
 
 
-def save_copy(source, output, tensors):
+def save_copy(source, output, tensors, layers=(30, 31)):
     """复制原快照后只写目标 BF16 数据区。读回确认，最后一次性公布输出目录。"""
     weight_map = read_json(source / "model.safetensors.index.json")["weight_map"]
     with tempfile.TemporaryDirectory(dir=output.parent, prefix=".misty-edit-") as staging:
         staged = Path(staging) / "checkpoint"
         shutil.copytree(source, staged, copy_function=copy_official_file)
-        for layer, tensor in zip((30, 31), tensors):
+        for layer, tensor in zip(layers, tensors, strict=True):
             name = f"model.language_model.layers.{layer}.mlp.down_proj.weight"
             with (staged / weight_map[name]).open("r+b") as file:
                 header_size = struct.unpack("<Q", file.read(8))[0]
@@ -263,12 +270,18 @@ def save_copy(source, output, tensors):
         staged.rename(output)
 
 
-def edit(args):
-    source, output = args.model.resolve(), args.output.resolve()
+def edit_paths(model_path, destination):
+    """两种编辑法均从同版官方权重出发，且只能发布到独立的新目录。"""
+    source, output = model_path.resolve(), destination.resolve()
     if output.exists() or source in output.parents:
         raise ValueError("output 必须是源模型目录之外的新路径")
     if hashlib.sha256((source / "model.safetensors.index.json").read_bytes()).hexdigest() != OFFICIAL_INDEX:
         raise ValueError("model 的索引与 ModelScope 官方 Qwen3.5-9B 后训练版不符")
+    return source, output
+
+
+def edit(args):
+    source, output = edit_paths(args.model, args.output)
     rows = read_json(args.corpus)
     if not rows:
         raise ValueError("corpus 至少需要一条训练会话")
@@ -298,8 +311,8 @@ def main():
     commands = parser.add_subparsers(dest="command", required=True)
     ev = commands.add_parser("evaluate")
     ev.add_argument("--model", type=Path, required=True)
-    ev.add_argument("--cases", type=Path, required=True)
-    ev.add_argument("--output", type=Path, required=True)
+    ev.add_argument("--cases", type=Path, nargs="+", required=True)
+    ev.add_argument("--output", type=Path, nargs="+", required=True)
     ev.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     ev.add_argument("--batch-size", type=positive_int, default=6)
     ev.add_argument("--max-new-tokens", type=positive_int, default=224)
