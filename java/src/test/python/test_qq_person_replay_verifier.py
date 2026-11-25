@@ -95,6 +95,59 @@ class PersonReplayVerifierCases(unittest.TestCase):
         self.assertIn("首次规划的本轮材料缺少", observed.stderr)
         self.assertFalse((self.root / "receipt.json").exists())
 
+    def contextual_refs(self):
+        """补入公开对端读出的旧自述、它引用的来源，以及首轮规划后一次同账号补查。"""
+        history, inherited, extra = [dict(record_id=token * 64, revision=1) for token in "abc"]
+        http = json.loads((self.root / "memory-http.json").read_bytes())
+        query = http[0]["request"]
+        ctx = query["context"]
+        at = "2026-02-01T17:00:00Z"
+        old, fact = "我上次回复过观测计划。", "我还画了一张星图。"
+        item = dict(ref=history, source_refs=[inherited], status="ONLINE", citation_scope=ctx["conversation_id"],
+                    occurred_at=at, text=old)
+        http.extend([dict(path="/v2/read", status=200, at=self.trial["trace"][1]["recordedAt"],
+                          request=dict(context=ctx, kind="HISTORY", use="CITE", targets=[history]),
+                          result=dict(items=[item])),
+                     dict(path="/v2/recall", status=200, at=self.trial["trace"][-3]["recordedAt"],
+                          request=dict(query, query="星图"), result=dict(items=[dict(item, ref=extra, source_refs=[extra],
+                                                                               text=fact)]))])
+        self.save("memory-http.json", http)
+        db = sqlite3.connect(self.root / "cut.sqlite")
+        try:
+            rows = [(history["record_id"], 1, at, json.dumps(dict(content=old, source_refs=[inherited]))),
+                    (inherited["record_id"], 3, at, json.dumps(dict(content="这次观测将在北岸进行。"))),
+                    (extra["record_id"], 4, at, json.dumps(dict(content=fact, channel=dict(
+                        sender_id=query["qq_sender_id"], account_id=ctx["qq"]["account_id"]))))]
+            db.executemany("INSERT INTO revisions VALUES (?,1,?,?,?)", rows)
+            db.commit()
+        finally:
+            db.close()
+        refs = self.trial["trace"][-1]["data"]["source_refs"]
+        refs.extend([history, inherited, extra])
+        return refs
+
+    def test_delivery_can_carry_authorized_history_dependencies_and_followup(self):
+        self.contextual_refs()
+        observed = self.run_trial()
+        self.assertEqual(observed.returncode, 0, observed.stderr)
+        receipt = json.loads((self.root / "receipt.json").read_bytes())
+        self.assertEqual([v["origin"] for v in receipt["checked_refs"]],
+                         ["first_author", "authorized_context", "context_source", "author_recall"])
+
+    def test_same_historical_record_is_ineligible_without_current_audience_citation(self):
+        self.contextual_refs()
+        http = json.loads((self.root / "memory-http.json").read_bytes())
+        previous = next(record for record in http if record["path"] == "/v2/read")
+        context = previous["request"]["context"]
+        context["qq"]["peer_id"] = "71999"
+        context["conversation_id"] = f"c2c:onebot:{context['qq']['account_id']}:71999"
+        previous["result"]["items"][0]["citation_scope"] = context["conversation_id"]
+        self.save("memory-http.json", http)
+        observed = self.run_trial()
+        self.assertNotEqual(observed.returncode, 0)
+        self.assertIn("本轮受众未获准的引用版本或无来源引用", observed.stderr)
+        self.assertFalse((self.root / "receipt.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

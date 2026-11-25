@@ -100,6 +100,15 @@ def plan_material(packets, question, expected, sentences):
     return material
 
 
+def historical_version(db, ref, cut, original_time):
+    """精确版本必须同时早于原入站的水位和时刻。"""
+    row = db.execute("SELECT seq, occurred, body FROM revisions WHERE record_id=? AND revision=?",
+                     (ref["record_id"], ref["revision"])).fetchone()
+    require(row is not None and row[0] <= cut and instant(row[1]) < original_time,
+            "来源修订不存在于原消息前的历史截点")
+    return row[0], row[1], json.loads(row[2])
+
+
 def verify_sources(db, items, bindings, sentences, material, scope, roster, original, expected):
     """以截点副本的实际修订核对每条本人原话、共享范围和原时刻，再核对传给模型的北京时间。"""
     cut = expected["cut_seq"]
@@ -113,14 +122,10 @@ def verify_sources(db, items, bindings, sentences, material, scope, roster, orig
         require(binding["id"] == ref["record_id"] and all(binding["item"][key] == item[key]
                 for key in ("text", "occurred_at", "status", "citation_scope")) and item["status"] == "ONLINE"
                 and item["citation_scope"] == scope and quote.strip(), "实际命中与可引用绑定不一致")
-        row = db.execute("SELECT seq, occurred, body FROM revisions WHERE record_id=? AND revision=?",
-                         (ref["record_id"], ref["revision"])).fetchone()
-        require(row is not None, "指定源修订不存在于原始截点")
-        seq, occurred, body = row
-        source = json.loads(body)
+        seq, occurred, source = historical_version(db, ref, cut, instant(original["recordedAt"]))
         channel = source["channel"]
         when = instant(occurred)
-        require(seq <= cut and when == instant(item["occurred_at"]) < instant(original["recordedAt"])
+        require(when == instant(item["occurred_at"])
                 and channel["platform"] == "qq" and channel["account_id"] == roster["account_id"]
                 and channel["sender_id"] == expected["author"]
                 and channel["conversation_id"] in venues.get(channel["type"], ())
@@ -140,6 +145,61 @@ def verify_sources(db, items, bindings, sentences, material, scope, roster, orig
             and all(any(anchor in v["quote"] for v in evidence) for anchor in expected["source_quotes"]),
             "历史回放缺少预先指定的本人原话或重复了同一来源")
     return evidence
+
+
+def ref_key(ref):
+    return ref["record_id"], ref["revision"]
+
+
+def check_delivery_refs(db, refs, evidence, http, scope, roster, start, end, original, expected):
+    """已送达自述可带出其可引用来源，规划后补查也可贡献证据。仅认可当轮受众实际获准的版本。"""
+    checked = {ref_key(e["ref"]): dict(ref=e["ref"], origin="first_author") for e in evidence}
+    author_quotes = {ref_key(e["ref"]): e["quote"] for e in evidence}
+    wanted = {ref_key(ref) for ref in refs}
+    cut, original_time = expected["cut_seq"], instant(original["recordedAt"])
+    for record in http:
+        path = record["path"]
+        if (path not in ("/v2/read", "/v2/recall") or record["status"] != 200
+                or not (start <= instant(record["at"]) <= end)):
+            continue
+        req = record["request"]
+        context = req["context"]
+        qq = context.get("qq", {})
+        if (req.get("use") != "CITE" or context["conversation_id"] != scope or qq.get("account_id") != roster["account_id"]
+                or qq.get("peer_id") != roster["peer_id"]
+                or not set(qq.get("member_group_ids", [])) <= set(roster["member_group_ids"])):
+            continue
+        for item in record["result"]["items"]:
+            if item["status"] != "ONLINE" or item["citation_scope"] != scope:
+                continue
+            parent = item["ref"]
+            if path == "/v2/read" and not any(t["record_id"] == parent["record_id"]
+                    and t.get("revision", parent["revision"]) == parent["revision"] for t in req["targets"]):
+                continue
+            related = [ref for ref in [parent, *item.get("source_refs", [])]
+                       if ref_key(ref) in wanted and ref_key(ref) not in checked]
+            if not related:
+                continue
+            _, occurred, source = historical_version(db, parent, cut, original_time)
+            require(instant(occurred) == instant(item["occurred_at"]), "上下文授权项与历史修订的发生时间不符")
+            by_author = path == "/v2/recall" and req.get("qq_sender_id") == expected["author"]
+            if by_author:
+                channel = source["channel"]
+                require(channel["sender_id"] == expected["author"] and channel["account_id"] == roster["account_id"]
+                        and item["text"] in source["content"], "补查作者来源与历史原文不符")
+            for ref in related:
+                if ref == parent:
+                    origin = "author_recall" if by_author else "authorized_context"
+                    cited = source
+                else:
+                    _, _, cited = historical_version(db, ref, cut, original_time)
+                    origin = "context_source"
+                author = cited.get("channel", {})
+                if author.get("sender_id") == expected["author"] and author.get("account_id") == roster["account_id"]:
+                    author_quotes[ref_key(ref)] = cited["content"]
+                checked[ref_key(ref)] = dict(ref=ref, origin=origin, via=parent, path=path)
+    require(wanted <= checked.keys(), "送达含本轮受众未获准的引用版本或无来源引用")
+    return [checked[ref_key(ref)] for ref in refs], [author_quotes[key] for key in wanted if key in author_quotes]
 
 
 def verify(trial, http, original, rosters, db, expected):
@@ -168,12 +228,18 @@ def verify(trial, http, original, rosters, db, expected):
             and actual["receipt"] == delivery["data"]["messageId"] > 0 and message == text and text.strip()
             and instant(send["recordedAt"]) <= instant(actual["at"]) <= instant(delivery["recordedAt"]),
             "OneBot 收件人、时间、回执或正文与唯一业务答复不一致")
-    refs = delivery["data"]["source_refs"]
-    require(refs and all(any(ref == e["ref"] for e in evidence) for ref in refs), "送达引用缺失或含未核对来源")
+    refs = delivery["data"].get("source_refs", [])
+    checked, cited_quotes = check_delivery_refs(db, refs, evidence, http, scope, roster, instant(inbound["recordedAt"]),
+                                                instant(actual["at"]), original, expected)
+    # 回复逐字引用哪条已知原话，核对该条对应的来源；概括型回复可沿用当轮其他有依据的引用。
+    for segments in re.findall(r'“([^”]+)”|「([^」]+)」|"([^"]+)"', text):
+        quote = next(part for part in segments if part)
+        if any(row["quote"] == quote for row in evidence):
+            require(any(quote in body for body in cited_quotes), "实收答复逐字引用本人原话却缺对应来源版本")
     require(all(re.search(p, text) for p in expected["reply_require"])
             and not any(re.search(p, text) for p in expected["reply_forbid"]), "实收答复违背本轮预定的归属判据")
     return dict(message_id=inbound["data"]["messageId"], run=inbound["runId"], first_plan=plan["eventId"], events=events,
-                source_cut=expected["cut_seq"], evidence=evidence, source_refs=refs, peer=roster["peer_id"],
+                source_cut=expected["cut_seq"], evidence=evidence, source_refs=refs, checked_refs=checked, peer=roster["peer_id"],
                 model=expected["model"], receipt=actual["receipt"], reply=text,
                 reply_sha256=hashlib.sha256(text.encode("utf-8")).hexdigest())
 
