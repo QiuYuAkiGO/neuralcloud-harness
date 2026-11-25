@@ -81,7 +81,7 @@ public final class OpenQqChannel implements AutoCloseable {
     }
 
     /** 正在等待 OneBot 回执的同步动作请求（通过唯一 {@code echo} 字段与返回帧配对）。 */
-    private record Pending(String echo, CompletableFuture<JsonObject> response, boolean image) {}
+    private record Pending(String echo, CompletableFuture<JsonObject> response, boolean largeResponse) {}
 
     private final HttpClient client;
     private final URI endpoint;
@@ -219,7 +219,8 @@ public final class OpenQqChannel implements AutoCloseable {
                                         incoming.senderId(),
                                         groups.isPresent() && !decision
                                                 ? session.memberships(socket, incoming.senderId())
-                                                : List.of()));
+                                                : List.of()),
+                                (memberships, name) -> session.memberAccounts(socket, memberships, name));
         Reply reply;
         try {
             if (incoming.observeOnly()) {
@@ -561,6 +562,27 @@ public final class OpenQqChannel implements AutoCloseable {
             return images;
         }
 
+        /** 每个已签入群只取一次名册，同一账号在多个群的昵称与名片按 QQ 号合并。 */
+        private java.util.Set<String> memberAccounts(WebSocket socket, List<Long> memberships, String name)
+                throws IOException, InterruptedException {
+            var matches = new java.util.LinkedHashSet<String>();
+            for (long group : memberships) {
+                var reply = call(socket, "get_group_member_list", Map.of("group_id", group));
+                if (!successful(reply) || !(reply.get("data") instanceof JsonArray members))
+                    throw new IOException("OpenQQ 未取得群成员名册");
+                for (var row : members) {
+                    if (!(row instanceof JsonObject member) || id(member.get("group_id")) != group
+                            || !(member.get("user_id") instanceof JsonPrimitive user) || !user.isNumber()
+                            || !user.getAsString().matches("[1-9][0-9]{4,15}")
+                            || !(member.get("nickname") instanceof JsonPrimitive nick) || !nick.isString()
+                            || !(member.get("card") instanceof JsonPrimitive card) || !card.isString())
+                        throw new IOException("OpenQQ 名册须提供匹配群号、QQ 号及字符串 nickname/card");
+                    if (name.equals(nick.getAsString()) || name.equals(card.getAsString())) matches.add(user.getAsString());
+                }
+            }
+            return matches;
+        }
+
         /** 仅 get_group_member_info 成功且回包群号、成员号均匹配时签入该群，拒绝或未知不授予引用权。 */
         private List<Long> memberships(WebSocket socket, long peer)
                 throws IOException, InterruptedException {
@@ -592,7 +614,8 @@ public final class OpenQqChannel implements AutoCloseable {
                 Incoming delivery,
                 List<Long> evidenceGroups)
                 throws IOException, InterruptedException {
-            var request = new Pending(UUID.randomUUID().toString(), new CompletableFuture<>(), "get_image".equals(action));
+            var request = new Pending(UUID.randomUUID().toString(), new CompletableFuture<>(),
+                    "get_image".equals(action) || "get_group_member_list".equals(action));
             pending = request;
             try {
                 if (ended) {
@@ -631,7 +654,7 @@ public final class OpenQqChannel implements AutoCloseable {
         @Override
         public CompletableFuture<Void> onText(WebSocket socket, CharSequence data, boolean last) {
             var action = pending;
-            int limit = action != null && action.image() ? MAX_IMAGE_FRAME_CHARS : MAX_EVENT_CHARS;
+            int limit = action != null && action.largeResponse() ? MAX_IMAGE_FRAME_CHARS : MAX_EVENT_CHARS;
             oversized |= data.length() > limit - fragments.length();
             if (!oversized) {
                 fragments.append(data);

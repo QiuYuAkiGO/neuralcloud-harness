@@ -58,6 +58,16 @@ public final class MemoryCall {
     /** 单次记忆工具查询的结构化结果，供模型消费并原样写入 {@code memory_call_result} 审计事件。 */
     public record Result(QueryKind kind, int count, List<String> sentences) {}
 
+    /** 一轮内对同一称呼的解析结果。id 为空时不执行按作者检索。 */
+    public record Author(String reference, String id, boolean ambiguous) {
+        public String clarification() {
+            return ambiguous ? "有多个账号可能对应「" + reference + "」，你指的是哪一位？可以告诉我 QQ 号。"
+                    : "我还没找到「" + reference + "」对应的账号，可以告诉我 QQ 号或更具体的称呼吗？";
+        }
+    }
+
+    private Map<String, Author> authors = new LinkedHashMap<>();
+
     /** 可交给下游的精确证据引用，记录身份和修订号由 Memory 读取快照提供。 */
     public record EvidenceRef(@SerializedName("record_id") String recordId, long revision) {
         private static EvidenceRef from(MemoryJournal.Read read) {
@@ -379,6 +389,7 @@ public final class MemoryCall {
     public MemoryCall nextRead(int parent) {
         var next = memory.bind(trace, caller, parent);
         next.dialogueVersions = dialogueVersions;
+        next.authors = authors;
         return next;
     }
 
@@ -440,6 +451,16 @@ public final class MemoryCall {
         return validQuery(kind.equals("HISTORY") || kind.equals("SELF_HISTORY"), query);
     }
 
+    /** 只有带合法作者的 HISTORY 可以省略话题；QQ 号与 Memory 的渠道类型共用相同范围。 */
+    public static boolean validQuery(String kind, String query, String authorRef) {
+        if (authorRef == null) return validQuery(kind, query);
+        return kind.equals("HISTORY") && !authorRef.isBlank() && authorRef.equals(authorRef.strip())
+                && authorRef.codePointCount(0, authorRef.length()) <= 256
+                && authorRef.codePoints().noneMatch(Character::isISOControl)
+                && (!authorRef.matches("[0-9]+") || authorRef.matches("[1-9][0-9]{4,15}"))
+                && (query.isEmpty() || validQuery(true, query));
+    }
+
     /** 既有调用方区分历史关键词与本人称呼的空查询。 */
     public static boolean validQuery(boolean history, String query) {
         return history ? !query.isBlank() && query.codePointCount(0, query.length()) <= 256
@@ -453,6 +474,63 @@ public final class MemoryCall {
         if (memory.canSearchSelfHistory(trace.scope())) kinds.add(QueryKind.SELF_HISTORY);
         if (memory.v2() != null && memory.v2().identityLookup()) kinds.add(QueryKind.IDENTITY);
         return List.copyOf(kinds);
+    }
+
+    /** 规划、原生工具和执行只在同一私聊受众与协商能力下开放作者条件。 */
+    public boolean authorHistory() {
+        return trace.scope().qq().isPresent() && memory.v2() != null && memory.v2().supportsQqAuthorHistory();
+    }
+
+    /** 确认目录优先，零命中才查本轮共同群的精确昵称和名片；网络错误由渠道报告。 */
+    public Author resolveAuthor(String ref) throws IOException, InterruptedException {
+        if (ref == null) return null;
+        if (!authorHistory() || !validQuery("HISTORY", "", ref))
+            throw new IOException("author_ref 需要支持作者查询的 QQ 私聊及有效账号或完整称呼");
+        if (authors.containsKey(ref)) return authors.get(ref);
+        long started = System.nanoTime();
+        var accounts = new java.util.LinkedHashSet<String>();
+        boolean conflict = false;
+        String source = "qq_id";
+        try {
+            if (ref.matches("[1-9][0-9]{4,15}")) {
+                accounts.add(ref);
+            } else {
+                source = "confirmed_identity";
+                var v = memory.v2();
+                if (v.identityLookup()) {
+                    var directory = v.lookup(trace.scope(), caller.name(), QueryKind.IDENTITY, ref, memory.receivedAt(trace));
+                    conflict = directory.assessment().equals("CONFLICT");
+                    for (var item : directory.items())
+                        accounts.add(ResidentV2.string(item, "identity_account_id"));
+                    if (!conflict && accounts.size() == 1) {
+                        // 由确认目录绑定的称呼沿用 IDENTITY 的来源用途，分享策略回切时可回收派生回复。
+                        var record = directory.items().getFirst().getAsJsonObject("ref");
+                        trace.sharedSources().put(new Trace.MemoryTarget("IDENTITY", ResidentV2.string(record, "record_id")),
+                                ResidentV2.integer(record, "revision", 1));
+                    }
+                }
+                if (!conflict && accounts.isEmpty()) {
+                    source = "group_members";
+                    accounts.addAll(trace.memberAccounts(ref));
+                }
+            }
+        } catch (IOException | InterruptedException failure) {
+            trace.write(eventId, "router", "qq_author_lookup_failed", Map.of("author_ref", ref, "source", source,
+                    "detail", failure.toString()));
+            throw failure;
+        }
+        boolean ambiguous = conflict || accounts.size() > 1;
+        String id = !ambiguous && accounts.size() == 1 ? accounts.getFirst() : null;
+        var author = new Author(ref, id, ambiguous);
+        authors.put(ref, author);
+        var audit = new LinkedHashMap<String, Object>();
+        audit.put("author_ref", ref);
+        audit.put("source", source);
+        audit.put("status", ambiguous ? "AMBIGUOUS" : id == null ? "NOT_FOUND" : "RESOLVED");
+        if (id != null) audit.put("qq_sender_id", id);
+        audit.put("elapsed_ms", (System.nanoTime() - started) / 1_000_000);
+        eventId = trace.write(eventId, "router", "qq_author_lookup", audit);
+        return author;
     }
 
     /** 补查优先。相同材料只交付一次，规划时已消费的预查材料仅在本次剩余预算内重用。 */
@@ -477,10 +555,16 @@ public final class MemoryCall {
                         + (identity ? "SELF_IDENTITY 仅查当前发言者本人已确认的称呼，query 填空字符串。角色自身资料由角色设定提供。" : "")
                         + (directory ? "IDENTITY 查任一账号的已确认称呼，query 填 QQ 号或完整称呼，空串列举。按结果中的账号归属引用。" : "")
                         + (kinds.contains(QueryKind.SELF_HISTORY) ? "SELF_HISTORY 按话题关键词跨会话查当前 QQ 发件人以往的原话。" : "");
+        var fields = new LinkedHashMap<String, Object>();
+        fields.put("kind", Map.of("type", "string", "enum", kinds));
+        fields.put("query", Map.of("type", "string", "minLength", identity || directory ? 0 : 1, "maxLength", 256));
+        if (authorHistory()) {
+            description += "查指定 QQ 发言者的原话用 HISTORY，author_ref 填 QQ 号或完整称呼；query 可为空或填具体话题。";
+            fields.put("author_ref", Map.of("type", "string", "minLength", 1, "maxLength", 256));
+        }
         return Map.of("type", "function", "function", Map.of("name", NAME, "description", description,
                 "parameters", Map.of("type", "object", "additionalProperties", false, "required", List.of("kind", "query"),
-                        "properties", Map.of("kind", Map.of("type", "string", "enum", kinds), "query", Map.of(
-                                "type", "string", "minLength", identity || directory ? 0 : 1, "maxLength", 256)))));
+                        "properties", fields)));
     }
 
     /**
@@ -495,13 +579,30 @@ public final class MemoryCall {
 
     /** 预算只计交给消费者的完整证据句和行间换行，按同一批实际交付项登记版本。 */
     public Result read(QueryKind kind, String query, int byteBudget) throws IOException, InterruptedException {
-        if (!queryKinds().contains(kind) || !validQuery(kind.name(), query)) {
-            throw new IOException("memory_call 的 kind 或 query 不符合当前渠道的查询契约");
+        return read(kind, query, byteBudget, null);
+    }
+
+    /** 同一解析结果用于正式检索、查询审计及预查复用。未能唯一定位时交付澄清信息。 */
+    public Result read(QueryKind kind, String query, int byteBudget, Author author) throws IOException, InterruptedException {
+        if (!queryKinds().contains(kind) || !validQuery(kind.name(), query, author == null ? null : author.reference())
+                || author != null && !authorHistory())
+            throw new IOException("memory_call 的 kind 或 query 不符合当前渠道的查询契约（含可选 author_ref）");
+        var args = new LinkedHashMap<String, Object>();
+        args.put("kind", kind.name());
+        args.put("query", query);
+        if (author != null) args.put("author_ref", author.reference());
+        if (author != null && author.id() != null) args.put("qq_sender_id", author.id());
+        int requested = trace.write(eventId, caller.node, NAME, args);
+        if (author != null && author.id() == null) {
+            bindings = List.of();
+            preparedRead = false;
+            var result = new Result(kind, 0, List.of(author.clarification()));
+            eventId = trace.write(requested, "memory", "memory_call_result", result);
+            return result;
         }
-        int requested = trace.write(eventId, caller.node, NAME, Map.of("kind", kind.name(), "query", query));
         ConversationMemory.Recall recalled;
         try {
-            recalled = memory.retrieve(trace, requested, kind, query, caller.name(), inputId, numberEvidence, byteBudget);
+            recalled = memory.retrieve(trace, requested, kind, query, caller.name(), inputId, numberEvidence, byteBudget, author);
         } catch (IOException | InterruptedException error) {
             trace.write(requested, "memory", "memory_call_failed", Map.of("detail", error.toString()));
             throw error;
@@ -509,7 +610,8 @@ public final class MemoryCall {
         var sentences = recalled.messages();
         if (sentences.isEmpty()) {
             sentences = List.of(switch (kind) {
-                case HISTORY -> memory.v2() == null ? "当前会话中未查到符合条件的历史记录。"
+                case HISTORY -> author != null ? "未查到「" + author.reference() + "」在本次受众范围内符合条件的原话。"
+                        : memory.v2() == null ? "当前会话中未查到符合条件的历史记录。"
                         : "未查到当前会话可引用的相关历史记录。";
                 case SELF_IDENTITY -> "没有查到当前发信用户经确认的称呼。";
                 case IDENTITY -> "没有查到符合条件的已确认身份资料。";
@@ -532,22 +634,29 @@ public final class MemoryCall {
     public void appendToolResult(List<Map<String, Object>> messages, String id, String arguments, String assistantText)
             throws IOException, InterruptedException {
         var input = parseArguments(arguments);
-        var result = read(input.kind(), input.query());
+        var result = read(input.kind(), input.query(), Integer.MAX_VALUE, resolveAuthor(input.authorRef()));
         messages.add(Map.of("role", "assistant", "content", assistantText, "tool_calls", List.of(
                 Map.of("id", id, "type", "function", "function", Map.of("name", NAME, "arguments", arguments)))));
         messages.add(Map.of("role", "tool", "tool_call_id", id, "content", String.join("\n", result.sentences())));
     }
 
-    private record Input(QueryKind kind, String query) {}
+    private record Input(QueryKind kind, String query, String authorRef) {}
 
-    /** 严格解析工具调用 JSON 参数：必须且仅包含字符串字段 {@code kind} 和 {@code query}。 */
-    private static Input parseArguments(String arguments) throws IOException {
-        String rule = "memory_call 参数须仅含字符串 kind 与 query，kind 须为支持的查询类型";
+    /** 严格解析原生工具参数，仅已协商的 HISTORY 可指定 author_ref。 */
+    private Input parseArguments(String arguments) throws IOException {
+        String rule = "memory_call 参数须含字符串 kind 与 query，只有支持的 HISTORY 可附 author_ref";
         try {
             var input = JSON.fromJson(arguments, JsonObject.class);
-            if (input != null && input.size() == 2 && input.get("kind") instanceof JsonPrimitive kind && kind.isString()
+            if (input != null && input.get("kind") instanceof JsonPrimitive kind && kind.isString()
                     && input.get("query") instanceof JsonPrimitive query && query.isString()) {
-                return new Input(QueryKind.valueOf(kind.getAsString()), query.getAsString());
+                String ref = null;
+                if (input.has("author_ref")) {
+                    if (!authorHistory() || !(input.get("author_ref") instanceof JsonPrimitive author) || !author.isString())
+                        throw new IOException(rule);
+                    ref = author.getAsString();
+                }
+                if (input.size() == (ref == null ? 2 : 3) && (ref == null || validQuery(kind.getAsString(), query.getAsString(), ref)))
+                    return new Input(QueryKind.valueOf(kind.getAsString()), query.getAsString(), ref);
             }
         } catch (JsonParseException | IllegalArgumentException error) {
             throw new IOException(rule, error);

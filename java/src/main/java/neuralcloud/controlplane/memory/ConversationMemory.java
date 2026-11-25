@@ -168,7 +168,7 @@ public final class ConversationMemory {
      * 并在服务端评估为 {@code CONFLICT} 或 {@code INCOMPLETE} 时在结果头部插入明确的风险提示。
      */
     Recall retrieve(Trace trace, int event, QueryKind kind, String query, String role, String input,
-                    boolean numberEvidence, int byteBudget)
+                    boolean numberEvidence, int byteBudget, MemoryCall.Author author)
             throws IOException, InterruptedException {
         ResidentV2 v = v2();
         if (v == null)
@@ -178,7 +178,7 @@ public final class ConversationMemory {
                 case SELF_HISTORY -> selfHistory(trace, event, query);
                 case IDENTITY -> throw new IOException("身份目录需要 Memory v2 的 identity_lookup 能力");
             };
-        var snap = v.lookup(trace.scope(), role, kind, query, receivedAt(trace));
+        var snap = v.lookup(trace.scope(), role, kind, query, receivedAt(trace), author == null ? null : author.id());
         var messages = new ArrayList<String>();
         var rows = new ArrayList<MemoryJournal.Read>();
         String qualification = switch (snap.assessment()) {
@@ -186,8 +186,10 @@ public final class ConversationMemory {
             case "INCOMPLETE" -> "目前依据不足以确认执行结果。";
             default -> "";
         };
+        if (author != null && !snap.items().isEmpty())
+            messages.add("按「" + author.reference() + "」查询 QQ 账号 " + author.id() + " 的原话。");
         if (!qualification.isEmpty()) messages.add(qualification);
-        int bytes = qualification.getBytes(StandardCharsets.UTF_8).length;
+        int bytes = String.join("\n", messages).getBytes(StandardCharsets.UTF_8).length;
         // 仅保留当前仍在线的条目生成证据绑定与自然语言呈现，避免把已撤回或离线记录交给模型。
         for (var item : snap.items()) {
             if (!"ONLINE".equals(ResidentV2.string(item, "status"))) continue;
@@ -200,6 +202,7 @@ public final class ConversationMemory {
             rows.add(ResidentV2.binding(trace.scope(), role, kind.name(), item, snap, input));
         }
         int count = rows.size();
+        if (author != null && count == 0) messages.clear();
         // recent 模式下的 HISTORY 查询本质上是回读当前会话近期对话，并非按话题检索，因此命中计数归零。
         if (!v.scopedRecall() && kind == QueryKind.HISTORY) {
             messages.addFirst("本次只回读了当前会话的近期对话，共 " + count + " 条。");
@@ -282,7 +285,7 @@ public final class ConversationMemory {
     }
 
     /** 读取本轮入站请求在审计链中的落盘时间，作为历史检索的严格时间上界，排除当前及未来发言。 */
-    private Instant receivedAt(Trace trace) {
+    Instant receivedAt(Trace trace) {
         return Instant.parse(audit.event(trace.scope(), trace.request()).recordedAt());
     }
 

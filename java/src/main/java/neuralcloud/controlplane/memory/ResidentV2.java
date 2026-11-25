@@ -40,6 +40,7 @@ public final class ResidentV2 extends ResidentMemory {
     private boolean dreaming;
     /** 启动时协商目录协议；每次读取的受众权限由 Memory 按当前开关裁定。 */
     private boolean identityLookup;
+    private boolean qqAuthorHistory;
 
     /** 只在启动握手协商过独立整理协议时开放内部取证入口。 */
     public Optional<DreamingMemory> dreaming() {
@@ -116,6 +117,8 @@ public final class ResidentV2 extends ResidentMemory {
 
     /** 自动引用只有在当前服务已协商受众读契约时启用。 */
     boolean supportsAudienceReads() { return audienceReads; }
+
+    boolean supportsQqAuthorHistory() { return qqAuthorHistory; }
 
     /** 返回启动核验阶段锁定的远端记忆流标识 {@code stream_id}。 */
     public String stream() {
@@ -217,6 +220,7 @@ public final class ResidentV2 extends ResidentMemory {
         audienceReads = scopedRecall() && caps.contains(new JsonPrimitive("audience_reads"));
         dreaming = audienceReads && caps.contains(new JsonPrimitive("dreaming"));
         identityLookup = caps.contains(new JsonPrimitive("identity_lookup"));
+        qqAuthorHistory = audienceReads && caps.contains(new JsonPrimitive("qq_author_history"));
         var required =
                 new HashSet<>(
                         List.of(
@@ -633,6 +637,12 @@ public final class ResidentV2 extends ResidentMemory {
      */
     Snapshot lookup(Trace.Scope scope, String role, QueryKind kind, String query, Instant before)
             throws IOException, InterruptedException {
+        return lookup(scope, role, kind, query, before, null);
+    }
+
+    /** 作者只附在历史筛选条件中，引用受众始终取自本轮渠道绑定的 scope。 */
+    Snapshot lookup(Trace.Scope scope, String role, QueryKind kind, String query, Instant before, String senderId)
+            throws IOException, InterruptedException {
         if (!scopedRecall() && kind == QueryKind.HISTORY) {
             var ids = journal.recent(scope.conversationId(), stream, before.toString());
             if (ids.isEmpty()) {
@@ -660,6 +670,7 @@ public final class ResidentV2 extends ResidentMemory {
                         },
                         "before",
                         before.toString());
+        if (senderId != null) body.addProperty("qq_sender_id", senderId);
         return audienceRequest("v2/recall", body, scope, true);
     }
 
