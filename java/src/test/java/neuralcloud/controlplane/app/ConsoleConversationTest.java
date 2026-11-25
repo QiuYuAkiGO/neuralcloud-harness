@@ -23,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -49,7 +50,7 @@ public class ConsoleConversationTest {
             public void validUntil(java.time.Instant expiry) { throw new AssertionError("unexpected timed evidence"); }
             public java.time.Instant validUntil() { return java.time.Instant.MAX; }
 
-            public java.util.Map<String, Long> sharedSources() { return java.util.Map.of(); }
+            public Map<Trace.MemoryTarget, Long> sharedSources() { return Map.of(); }
             public int request() { return 1; }
 
             public Scope scope() { return new Scope("console", "test", "test-run"); }

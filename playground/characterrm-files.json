@@ -1,0 +1,13 @@
+{
+  "config.json": "25ae0bd0e2ca917a4caf71f70b576f687361ee5866baf156f88a58c9eca0a489",
+  "configuration_baichuan.py": "6ff61d96ca508b2f4f63e8dee3314baedab04a235e86ef352b7db19eff3c7cf4",
+  "modeling_baichuan.py": "64c46c28f4ea2d0c97744883a044ec10e0d0d05ed4d53d40c7bb562f47a5c934",
+  "pytorch_model-00001-of-00003.bin": "c868e1bdccfe16392538d8020ef3f27ccf74b47cfca3c867617e8a8e0f2aa700",
+  "pytorch_model-00002-of-00003.bin": "e0681ed449fb183d836920340c791e3bb3351c5f031011d05f11322d0d77b912",
+  "pytorch_model-00003-of-00003.bin": "942a5e7322a87a7fb3c609db97c177f5e8835109a38c8dea01953c5c88e68dab",
+  "pytorch_model.bin.index.json": "df7e49338fb4014b8bc7f2c99184e0bd0c84dbc6c0b2291b8979c912a4ce466e",
+  "special_tokens_map.json": "2f5a911659701df96e4ca09b52061ae75ed404b12360301edb09f14dbea7cb26",
+  "tokenization_baichuan.py": "f21aa0414ac59ce8a8368582fb5961884272714723a42428ee405c6882cbb061",
+  "tokenizer.model": "79452955be6b419a65984273a9f08af86042e1c2a75ee3ba989cbf620a133cc2",
+  "tokenizer_config.json": "3d136a6d68712e21f7801991aa6166c30d6752b1778e1aa722c77896d668a5fb"
+}

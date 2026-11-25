@@ -39,7 +39,7 @@ public final class RouterMemoryWriter {
                 Map.of("kind", "impression", "source_refs", intent.evidence()));
         var source = audit.event(trace.scope(), trace.request());
         try {
-            var receipt = ((ResidentV2) memory).rememberImpression(trace.scope(),
+            var receipt = ((ResidentV2) memory).rememberImpression(trace,
                     trace.scope().runId() + ":" + trace.request() + ":impression",
                     Instant.parse(source.recordedAt()), intent.impression(), intent.evidence());
             return trace.write(writing, "memory", "memory_durable", Map.of("kind", "impression",

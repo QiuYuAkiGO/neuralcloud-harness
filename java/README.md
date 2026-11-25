@@ -91,11 +91,15 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 
 **会话记忆。** `memoryConfig` 可接独立的常驻记忆服务，指向含 `endpoint`、`characterId` 和 `accessTokenEnv` 的配置文件。启用记忆时，Master 配置使用支持原生工具调用的 `/v1/chat/completions`。Chat Worker、任务 Worker 和 Master 均可直接发起只读的 `memory_call`，模型只提交 `kind` 和 `query`。Router 负责写入。Chat Worker 收到消息后，Router 先取得用户发言的持久回执。QQ 确认送达或控制台写出 HTTP 正文后，Router 才提交角色回复入库。两次写入均沿用原始渠道事件作为幂等键。网页和 OpenQQ 分别使用 `console:` 和 `openqq:` 会话命名空间。
 
-**生产记忆。** 使用生产 Misty 服务时，在记忆配置中设 `recallMode=scoped`（省略时为 `recent`）。OpenQQ 私聊沿用生产的 `c2c:onebot:<账号>:<用户>` 会话标识，写入携带实际消息 ID 和发言者的 v2 事件。历史查询检索同一会话在本轮之前的记录，再按原始写入方、发言者和可见性筛选。查询本人身份时，记忆接口使用 OpenQQ 入站事件绑定的发件人账号，只返回记忆服务提供的已确认称呼。控制台沿用自身会话范围。既有测试库的回执保留在原审计链，生产读取只使用生产回执。
+**生产记忆。** 使用生产 Misty 服务时，在记忆配置中设 `recallMode=scoped`（省略时为 `recent`）。OpenQQ 私聊沿用生产的 `c2c:onebot:<账号>:<用户>` 会话标识，写入携带实际消息 ID 和发言者的 v2 事件。历史查询检索本轮之前对接收会话可见的记录。查询本人身份时，记忆接口使用 OpenQQ 入站事件绑定的发件人账号，只返回记忆服务提供的已确认称呼。既有测试库的回执保留在原审计链，生产读取只使用生产回执。
 
 **Java Memory v2。** 在 `memoryConfig` 指定的文件中设置 `apiVersion=2`、`recallMode=scoped` 和回环 `endpoint=http://127.0.0.1:端口/`。`characterId` 和 `accessTokenEnv` 与 Memory 服务配置对应，省略 `apiVersion` 时继续选择 v1。控制台在角色、协议和所需能力核验成功后开放，审计目录中的 `memory-v2-<角色>.sqlite` 持久保存写入待办、模型输入的证据版本和消费位置。
 
 **Dreaming 印象整理。** 在接入 Memory v2 scoped 的生产控制台配置中加入 `dreamingConfig=classpath:/config/dreaming-gemini.properties`，向启动进程提供 `GEMINI_API_KEY`。生产配置选择 `gemini-4-hydrogen`，经 `127.0.0.1:7890` 代理访问原生 Gemini 接口。前台空闲时，整理器用已授权的一手材料修订人物和主题档案。内部 Markdown 默认发布到审计目录的 `impressions/people/` 与 `impressions/topics/`。本地推理服务可在独立配置中选用 `OPENAI_CHAT`。参见[整理契约](../docs/proposals/dreaming.md)与[生产模型配置](src/main/resources/config/dreaming-gemini.properties)。
+
+**正式渠道共享。** 在 Java Memory 服务端的 `memory.properties` 中设置 `sessionIsolation=false`（本版默认值），同一角色的 QQ、MistyAI 和控制台即可跨私聊、群聊检索和引用全部隐私级别的记忆，包括敏感原话。Memory 宣告 `identity_lookup` 能力后，各渠道可用 `IDENTITY` 按 QQ 号或已确认的完整称呼查找，空查询列举账号与称呼。每条身份材料标明所属账号。
+
+将开关设为 `true` 并重启 Memory 可恢复原受众范围。Harness 在下一轮首次使用模型前和渠道发送前，按原查询用途核验共享来源。引用目录资料的回复和印象随来源记录 `purpose=IDENTITY`，收回目录访问也会收回这些派生材料。
 
 **原作者授权。** Memory v2.1 的 `audience_reads` 能力让 Worker 按目标会话获取可引用的材料。启用 OpenQQ 原作者命令需在记忆配置增加 `grantAccessTokenEnv`，它与 Memory 的同名配置及 `grantAccountId` 对应。原作者在已认证的私聊中发送 `/memory grant <记录ID>@<版本> <目标会话> READ|CITE <理由>`，再凭回执中的授权 ID 发送 `/memory revoke <授权ID> <理由>`。单独设置 `allowedGroupId` 后，OpenQQ 也接受对应项目群中 @ 机器人的文本和图片消息。渠道命令在进入模型前处理，普通私聊仍使用 `allowedUserId`。
 
@@ -103,7 +107,7 @@ java -cp java/target/neuralcloud-control-plane-0.1.0-SNAPSHOT.jar neuralcloud.co
 
 审计中的 `memory_call` 归属发起查询的节点，`memory_recall` 列出读取的记录 ID，`memory_call_result.data` 包含 `kind`、实际命中数 `count` 和原样交给调用方的 `sentences`。Router 的写入请求为 `router_memory_write`，持久化成功后才有 `memory_durable` 回执。生产历史检索零命中时，材料说明当前会话的查询结果。`recent` 模式只按回执重读近期对话，在材料中注明回读条数，话题命中数为零。
 
-生产 QQ 私聊另提供 `SELF_HISTORY`。当用户问自己以前说过什么，Chat Worker 提交话题关键词，只读接口使用入站私聊绑定的本人账号，向记忆服务查询本轮之前在 QQ 群聊或私聊的原话。审计记录查询类别、命中数以及 Worker 收到的带时间、渠道来源的节选。`HISTORY` 继续表示当前会话历史，`SELF_IDENTITY` 用来查询本人已确认的称呼。
+生产 QQ 私聊另提供 `SELF_HISTORY`。当用户问自己以前说过什么，Chat Worker 提交话题关键词，只读接口使用入站私聊绑定的本人账号，向记忆服务查询本轮之前在 QQ 群聊或私聊的原话。审计记录查询类别、命中数以及 Worker 收到的带时间、渠道来源的节选。`HISTORY` 查询接收会话可引用的历史，`SELF_IDENTITY` 用来查询本人已确认的称呼。
 
 **对话上下文。** Chat Worker 按原顺序重放同渠道、同会话的用户消息和已确认送出的 Misty 回复。原文保留在审计链，单次请求的历史部分最多使用 48,000 个 UTF-16 代码单元，超出时按整条消息从最早处缩减请求前缀。历史消息维持原文和角色，本轮直接读取的记忆材料附在当前消息之后。`chat_worker_turn_plan` 记录历史消息条数，以及 Gemini 实际返回的输入和缓存 token 计数。
 
@@ -186,7 +190,7 @@ python java/src/test/python/verify_conversation_plan.py http://127.0.0.1:18900 "
 
 经 `POST /api/nodes/master/messages` 提交 `/memory revise 旧印象ID@版本 来源ID@版本 [更多来源]`。宿主复核 1–16 条可引用原文，将引文交给 Master，收到完整新正文后按旧版本与新证据持久提交。审计链的 `memory_impression_revised` 保存前一版本、实际来源与新回执。过期或撤权会触发重新查证。[跨仓库数据契约和验收报告](https://github.com/QiuYuAkiGO/neuralcloud-memory/blob/codex/memory-v2-stages-3-4/docs/acceptance/memory-v2-stage-3-4.md)
 
-在已启用 Memory v2 的控制台 Master 页签发送 `/intent 请核对周六的活动安排`，或向同一接口提交带此命令的 `text`。需要核对历史时，Master 先用 `memory_call` 取证，再用 `submit_intent` 提交意图。审计链中的 `memory_call_result` 保存模型收到的编号材料，`intent.data.evidence` 保存所选记录的 `record_id` 和 `revision`。无需查证的显式意图可以提交空 `evidence`。普通渠道问候和自我介绍由 Chat Worker 回应。在 QQ 群中，记忆工具只提供带具体检索词的 `HISTORY` 查询。Chat Worker 按配置的角色设定面对用户作答。[意图字段与补交契约](../docs/proposals/console-free-chat-pipeline-20261121.md#4-master-的通用意图契约)
+在已启用 Memory v2 的控制台 Master 页签发送 `/intent 请核对周六的活动安排`，或向同一接口提交带此命令的 `text`。需要核对历史时，Master 先用 `memory_call` 取证，再用 `submit_intent` 提交意图。审计链中的 `memory_call_result` 保存模型收到的编号材料，`intent.data.evidence` 保存所选记录的 `record_id` 和 `revision`。无需查证的显式意图可以提交空 `evidence`。普通渠道问候和自我介绍由 Chat Worker 回应。在 QQ 群中，记忆工具提供带具体检索词的 `HISTORY` 及协商通过的 `IDENTITY`。Chat Worker 按配置的角色设定面对用户作答。[意图字段与补交契约](../docs/proposals/console-free-chat-pipeline-20261121.md#4-master-的通用意图契约)
 重大取舍的审计顺序是 `subject_conflict → intent → router_plan → worker_dispatch`。非空印象通过 Router 以 `kind=impression` 和确切来源版本提交，Memory 的持久回执确认入库。使用两个正式 JAR 和回环模型验证 P3 并行、普通查证、重大承诺终审及来源修订。
 
 ~~~sh

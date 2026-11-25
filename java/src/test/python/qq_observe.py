@@ -465,6 +465,9 @@ if __name__ == "__main__":
         parser.add_argument(name, type=Path)
     trial = Trial(parser.parse_args())
     try:
+        # 本次验收要求其他群与私聊均无法引用观察原文和印象，显式启用 Memory 会话隔离。
+        with trial.mc.open("a", encoding="utf-8") as config:
+            config.write("sessionIsolation=true\n")
         run(trial)
     finally:
         trial.close()

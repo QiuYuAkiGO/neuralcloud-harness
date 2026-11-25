@@ -7,6 +7,7 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
 import neuralcloud.controlplane.master.Master;
+import neuralcloud.controlplane.memory.ConversationMemory;
 import neuralcloud.controlplane.master.MasterIntent;
 import neuralcloud.controlplane.orchestration.Orchestrator;
 
@@ -30,6 +31,7 @@ public final class Router<R extends Enum<R>> {
     private final Master inference;
     private final String rolePrompt;
     private final Class<R> routeType;
+    private final Optional<ConversationMemory> memoryCall;
     /** 预构造的 OpenAI tools 声明，枚举候选集合直接取自 {@code routeType} 的枚举常量。 */
     private final List<Map<String, Object>> tools;
 
@@ -38,6 +40,12 @@ public final class Router<R extends Enum<R>> {
      * 调用方提供流程枚举，工具 Schema 约束与结果反序列化共用同一份契约，确保枚举变更自动同步。
      */
     public Router(Master inference, String rolePrompt, Class<R> routeType) {
+        this(inference, rolePrompt, routeType, Optional.empty());
+    }
+
+    /** 启动时注册唯一只读处理器。实际消费者在每轮绑定渠道身份，Memory 在读取时裁决引用权限。 */
+    public Router(Master inference, String rolePrompt, Class<R> routeType, Optional<ConversationMemory> memoryCall) {
+        this.memoryCall = memoryCall;
         this.inference = inference;
         // 配置提示词统一用 LF 送入模型，避免 Windows 与 Linux 打包产生不同的分流结果。
         this.rolePrompt = rolePrompt.replace("\r\n", "\n");
@@ -49,6 +57,11 @@ public final class Router<R extends Enum<R>> {
                         "parameters", Map.of("type", "object", "additionalProperties", false,
                                 "required", List.of("route"), "properties", Map.of("route", Map.of(
                                         "type", "string", "enum", routes))))));
+    }
+
+    /** 宿主预查和角色主动查证共用已注册的 memory_call，不额外请求一次 Router 模型。 */
+    public Optional<ConversationMemory> memoryCall() {
+        return memoryCall;
     }
 
     /**
