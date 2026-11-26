@@ -163,20 +163,25 @@ class DreamTrial(Trial):
             assert function["name"] == "submit_dreaming"
             assert body["tool_choice"] in ("required", {"type": "function", "function": {"name": "submit_dreaming"}})
             schema = function["parameters"]
-            user, = [m["content"] for m in body["messages"] if m["role"] == "user"]
+            user_parts = [m["content"] for m in body["messages"] if m["role"] == "user"]
         else:
             assert headers.get("x-goog-api-key") == self.token, "Gemini 需要用配置密钥签入"
             config = body["generationConfig"]
             assert config["responseMimeType"] == "application/json"
             schema = config.get("responseJsonSchema") or config["responseSchema"]
-            user = "".join(part["text"] for msg in body["contents"] if msg.get("role", "user") == "user"
-                           for part in msg["parts"])
+            user_parts = [part["text"] for msg in body["contents"] if msg.get("role", "user") == "user"
+                          for part in msg["parts"] if "text" in part]
         assert "changes" in schema["required"] and "changes" in schema["properties"]
+        # 补正仍使用同一份取证包，模型端可能还会收到额外的字段诊断。
+        user = next((part for part in user_parts if '"evidence"' in part and '"profiles"' in part), None)
+        assert user is not None, "模型未收到本批证据和当前档案"
         packet = json.loads(user)
         evidence, profiles = packet["evidence"], packet["profiles"]
         assert evidence and SECRET not in user
         assert all(row["conversation_id"] == SCOPE for row in evidence)
         mode = self.mode
+        if mode == "stale":
+            self.mode = "valid"  # 首答错用旧修订，下一次调用用本批当前修订补正。
         self.model_calls.append(dict(protocol="GEMINI" if path == GEMINI_PATH else "OPENAI_CHAT", mode=mode, input=packet))
         if mode == "unavailable":
             return 503, {"error": "模型暂时不可用"}
@@ -396,11 +401,10 @@ def run(t):
         if not t.live:
             t.wait_for(lambda: any(c["mode"] == "unavailable" for c in t.model_calls), "模型离线时保留批次")
             t.mode = "stale"
-            t.wait_for(lambda: sum(c["mode"] == "stale" for c in t.model_calls) >= 2, "过期引用被拒绝后用同批重试")
+            t.wait_for(lambda: any(c["mode"] == "stale" for c in t.model_calls), "模型首次提交过期引用")
             bad = [c for c in t.model_calls if c["mode"] in ("unavailable", "stale")]
             assert all(c["protocol"] == "GEMINI" and ref(corrected) in [ref(e) for e in c["input"]["evidence"]] for c in bad)
             assert all(new_person["text"] not in json.dumps(c["input"], ensure_ascii=False) for c in bad)
-            t.mode = "valid"
         t.wait_for(blocked.hit.is_set, "更正后的模型提案到达 Memory 提交边界")
         assert new_person["text"] not in "".join(t.files().values())
         assert old_topic["text"] in "".join(t.files().values())
