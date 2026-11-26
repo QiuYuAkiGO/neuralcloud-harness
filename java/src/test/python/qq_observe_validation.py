@@ -44,6 +44,8 @@ class ValidationTrial(Trial):
         if group == B:
             return tool(TOOL, {"impression": "", "evidence": []})
         attempt = len(self.requests[A])
+        if attempt == 2:
+            self.checkpoint("before-repair-response")
         if attempt > 2:
             # 只有实际收到 Memory 的修订原文，模型桩才给这一版材料有效的首次答复。
             originals = json.loads(messages[1]["content"])["本批原文"]
@@ -102,6 +104,28 @@ class ObserveValidationCases(unittest.TestCase):
         until(lambda: t.status(A)["lastResult"] == "IMPRESSION", "补正后候选持久化")
         self.assertEqual([CORRECTED], [p["content"] for p in t.posts])
         self.assertEqual(0, t.status(A)["pending"])
+        self.assertEqual(2, len(t.requests[A]))
+
+    def test_restart_while_repair_response_is_unconfirmed_keeps_batch_suspended(self):
+        """反例。补正请求已送达模型而回包未确认，恢复后保留原批，禁止再次生成或写入。"""
+        t = self.open_trial(True)
+        blocked = t.arm("before-repair-response")
+        try:
+            t.emit_batch(A)
+            blocked.wait()
+            batch = t.status(A)["currentBatchId"]
+            self.assertTrue(batch)
+            self.assertEqual(2, len(t.requests[A]))
+            t.stop_harness()
+        finally:
+            blocked.release.set()
+        t.harness()
+        until(lambda: t.unchanged_replay.is_set() or t.status(A)["state"] == "SUSPENDED", "重启恢复未确认的补正")
+        self.assertFalse(t.unchanged_replay.wait(6), "已经发出的补正在重启后被重新发送")
+        state = t.status(A)
+        self.assertEqual(("SUSPENDED", batch, 20), (state["state"], state["currentBatchId"], state["pending"]))
+        self.assertFalse(state["lastBatchId"])
+        self.assertEqual([], t.posts)
         self.assertEqual(2, len(t.requests[A]))
 
     def test_second_invalid_submission_stays_suspended_across_restart(self):
