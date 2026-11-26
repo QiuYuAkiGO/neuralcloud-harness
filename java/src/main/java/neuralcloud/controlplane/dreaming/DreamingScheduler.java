@@ -29,7 +29,7 @@ public final class DreamingScheduler implements AutoCloseable {
     private final ExecutorService worker =
             Executors.newSingleThreadExecutor(Thread.ofVirtual().name("dreaming-model").factory());
     private final Thread clock;
-    private Future<JsonArray> inference;
+    private Future<DreamingModel.Proposal> inference;
     private JsonObject offered;
     private JsonObject suspendedPosition;
     private long offeredForeground;
@@ -117,15 +117,15 @@ public final class DreamingScheduler implements AutoCloseable {
             if (memory.sameBatch(suspendedPosition, batch)) return;
             suspendedPosition = null;
         }
-        JsonArray changes;
+        DreamingModel.Proposal proposal;
         if (inference != null) {
             if (!inference.isDone()) return;
             var done = inference;
             inference = null;
             offered = null;
             try {
-                changes = done.get();
-                if (changes == null) {
+                proposal = done.get();
+                if (proposal == null) {
                     suspendedPosition = DreamingMemory.position(batch);
                     return;
                 }
@@ -135,12 +135,12 @@ public final class DreamingScheduler implements AutoCloseable {
                 throw new IllegalStateException("Dreaming 推理线程异常", e.getCause());
             }
         } else if (batch.getAsJsonArray("evidence").isEmpty()) {
-            changes = new JsonArray();
+            proposal = new DreamingModel.Proposal(new JsonArray(), new JsonArray());
         } else {
             offered = batch;
             offeredForeground = foreground.generation();
             var task =
-                    new FutureTask<JsonArray>(() -> infer(batch)) {
+                    new FutureTask<DreamingModel.Proposal>(() -> infer(batch)) {
                         @Override
                         protected void done() {
                             wake();
@@ -152,13 +152,13 @@ public final class DreamingScheduler implements AutoCloseable {
         }
         // 前台或群策略在模型执行期间变化时让出；Memory 在提交事务内再次核对证据。
         if (!foreground.idle() || !roster.equals(scopes.get())) return;
-        var command = memory.command(batch, changes);
+        var command = memory.command(batch, proposal.changes(), proposal.nameClaims());
         files.sending(command);
         send(command, allowed);
     }
 
     /** 串行工作线程独占同版的补正机会。null 表示挂起；合法的空数组仍须提交给 Memory。 */
-    private JsonArray infer(JsonObject batch) throws IOException, InterruptedException {
+    private DreamingModel.Proposal infer(JsonObject batch) throws IOException, InterruptedException {
         var position = DreamingMemory.position(batch);
         var previous = files.failure(position);
         if (previous != null) {
@@ -173,7 +173,7 @@ public final class DreamingScheduler implements AutoCloseable {
             }
         }
         try {
-            return model.organize(batch, previous == null ? null : previous.detail());
+            return model.propose(batch, previous == null ? null : previous.detail());
         } catch (InvalidModelOutput invalid) {
             recordFailure(position, previous != null, invalid.getMessage());
             throw invalid;
@@ -183,6 +183,10 @@ public final class DreamingScheduler implements AutoCloseable {
     /** 持久状态决定能否重试；审计记录本版材料的失败次数和具体字段。 */
     private void recordFailure(JsonObject position, boolean suspended, String detail) throws IOException {
         files.validation(position, suspended ? Stage.SUSPENDED : Stage.CORRECTION_PENDING, detail);
+        auditFailure(position, suspended, detail);
+    }
+
+    private void auditFailure(JsonObject position, boolean suspended, String detail) throws IOException {
         audit.write("dreaming", null, "dreaming", suspended ? "dreaming_suspended" : "dreaming_correction",
                 Map.of("position", position, "attempt", suspended ? 2 : 1, "detail", detail));
     }
@@ -212,7 +216,7 @@ public final class DreamingScheduler implements AutoCloseable {
         // 第一次 NOT_FOUND 和领取新批是两个事务，旧提交可能恰好在其间取得持久回执。
         var lastReceipt = memory.receipt(pending);
         if (lastReceipt.isPresent()) finish(pending, lastReceipt.get());
-        else files.resolved();
+        else files.resolved(DreamingMemory.position(pending));
     }
 
     private void send(JsonObject command, Set<String> allowed)
@@ -222,12 +226,21 @@ public final class DreamingScheduler implements AutoCloseable {
             if (!foreground.idle() || scopes.get().filter(allowed::equals).isEmpty()) return;
             receipt = router.sendDreaming(command);
         }
+        JsonObject answer;
         try {
-            finish(command, receipt.await());
-        } catch (ResidentV2.SourceChanged conflict) {
-            files.resolved();
-            throw conflict;
+            answer = receipt.await();
+        } catch (IOException error) {
+            // 409 要重新取证。只有权威端明确拒绝字段才消耗同批补正机会；未知回执仍按原键核对。
+            var position = DreamingMemory.position(command);
+            if (error instanceof ResidentV2.SourceChanged) files.resolved(position);
+            else if (DreamingMemory.invalidProposal(error)) {
+                boolean suspend = files.failure(position) != null;
+                files.rejected(position, suspend ? Stage.SUSPENDED : Stage.CORRECTION_PENDING, error.getMessage());
+                auditFailure(position, suspend, error.getMessage());
+            }
+            throw error;
         }
+        finish(command, answer);
     }
 
     /** 已确认的批次只报告覆盖与回执。导出失败保留本地命令，下次从权威版本重建。 */
@@ -241,7 +254,7 @@ public final class DreamingScheduler implements AutoCloseable {
         }
         files.publish(memory.profiles());
         audit.write("dreaming", null, "dreaming", "dreaming_durable", Map.of("receipt", receipt));
-        files.resolved();
+        files.resolved(DreamingMemory.position(command));
         wake();
     }
 

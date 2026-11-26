@@ -247,7 +247,8 @@ public final class ConsoleMain {
             if (dreaming.isPresent()) {
                 var model = dreaming.get();
                 var store = memory.orElseThrow();
-                var reader = store.writes().dreamingReads().orElseThrow(() -> new IOException("Memory v2 缺少 dreaming 能力"));
+                var reader = store.writes().dreamingReads().orElseThrow(
+                        () -> new IOException("Memory v2 缺少 dreaming 或 dreaming_qq_aliases 能力"));
                 var scheduler = new DreamingScheduler(reader, store.writes(), model, foreground,
                         () -> dreamingScopes(model, openQqSettings, groups), groups.<Object>map(g -> g).orElse(foreground), audit);
                 groups.ifPresent(g -> g.onScopeChange(scheduler::wake));

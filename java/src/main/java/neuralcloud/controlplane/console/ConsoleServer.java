@@ -65,10 +65,30 @@ public final class ConsoleServer implements AutoCloseable {
      * 及最早有效截止时间（{@link #validUntil()}），供渠道在发送前复核授权并在送达回执中附加 {@code source_refs}。
      */
     public interface Trace {
+        /** 已认证 OneBot 事件随本条发言附带的显示称呼与定向关系；只可登记为原发件人的入站观察。 */
+        record QqMessage(String nickname, String card, List<String> mentionIds, String replyMessageId) {
+            public static final QqMessage EMPTY = new QqMessage("", "", List.of(), "");
+
+            public QqMessage {
+                mentionIds = List.copyOf(mentionIds);
+            }
+
+            public void addTo(JsonObject channel) {
+                if (!nickname.isEmpty()) channel.addProperty("nickname", nickname);
+                if (!card.isEmpty()) channel.addProperty("card", card);
+                if (!mentionIds.isEmpty()) channel.add("mention_ids", JSON.toJsonTree(mentionIds));
+                if (!replyMessageId.isEmpty()) channel.addProperty("reply_message_id", replyMessageId);
+            }
+        }
+
         /** QQ 私聊渠道身份标识，规范化生成跨重启稳定的会话 ID（{@code c2c:onebot:<accountId>:<peerId>}）。 */
-        record QqPrivate(long accountId, long peerId, List<Long> memberGroups) {
+        record QqPrivate(long accountId, long peerId, List<Long> memberGroups, QqMessage message) {
             public QqPrivate {
                 memberGroups = List.copyOf(memberGroups);
+            }
+
+            public QqPrivate(long accountId, long peerId, List<Long> memberGroups) {
+                this(accountId, peerId, memberGroups, QqMessage.EMPTY);
             }
 
             public QqPrivate(long accountId, long peerId) {
@@ -86,7 +106,12 @@ public final class ConsoleServer implements AutoCloseable {
                 long groupId,
                 long senderId,
                 boolean managed,
-                long observeRevision) {
+                long observeRevision,
+                QqMessage message) {
+            public QqGroup(long accountId, long groupId, long senderId, boolean managed, long observeRevision) {
+                this(accountId, groupId, senderId, managed, observeRevision, QqMessage.EMPTY);
+            }
+
             public QqGroup(long accountId, long groupId, long senderId, boolean managed) {
                 this(accountId, groupId, senderId, managed, 0);
             }

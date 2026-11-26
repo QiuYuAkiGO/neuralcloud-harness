@@ -21,6 +21,7 @@ import java.net.http.HttpClient;
 import java.net.http.WebSocket;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -59,11 +60,12 @@ public final class OpenQqChannel implements AutoCloseable {
             long senderId,
             boolean addressed,
             QqGroups.Policy policy,
-            List<String> imageKeys) {
+            List<String> imageKeys,
+            Trace.QqMessage metadata) {
         boolean observeOnly() { return policy != null && policy.policy() == QqGroups.Mode.OBSERVE; }
 
         Incoming(long messageId, String text, long groupId, long senderId) {
-            this(messageId, text, groupId, senderId, true, null, List.of());
+            this(messageId, text, groupId, senderId, true, null, List.of(), Trace.QqMessage.EMPTY);
         }
     }
 
@@ -209,7 +211,8 @@ public final class OpenQqChannel implements AutoCloseable {
                                         incoming.groupId(),
                                         incoming.senderId(),
                                         groups.isPresent(),
-                                        incoming.observeOnly() ? incoming.policy().revision() : 0))
+                                        incoming.observeOnly() ? incoming.policy().revision() : 0,
+                                        incoming.metadata()))
                         : Trace.forQqPrivate(
                                 audit,
                                 chain,
@@ -219,7 +222,8 @@ public final class OpenQqChannel implements AutoCloseable {
                                         incoming.senderId(),
                                         groups.isPresent() && !decision
                                                 ? session.memberships(socket, incoming.senderId())
-                                                : List.of()),
+                                                : List.of(),
+                                        incoming.metadata()),
                                 (memberships, name) -> session.memberAccounts(socket, memberships, name));
         Reply reply;
         try {
@@ -396,14 +400,24 @@ public final class OpenQqChannel implements AutoCloseable {
         long messageId = id(event.get("message_id"));
         var text = new StringBuilder();
         var images = new ArrayList<String>();
+        var mentions = new LinkedHashSet<String>();
+        String reply = "";
         boolean addressed = false;
         for (var item : segments) {
             if (!(item instanceof JsonObject segment)
                     || !(segment.get("data") instanceof JsonObject data)) return null;
-            if (group
-                    && "at".equals(string(segment.get("type")))
-                    && Long.toString(accountId).equals(string(data.get("qq")))) {
-                addressed = true;
+            if ("at".equals(string(segment.get("type")))) {
+                String target = string(data.get("qq"));
+                if (target.equals(Long.toString(accountId)) && group) addressed = true;
+                else if (!target.matches("[1-9][0-9]{4,15}") || target.equals(Long.toString(accountId))) return null;
+                else mentions.add(target);
+                if (mentions.size() > 64) return null;
+                continue;
+            }
+            if ("reply".equals(string(segment.get("type")))) {
+                String target = string(data.get("id"));
+                if (!reply.isEmpty() || target.isBlank() || target.codePointCount(0, target.length()) > 128) return null;
+                reply = target;
                 continue;
             }
             if ("image".equals(string(segment.get("type")))) {
@@ -431,10 +445,28 @@ public final class OpenQqChannel implements AutoCloseable {
                 || body.length() > MAX_MESSAGE_CHARS
                 || group && policy == null && !addressed) return null;
         // 允许原作者发控制命令，无须开放其普通私聊。身份始终取自已认证连接的事件。
-        if (authorCommand(body) && !images.isEmpty()
+        if (authorCommand(body) && (!images.isEmpty() || !mentions.isEmpty() || !reply.isEmpty())
                 || !group && sender != allowedUserId && !(authorCommands && authorCommand(body)))
             return null;
-        return new Incoming(messageId, body, group ? gid : 0, sender, !group || addressed, policy, List.copyOf(images));
+        // 称呼绑定外层认证的发件人。文本中的 CQ 码、转发原文及他人的资料不能提供这些字段。
+        if (event.has("sender") && !(event.get("sender") instanceof JsonObject)) return null;
+        var profile = event.getAsJsonObject("sender");
+        if (profile != null && profile.has("user_id") && id(profile.get("user_id")) != sender) return null;
+        String nickname = displayName(profile, "nickname");
+        String card = group ? displayName(profile, "card") : "";
+        if (nickname == null || card == null) return null;
+        return new Incoming(messageId, body, group ? gid : 0, sender, !group || addressed, policy,
+                List.copyOf(images), new Trace.QqMessage(nickname, card, List.copyOf(mentions), reply));
+    }
+
+    /** 缺少显示称呼或平台给出空名片时没有对应线索。类型或长度超出契约时拒收该事件。 */
+    private static String displayName(JsonObject sender, String field) {
+        if (sender == null || !sender.has(field)) return "";
+        if (sender.get(field) instanceof JsonPrimitive value && value.isString()) {
+            String name = value.getAsString();
+            if (name.codePointCount(0, name.length()) <= 128) return name.isBlank() ? "" : name;
+        }
+        return null;
     }
 
     /** 判断 OneBot 动作回执是否明确表示执行成功（{@code status == "ok"} 且 {@code retcode == 0}）。 */

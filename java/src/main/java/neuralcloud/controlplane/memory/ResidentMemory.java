@@ -359,8 +359,9 @@ public class ResidentMemory {
         final int status;
         final String code;
 
-        ServiceError(int status, String code) {
-            super("记忆服务返回 HTTP " + status + (code.isEmpty() ? "" : " " + code));
+        ServiceError(int status, String code, String field) {
+            super("记忆服务返回 HTTP " + status + (code.isEmpty() ? "" : " " + code)
+                    + (field.isEmpty() ? "" : " " + field));
             this.status = status;
             this.code = code;
         }
@@ -405,14 +406,17 @@ public class ResidentMemory {
 
     protected JsonObject decode(HttpResponse<String> response) throws IOException {
         if (response.statusCode() != 200) {
-            String code = "";
+            String code = "", field = "";
             try {
                 var error = JSON.fromJson(response.body(), JsonObject.class);
-                if (error != null && error.has("code")) code = " " + text(error, "code");
+                if (error != null && error.has("code")) code = text(error, "code");
+                // 只传回写入方的校验字段，供同批模型修正其输入。
+                if (response.statusCode() == 422 && "INVALID_FIELD".equals(code) && error.has("field"))
+                    field = text(error, "field");
             } catch (JsonParseException ignored) {
                 // 非 JSON 错误正文时忽略解析失败，仍保留 HTTP 状态码供上层判断。
             }
-            throw new ServiceError(response.statusCode(), code.strip());
+            throw new ServiceError(response.statusCode(), code, field);
         }
         try {
             var result = JSON.fromJson(response.body(), JsonObject.class);
