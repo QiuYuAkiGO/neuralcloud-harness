@@ -47,6 +47,14 @@ SFT 入口接受可选的 `--sft-exposures FILE`。该 JSON 对象恰含 `data_s
 
 使用该参数时，训练回执中的 `examples` 仍是输入的原始行数。新增 `examples_per_epoch` 记录 `counts` 之和，`sft_exposures_sha256` 记录输入清单文件的 SHA-256。第三轮预定给通过清洗的身份或资料会话中、可见正文明确使用已知姓名、生日、年龄或身高的监督样本每轮 3 次，其余样本每轮 1 次。所有实用题仍参与训练，开发集和盲卷均不参与该清单。
 
+### DPO 中的正例监督
+
+第二轮留出的 26 个偏好对中，DPO 使所有负例的平均词元对数概率下降，20 对的正例也下降。后续检查点可以在标准 DPO 损失之外加入正例续答的监督项，并用相同开发集检查正例概率、实际答案和冻结盲评。[开发集逐组统计](../harness/evidence/misty-qwen38-27b-20261126/round01-to-round02-coverage.json)
+
+训练入口新增可选参数 `--dpo-sft-weight W`。仅 DPO 可使用，W 须为有限正数。启用后，优化目标为标准 sigmoid DPO 损失加上 W 倍的正例助理续答平均负对数似然，只对正例续答中受监督的词元取平均。提示词元不参与这项监督。标准 DPO 的系数为 1，β 维持 0.1，参考适配器仍固定为本轮 SFT。TRL 的加权组合接口直接支持这两项损失。[TRL 的多种损失组合](https://huggingface.co/docs/trl/dpo_trainer#multi-loss-type-training)
+
+提供有效参数时，`training.json` 用 `dpo_sft_weight` 记录实际 W。省略参数时沿用现有标准 DPO 及回执格式。SFT 传入该参数，或系数为零、负数及非有限值时，入口须返回非零、诊断指出 `dpo-sft-weight` 并保持成品目录不存在。第三轮沿用冻结的标准 DPO 配置。若需第四轮，预定 W 为 0.1，训练后按相同定义复算正、负例各自的概率变化。
+
 ## 评测侧语料检查入口
 
 `python tools/misty27_filter.py --blind BLIND --candidates CANDIDATES --encoder LOCAL_E5 --output REPORT` 在密封区运行。两份输入分别为唯一非空 `id` 与非空用户原话数组 `turns` 构成的 JSON 数组。编码器为冻结的 `intfloat/multilingual-e5-small` 本地快照。对 NFKC、大小写折叠、合并空白后的每一轮和整段用户情境检查完全重复，再对各轮及整段使用 E5 查询前缀、掩码均值池化和单位向量比较。超过单次编码长度的文本分窗并重叠 64 个词元。任何窗口与盲卷的余弦相似度 ≥0.85 即剔除；候选之间按完整规范化情境去重，保留输入顺序中首个通过的样本。
