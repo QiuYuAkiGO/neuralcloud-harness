@@ -32,6 +32,12 @@ def route_fields(request, route="CONVERSATION", *, memory_focus="DEFAULT", autho
     return fields
 
 
+def correction_feedback(original, received):
+    """只提取首次提交后调用方新给的说明，排除模型自己先前提交的工具参数。"""
+    return "\n".join(m["content"] for m in received
+                     if m not in original and m["role"] != "assistant" and m.get("content"))
+
+
 def port():
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -83,6 +89,7 @@ class Trial:
         self.gates, self.sent, self.posts, self.lookups, self.packets = {}, [], [], [], []
         self.roster = [A, B, C]
         self.bad_index = True
+        self.rejected_messages = None
         self.corrected_submission = False
         self.children = []
         self.worker = ThreadPoolExecutor(1)
@@ -171,9 +178,13 @@ class Trial:
                 imp = {"impression": "根据群里两条记录，我目前倾向于继续核对进展", "evidence": [1, 2]}
             if self.bad_index and imp["evidence"]:
                 self.bad_index = False
+                self.rejected_messages = body["messages"]
                 imp["evidence"] = [len(texts) + 1]
-            elif body["messages"][-1]["role"] == "tool":
-                self.corrected_submission = True
+            elif self.rejected_messages is not None and imp["evidence"]:
+                feedback = correction_feedback(self.rejected_messages, body["messages"])
+                self.corrected_submission = "evidence" in feedback and (
+                    str(len(texts) + 1) in feedback or str(len(texts)) in feedback)
+                self.rejected_messages = None
             function = {"name": "submit_impression", "arguments": json.dumps(imp)}
             return 200, {"model": "trial", "choices": [{"finish_reason": "tool_calls", "message": {"content": None,
                          "tool_calls": [{"id": "observation", "type": "function", "function": function}]}}]}

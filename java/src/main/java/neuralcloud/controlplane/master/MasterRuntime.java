@@ -64,9 +64,10 @@ public record MasterRuntime(Master model, MasterEpochs epochs, int maxTokens, do
 
     /** 观察批次沿同群受众取得同一 Epoch 租约。归档只投影处理状态，原文及印象下轮按当前授权读取。 */
     public Master.ObservationSubmission observe(String audience, String inputId, String material,
-                                                List<MemoryCall.EvidenceRef> refs)
+                                                List<MemoryCall.EvidenceRef> refs, String correction)
             throws IOException, InterruptedException {
-        return epochs.reflect(audience, "observe:" + inputId, () -> model.observe(material, refs, maxTokens, temperature));
+        return epochs.reflect(audience, "observe:" + inputId,
+                () -> model.observe(material, refs, maxTokens, temperature, correction));
     }
 
     /** 只有收到并复核 Worker 回执后才结束派单事项。这条记录不声称渠道已经送达。 */

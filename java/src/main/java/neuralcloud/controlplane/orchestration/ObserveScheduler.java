@@ -6,6 +6,8 @@ import neuralcloud.controlplane.console.AuditLog;
 import neuralcloud.controlplane.console.ConsoleServer.Exchange;
 import neuralcloud.controlplane.console.ConsoleServer.Trace;
 import neuralcloud.controlplane.master.MasterRuntime;
+import neuralcloud.controlplane.master.Master;
+import neuralcloud.controlplane.integration.inference.InvalidModelOutput;
 import neuralcloud.controlplane.memory.ObserveEvidence;
 import neuralcloud.controlplane.memory.ObserveQueue;
 import neuralcloud.controlplane.memory.ObserveQueue.Batch;
@@ -197,16 +199,25 @@ public final class ObserveScheduler implements AutoCloseable {
                         ? List.<String>of()
                         : reads.comparison(
                                 scope, packet, queue.recentImpressions(b.account(), b.room()));
-        String inputId = UUID.randomUUID().toString();
+        ObserveQueue.Input input;
         synchronized (groups) {
             if (groups.availability(b.room(), b.policy()) != CURRENT) return;
-            queue.evidence(b, inputId, packet, comparison);
+            input = queue.evidence(b, packet, comparison);
         }
-        var submission =
-                refs.isEmpty()
-                        ? null
-                        : master.observe(
-                                scope.conversationId(), inputId, packet.material(comparison), refs);
+        if (input == null) return;
+        Master.ObservationSubmission submission;
+        try {
+            submission = refs.isEmpty() ? null : master.observe(
+                    scope.conversationId(), input.id(), packet.material(comparison), refs, input.correction());
+        } catch (InvalidModelOutput invalid) {
+            // 传输失败走原退避。只把当前授权批次的模型契约错误记入补正次数。
+            invalid.printStackTrace(System.err);
+            synchronized (groups) {
+                if (groups.availability(b.room(), b.policy()) != RETIRED)
+                    queue.rejected(b, input, invalid.getMessage());
+            }
+            return;
+        }
         if (groups.availability(b.room(), b.policy()) != CURRENT) return;
         // 空结论也必须复核，不能因原文在模型调用期间更正或撤回而错误地推进游标。
         if (!reads.read(scope, packet.members()).equals(packet))
@@ -226,7 +237,7 @@ public final class ObserveScheduler implements AutoCloseable {
                             "toolCallId",
                             submission.callId(),
                             "inputId",
-                            inputId,
+                            input.id(),
                             "offered",
                             refs,
                             "submission",

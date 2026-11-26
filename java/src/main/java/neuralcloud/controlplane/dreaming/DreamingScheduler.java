@@ -3,6 +3,8 @@ package neuralcloud.controlplane.dreaming;
 import com.google.gson.*;
 
 import neuralcloud.controlplane.console.AuditLog;
+import neuralcloud.controlplane.dreaming.DreamingFiles.Stage;
+import neuralcloud.controlplane.integration.inference.InvalidModelOutput;
 import neuralcloud.controlplane.memory.DreamingMemory;
 import neuralcloud.controlplane.memory.ResidentV2;
 import neuralcloud.controlplane.orchestration.ObserveScheduler.Foreground;
@@ -29,6 +31,7 @@ public final class DreamingScheduler implements AutoCloseable {
     private final Thread clock;
     private Future<JsonArray> inference;
     private JsonObject offered;
+    private JsonObject suspendedPosition;
     private long offeredForeground;
     private Set<String> lastScopes;
 
@@ -109,6 +112,11 @@ public final class DreamingScheduler implements AutoCloseable {
         if (!foreground.idle()
                 || !roster.equals(scopes.get())
                 || batch.get("after").equals(batch.get("through"))) return;
+        // 仍从 Memory 领取以发现权限或材料换版。挂起期间无需创建推理任务。
+        if (suspendedPosition != null) {
+            if (memory.sameBatch(suspendedPosition, batch)) return;
+            suspendedPosition = null;
+        }
         JsonArray changes;
         if (inference != null) {
             if (!inference.isDone()) return;
@@ -117,6 +125,10 @@ public final class DreamingScheduler implements AutoCloseable {
             offered = null;
             try {
                 changes = done.get();
+                if (changes == null) {
+                    suspendedPosition = DreamingMemory.position(batch);
+                    return;
+                }
             } catch (ExecutionException e) {
                 if (e.getCause() instanceof IOException error) throw error;
                 if (e.getCause() instanceof InterruptedException) return;
@@ -128,7 +140,7 @@ public final class DreamingScheduler implements AutoCloseable {
             offered = batch;
             offeredForeground = foreground.generation();
             var task =
-                    new FutureTask<JsonArray>(() -> model.organize(batch)) {
+                    new FutureTask<JsonArray>(() -> infer(batch)) {
                         @Override
                         protected void done() {
                             wake();
@@ -143,6 +155,36 @@ public final class DreamingScheduler implements AutoCloseable {
         var command = memory.command(batch, changes);
         files.sending(command);
         send(command, allowed);
+    }
+
+    /** 串行工作线程独占同版的补正机会。null 表示挂起；合法的空数组仍须提交给 Memory。 */
+    private JsonArray infer(JsonObject batch) throws IOException, InterruptedException {
+        var position = DreamingMemory.position(batch);
+        var previous = files.failure(position);
+        if (previous != null) {
+            switch (previous.stage()) {
+                case SUSPENDED -> { return null; }
+                case CORRECTING -> {
+                    // 上次在补正途中退出或失去响应，继续生成会重复花费这一批的额度。
+                    recordFailure(position, true, "上次补正已登记，但未取得可恢复的结果");
+                    return null;
+                }
+                case CORRECTION_PENDING -> files.validation(position, Stage.CORRECTING, previous.detail());
+            }
+        }
+        try {
+            return model.organize(batch, previous == null ? null : previous.detail());
+        } catch (InvalidModelOutput invalid) {
+            recordFailure(position, previous != null, invalid.getMessage());
+            throw invalid;
+        }
+    }
+
+    /** 持久状态决定能否重试；审计记录本版材料的失败次数和具体字段。 */
+    private void recordFailure(JsonObject position, boolean suspended, String detail) throws IOException {
+        files.validation(position, suspended ? Stage.SUSPENDED : Stage.CORRECTION_PENDING, detail);
+        audit.write("dreaming", null, "dreaming", suspended ? "dreaming_suspended" : "dreaming_correction",
+                Map.of("position", position, "attempt", suspended ? 2 : 1, "detail", detail));
     }
 
     private void cancelInference() {

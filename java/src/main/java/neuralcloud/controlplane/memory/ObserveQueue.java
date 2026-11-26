@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.sql.*;
 import java.time.Duration;
 import java.time.Instant;
@@ -13,6 +14,7 @@ import java.util.*;
 public final class ObserveQueue {
     public static final int LIMIT = 20;
     static final long WAIT = Duration.ofMinutes(30).toMillis();
+    private static final long RECHECK = Duration.ofMinutes(1).toMillis();
     private static final Gson JSON = new Gson();
     private final MemoryJournal db;
     private final String stream;
@@ -61,6 +63,9 @@ public final class ObserveQueue {
     public record Audit(
             long key, String chain, String batch, String node, String type, JsonObject data) {}
 
+    /** id 标记本次交付及其 Epoch 检查点，materialKey 标记跨调用、跨重启的同一版材料。 */
+    public record Input(String id, String materialKey, String correction) {}
+
     ObserveQueue(MemoryJournal db, String stream, Head head) {
         this.db = db;
         this.stream = stream;
@@ -98,6 +103,9 @@ public final class ObserveQueue {
                 type TEXT NOT NULL,data TEXT NOT NULL,published INTEGER NOT NULL DEFAULT 0)""");
         sql.execute(
                 "CREATE INDEX IF NOT EXISTS observe_unpublished ON observe_audit(published,id)");
+        sql.execute("""
+                CREATE TABLE IF NOT EXISTS observe_validation(batch TEXT PRIMARY KEY,
+                material_key TEXT NOT NULL,detail TEXT NOT NULL,correction_id TEXT)""");
     }
 
     /** 发布策略文件前准备不可变启用水位。相同版本重启沿用原水位，换流须显式处理。 */
@@ -164,7 +172,7 @@ public final class ObserveQueue {
                     try (var p =
                                     db.statement(
                                             """
-                    SELECT id FROM observe_batches b WHERE account=? AND state IN ('QUEUED','RUNNING')
+                    SELECT id FROM observe_batches b WHERE account=? AND state IN ('QUEUED','RUNNING','SUSPENDED')
                     AND NOT EXISTS(SELECT 1 FROM observe_epochs e WHERE e.account=b.account AND e.room=b.room
                     AND e.policy=b.policy AND e.active=1)""",
                                             account);
@@ -180,6 +188,7 @@ public final class ObserveQueue {
 
     private void cancel(String id) throws SQLException {
         db.exec("UPDATE observe_batches SET state='CANCELLED' WHERE id=?", id);
+        db.exec("DELETE FROM observe_validation WHERE batch=?", id);
         note(id, "orchestrator", "observe_cancelled", Map.of("reason", "群策略版本已结束"));
     }
 
@@ -265,8 +274,11 @@ public final class ObserveQueue {
                     try (var p =
                                     db.statement(
                                             """
-                    SELECT id,room,policy,state,retry_at,candidate FROM observe_batches WHERE account=?
-                    AND state IN ('QUEUED','RUNNING','SENDING') ORDER BY oldest,rowid""",
+                    SELECT id,room,policy,state,retry_at,candidate FROM observe_batches b WHERE account=?
+                    AND (state IN ('QUEUED','RUNNING','SENDING') OR (state='SUSPENDED' AND NOT EXISTS(
+                      SELECT 1 FROM observe_batches other WHERE other.account=b.account AND other.room=b.room
+                      AND other.state IN ('QUEUED','RUNNING','SENDING'))))
+                    ORDER BY state='SUSPENDED',oldest,rowid""",
                                             account);
                             var r = p.executeQuery()) {
                         while (r.next())
@@ -350,6 +362,7 @@ public final class ObserveQueue {
                 () -> {
                     db.exec("UPDATE observe_sources SET batch=NULL WHERE batch=?", b.id());
                     db.exec("UPDATE observe_batches SET state='CANCELLED' WHERE id=?", b.id());
+                    db.exec("DELETE FROM observe_validation WHERE batch=?", b.id());
                     note(
                             b.id(),
                             "orchestrator",
@@ -360,12 +373,39 @@ public final class ObserveQueue {
         wake();
     }
 
-    /** 模型提交、发出前的完整不可变命令以及完成结论分别与状态在同一事务落盘。 */
-    public void evidence(
-            Batch b, String inputId, ObserveEvidence.Packet packet, List<String> comparison)
+    /** 按完整原文、来源版本和对照匹配补正记录。挂起批次只复查材料，有变化后才恢复模型调用。 */
+    public Input evidence(Batch b, ObserveEvidence.Packet packet, List<String> comparison)
             throws IOException {
-        db.transaction(
+        // 原文顺序决定证据编号；对照印象没有编号，单纯的召回排序变化不能重置补正次数。
+        String material = JSON.toJson(List.of(b.id(), packet.originals(), comparison.stream().sorted().toList()));
+        String materialKey = UUID.nameUUIDFromBytes(material.getBytes(StandardCharsets.UTF_8)).toString();
+        return db.transaction(
                 () -> {
+                    String inputId = UUID.randomUUID().toString();
+                    String correction = null;
+                    try (var p = db.statement("SELECT detail,correction_id FROM observe_validation WHERE batch=? AND material_key=?",
+                            b.id(), materialKey); var r = p.executeQuery()) {
+                        if (r.next()) {
+                            if (b.state().equals("SUSPENDED")) {
+                                db.exec("UPDATE observe_batches SET retry_at=? WHERE id=?", now() + RECHECK, b.id());
+                                return null;
+                            }
+                            correction = r.getString(1);
+                            String started = r.getString(2);
+                            if (started != null) {
+                                recordRejection(b, new Input(started, materialKey, correction),
+                                        "上次补正已登记，但未取得可恢复的结果");
+                                return null;
+                            }
+                            // 发出补正前持久占用唯一机会。若调用期间进程退出，恢复后只登记挂起。
+                            db.exec("UPDATE observe_validation SET correction_id=? WHERE batch=?", inputId, b.id());
+                        }
+                    }
+                    // 旧错误只适用于产生该错误的输入。资料有变化时重新核对当前授权并从首答开始。
+                    if (b.state().equals("SUSPENDED"))
+                        db.exec("UPDATE observe_batches SET state='RUNNING',retry_at=0 WHERE id=?", b.id());
+                    if (correction == null)
+                        db.exec("DELETE FROM observe_validation WHERE batch=? AND material_key<>?", b.id(), materialKey);
                     note(
                             b.id(),
                             "orchestrator",
@@ -377,8 +417,27 @@ public final class ObserveQueue {
                                     packet.originals(),
                                     "comparison",
                                     comparison));
-                    return null;
+                    return new Input(inputId, materialKey, correction);
                 });
+    }
+
+    /** 错误说明和处理状态一起提交。挂起保留批内原文，独立批次仍可排队。 */
+    public void rejected(Batch b, Input input, String detail) throws IOException {
+        db.transaction(() -> {
+            recordRejection(b, input, detail);
+            return null;
+        });
+    }
+
+    private void recordRejection(Batch b, Input input, String detail) throws SQLException {
+        boolean suspended = input.correction() != null;
+        db.exec("INSERT OR REPLACE INTO observe_validation(batch,material_key,detail,correction_id) VALUES(?,?,?,?)",
+                b.id(), input.materialKey(), detail, suspended ? input.id() : null);
+        db.exec("UPDATE observe_batches SET state=?,retry_at=? WHERE id=?",
+                suspended ? "SUSPENDED" : "RUNNING", suspended ? now() + RECHECK : 0, b.id());
+        note(b.id(), "master", suspended ? "observe_suspended" : "observe_correction",
+                Map.of("inputId", input.id(), "materialKey", input.materialKey(),
+                        "attempt", suspended ? 2 : 1, "detail", detail));
     }
 
     public void submitted(Batch b, Object submission) throws IOException {
@@ -397,6 +456,7 @@ public final class ObserveQueue {
                             candidate.toString(),
                             b.id());
                     note(b.id(), "router", "observe_candidate", candidate);
+                    db.exec("DELETE FROM observe_validation WHERE batch=?", b.id());
                     return null;
                 });
     }
@@ -453,6 +513,7 @@ public final class ObserveQueue {
                                             b.candidate().get("event_id").getAsString(),
                                             "receipt",
                                             receipt));
+                    db.exec("DELETE FROM observe_validation WHERE batch=?", b.id());
                     return null;
                 });
         wake();
@@ -509,7 +570,7 @@ public final class ObserveQueue {
                                                     + ELIGIBLE
                                                     + """
                     AND s.account=? AND s.room=? AND s.policy=? AND (s.batch IS NULL OR EXISTS
-                    (SELECT 1 FROM observe_batches b WHERE b.id=s.batch AND b.state IN ('RUNNING','SENDING')))""",
+                    (SELECT 1 FROM observe_batches b WHERE b.id=s.batch AND b.state IN ('RUNNING','SENDING','SUSPENDED')))""",
                                             account,
                                             room,
                                             policy);
@@ -526,14 +587,15 @@ public final class ObserveQueue {
                                     db.statement(
                                             """
                     SELECT id,state,retry_at FROM observe_batches WHERE account=? AND room=? AND policy=?
-                    AND state IN ('QUEUED','RUNNING','SENDING')""",
+                    AND state IN ('QUEUED','RUNNING','SENDING','SUSPENDED') ORDER BY state='SUSPENDED',oldest,rowid LIMIT 1""",
                                             account,
                                             room,
                                             policy);
                             var r = p.executeQuery()) {
                         if (r.next()) {
                             current = r.getString(1);
-                            state = r.getLong(3) > now() ? "RETRY" : r.getString(2);
+                            state = r.getString(2);
+                            if (!state.equals("SUSPENDED") && r.getLong(3) > now()) state = "RETRY";
                         }
                     }
                     try (var p =

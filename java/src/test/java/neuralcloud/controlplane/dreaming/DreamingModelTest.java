@@ -262,6 +262,34 @@ public class DreamingModelTest {
         reject(model, provider, openAi("tool_calls", tool(FUNCTION, changes(person(), invalid).toString())), reason);
     }
 
+    /** 大批材料可以含十七项；对一条认识独立校验十六个引用与十七个引用的边界。 */
+    @Test public void enforcesReferenceLimitPerChangeEvenWhenAllSeventeenSourcesWereOffered() throws Exception {
+        var packet = batch();
+        var evidence = new JsonArray();
+        var claim = person();
+        var refs = new JsonArray();
+        for (int i = 1; i <= 17; i++) {
+            var citation = new JsonObject();
+            citation.addProperty("record_id", "%064x".formatted(i));
+            citation.addProperty("revision", 1);
+            var source = citation.deepCopy();
+            source.addProperty("content", "周三读书记录 " + i);
+            evidence.add(source);
+            refs.add(citation);
+        }
+        packet.add("evidence", evidence);
+        claim.add("source_refs", refs);
+        try (var provider = new Provider();
+             var model = DreamingModel.open(settings("OPENAI_CHAT", provider.base() + OPENAI))) {
+            provider.reply = openAi("tool_calls", tool(FUNCTION, changes(claim).toString()));
+            assertThrows("单条认识包含十七个有效引用", IOException.class, () -> model.organize(packet));
+            refs.remove(16);
+            var expected = changes(claim);
+            provider.reply = openAi("tool_calls", tool(FUNCTION, expected.toString()));
+            assertEquals(expected.get("changes"), model.organize(packet));
+        }
+    }
+
     private static void reject(DreamingModel model, Provider provider, String reply, String reason) {
         provider.reply = reply;
         int before = provider.requests.size();

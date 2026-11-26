@@ -54,6 +54,8 @@ function summary(event) {
     case 'observe_completed': return data.result === 'IMPRESSION' ? '印象已持久入库' : '已完成 · 无新印象';
     case 'observe_refused': case 'observe_cancelled': return data.reason;
     case 'observe_retry': return data.detail;
+    case 'observe_correction': case 'dreaming_correction': return '等待一次补正 · ' + data.detail;
+    case 'observe_suspended': case 'dreaming_suspended': return '已挂起 · ' + data.detail;
     case 'qq_send_requested': return '已请求 OpenQQ 发送私聊回复';
     case 'qq_delivery': return 'OpenQQ 已确认发送，消息 ID ' + data.messageId;
     case 'qq_delivery_failed': return 'OpenQQ 拒绝发送，错误码 ' + data.retcode;
@@ -464,7 +466,7 @@ document.getElementById('nodes-refresh').addEventListener('click', loadNodes);
 // 名单、保存与版本冲突均以服务器回执为准。每张卡可直接打开该群历史审计。
 const qqModes = { OFF: '不接收', OBSERVE: '仅观察', OBSERVE_REPLY: '观察与回复' };
 const observationStates = { IDLE: '空闲', WAITING: '等待触发', QUEUED: '已排队', RUNNING: '整理中',
-  SENDING: '等待入库回执', RETRY: '等待重试', DISCONNECTED: '等待重连' };
+  SENDING: '等待入库回执', RETRY: '等待重试', SUSPENDED: '已挂起', DISCONNECTED: '等待重连' };
 function observationPanel(room) {
   const s = room.observation;
   if (s.state === 'DISABLED') return el('p', { class: 'muted' }, '印象整理未启用');

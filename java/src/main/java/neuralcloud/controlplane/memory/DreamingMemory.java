@@ -21,6 +21,13 @@ public final class DreamingMemory {
         return memory.character();
     }
 
+    /** Memory 为同一区间的材料或权限变更重新签发 policy_version；这四项共同标识一版取证。 */
+    public static JsonObject position(JsonObject batch) {
+        var result = new JsonObject();
+        for (String key : POSITION) result.add(key, batch.get(key));
+        return result;
+    }
+
     private JsonObject context(String role) {
         String home = "dreaming:" + character();
         return object(
