@@ -116,12 +116,17 @@ def train(args, rows, data_hash, work, exposures=None):
             raise ValueError("sft-adapter 的阶段、权重摘要或基础权重与本轮不符")
         model = PeftModel.from_pretrained(base, args.sft_adapter, local_files_only=True, is_trainable=True)
         policy_start = adapter_hash(model, "default")
+        extra = {"sft_adapter_sha256": parent_hash, "reference_tensor_sha256": policy_start, "beta": 0.1}
+        losses = {}
+        if args.dpo_sft_weight is not None:
+            # TRL 的 sft 项只对正例续答词元求平均，固定参考仍仅用于 sigmoid 偏好项。
+            losses = {"loss_type": ["sigmoid", "sft"], "loss_weights": [1.0, args.dpo_sft_weight]}
+            extra["dpo_sft_weight"] = args.dpo_sft_weight
         trainer = DPOTrainer(model=model, processing_class=tokenizer, train_dataset=dataset,
                              args=DPOConfig(**common, beta=0.1, precompute_ref_log_probs=True,
-                                            precompute_ref_batch_size=1))
+                                            precompute_ref_batch_size=1, **losses))
         if adapter_hash(model, "ref") != policy_start:
             raise ValueError("DPO 初始参考与 SFT 策略权重不同")
-        extra = {"sft_adapter_sha256": parent_hash, "reference_tensor_sha256": policy_start, "beta": 0.1}
 
     trainable = sum(t.numel() for t in model.parameters() if t.requires_grad)
     before = adapter_hash(model, "default")
@@ -153,6 +158,7 @@ def main():
         parser.add_argument("--" + field, type=Path, required=True)
     parser.add_argument("--sft-adapter", type=Path)
     parser.add_argument("--sft-exposures", type=Path, help="SFT 各行每轮训练次数及数据摘要的 JSON 清单")
+    parser.add_argument("--dpo-sft-weight", type=float, help="DPO 中正例续答平均负对数似然的系数")
     parser.add_argument("--learning-rate", type=float)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--accumulation", type=int, default=4)
@@ -161,6 +167,8 @@ def main():
         parser.error("--sft-adapter 须且仅须在 DPO 阶段提供")
     if args.sft_exposures is not None and args.stage != "sft":
         parser.error("--sft-exposures 仅适用于 SFT 阶段")
+    if args.dpo_sft_weight is not None and (args.stage != "dpo" or not 0 < args.dpo_sft_weight < math.inf):
+        parser.error("--dpo-sft-weight 仅适用于 DPO 阶段，且须为有限正数")
     if args.epochs < 1 or args.accumulation < 1 or (
         args.learning_rate is not None and not 0 < args.learning_rate < math.inf
     ):
