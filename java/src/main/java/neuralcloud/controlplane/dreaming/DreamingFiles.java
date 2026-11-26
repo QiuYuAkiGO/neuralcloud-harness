@@ -44,6 +44,11 @@ final class DreamingFiles implements AutoCloseable {
                 statement.execute(
                         "CREATE TABLE IF NOT EXISTS pending(slot INTEGER PRIMARY KEY CHECK(slot=1),"
                             + " command TEXT NOT NULL)");
+                statement.execute("""
+                        CREATE TABLE IF NOT EXISTS validation(slot INTEGER PRIMARY KEY CHECK(slot=1),
+                        position TEXT NOT NULL, stage TEXT NOT NULL CHECK(stage IN ('CORRECTION_PENDING','CORRECTING','SUSPENDED')),
+                        detail TEXT NOT NULL)
+                        """);
                 return connection;
             } catch (SQLException e) {
                 connection.close();
@@ -54,7 +59,7 @@ final class DreamingFiles implements AutoCloseable {
         }
     }
 
-    JsonObject pending() throws IOException {
+    synchronized JsonObject pending() throws IOException {
         try (var s = db.createStatement();
                 var row = s.executeQuery("SELECT command FROM pending WHERE slot=1")) {
             return row.next() ? JSON.fromJson(row.getString(1), JsonObject.class) : null;
@@ -63,7 +68,7 @@ final class DreamingFiles implements AutoCloseable {
         }
     }
 
-    void sending(JsonObject command) throws IOException {
+    synchronized void sending(JsonObject command) throws IOException {
         try (var s = db.prepareStatement("INSERT INTO pending VALUES(1,?)")) {
             s.setString(1, command.toString());
             s.executeUpdate();
@@ -72,11 +77,41 @@ final class DreamingFiles implements AutoCloseable {
         }
     }
 
-    void resolved() throws IOException {
+    synchronized void resolved() throws IOException {
         try (var s = db.createStatement()) {
+            // 先清补正记录；两步之间重启仍由 pending 按原键对账。
+            s.executeUpdate("DELETE FROM validation WHERE slot=1");
             s.executeUpdate("DELETE FROM pending WHERE slot=1");
         } catch (SQLException e) {
             throw new IOException("确认 Dreaming 命令失败", e);
+        }
+    }
+
+    enum Stage { CORRECTION_PENDING, CORRECTING, SUSPENDED }
+
+    record Failure(Stage stage, String detail) {}
+
+    /** 调度时钟和模型工作线程共用连接。仅同一签发位置继承上次失败，旧库自然从首答开始。 */
+    synchronized Failure failure(JsonObject position) throws IOException {
+        try (var s = db.prepareStatement("SELECT stage,detail FROM validation WHERE slot=1 AND position=?")) {
+            s.setString(1, position.toString());
+            try (var r = s.executeQuery()) {
+                return r.next() ? new Failure(Stage.valueOf(r.getString(1)), r.getString(2)) : null;
+            }
+        } catch (SQLException e) {
+            throw new IOException("读取 Dreaming 补正记录失败", e);
+        }
+    }
+
+    /** 单条事务先登记补正机会或挂起状态，再允许下一次调度做出决定。 */
+    synchronized void validation(JsonObject position, Stage stage, String detail) throws IOException {
+        try (var s = db.prepareStatement("INSERT OR REPLACE INTO validation(slot,position,stage,detail) VALUES(1,?,?,?)")) {
+            s.setString(1, position.toString());
+            s.setString(2, stage.name());
+            s.setString(3, detail);
+            s.executeUpdate();
+        } catch (SQLException e) {
+            throw new IOException("登记 Dreaming 校验失败", e);
         }
     }
 

@@ -197,6 +197,10 @@ python java/src/test/python/verify_conversation_plan.py http://127.0.0.1:18900 "
 在已启用 Memory v2 的控制台 Master 页签发送 `/intent 请核对周六的活动安排`，或向同一接口提交带此命令的 `text`。需要核对历史时，Master 先用 `memory_call` 取证，再用 `submit_intent` 提交意图。审计链中的 `memory_call_result` 保存模型收到的编号材料，`intent.data.evidence` 保存所选记录的 `record_id` 和 `revision`。无需查证的显式意图可以提交空 `evidence`。普通渠道问候和自我介绍由 Chat Worker 回应。在 QQ 群中，记忆工具提供带具体检索词的 `HISTORY` 及协商通过的 `IDENTITY`。Chat Worker 按配置的角色设定面对用户作答。[意图字段与补交契约](../docs/proposals/console-free-chat-pipeline-20261121.md#4-master-的通用意图契约)
 重大取舍的审计顺序是 `subject_conflict → intent → router_plan → worker_dispatch`。非空印象通过 Router 以 `kind=impression` 和确切来源版本提交，Memory 的持久回执确认入库。使用两个正式 JAR 和回环模型验证 P3 并行、普通查证、重大承诺终审及来源修订。
 
+每批群印象只接受一次合法的 `submit_impression`。首答违反工具调用或字段契约时，Master 收到具体错误和同版原文，可完整补正一次。补正仍失败时，群面板显示 `SUSPENDED`，原文继续计入待整理，其他批次照常工作。调度器每分钟只读复查挂起材料，原文版本或对照印象改变后可重新整理。批次审计中的 `observe_correction` 和 `observe_suspended` 保存失败次数和原因。
+
+补正机会在发出请求前登记。进程在补正期间退出，且队列尚无可恢复的提交结果时，重启也会挂起。若经人工确认要用同版材料重跑，在 Harness 停止时按审计的 `batchId` 和 `materialKey` 删除 `memory-v2-<角色>.sqlite` 的 `observe_validation` 表中该批对应的一行，保留批次和原文。下一次正常复查会重新领取。
+
 ~~~sh
 python java/src/test/python/conversation_responsibilities.py <Harness-JAR> <Memory-v2-JAR> <新的验收目录>
 ~~~

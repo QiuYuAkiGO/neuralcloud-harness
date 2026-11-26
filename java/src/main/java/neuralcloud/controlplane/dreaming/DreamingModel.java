@@ -2,6 +2,7 @@ package neuralcloud.controlplane.dreaming;
 
 import com.google.gson.*;
 
+import neuralcloud.controlplane.integration.inference.InvalidModelOutput;
 import neuralcloud.controlplane.worker.ChatWorker;
 
 import java.io.*;
@@ -22,6 +23,8 @@ public final class DreamingModel implements AutoCloseable {
     private static final Gson JSON =
             new GsonBuilder().setStrictness(Strictness.STRICT).disableHtmlEscaping().create();
     private static final String TOOL = "submit_dreaming";
+    private static final Set<String> CHANGE_FIELDS = Set.of(
+            "kind", "subject", "expected_version", "text", "scope", "reason", "source_refs");
     private static final Set<String> REQUIRED =
             Set.of(
                     "protocol",
@@ -158,13 +161,16 @@ public final class DreamingModel implements AutoCloseable {
 
     /** 屏蔽回执和水位等宿主字段，两个协议共用同一组一手依据、提示词和输出校验。 */
     public JsonArray organize(JsonObject batch) throws IOException, InterruptedException {
-        String input =
-                JSON.toJson(
-                        Map.of(
-                                "evidence",
-                                batch.getAsJsonArray("evidence"),
-                                "profiles",
-                                batch.getAsJsonArray("profiles")));
+        return organize(batch, null);
+    }
+
+    /** 每次只发一个请求。补正由调度器按已持久化的错误发起，继续核对同一批证据。 */
+    JsonArray organize(JsonObject batch, String correction) throws IOException, InterruptedException {
+        var material = new JsonObject();
+        material.add("evidence", batch.getAsJsonArray("evidence"));
+        material.add("profiles", batch.getAsJsonArray("profiles"));
+        if (correction != null) material.addProperty("validation_error", correction);
+        String input = JSON.toJson(material);
         var request =
                 HttpRequest.newBuilder(endpoint)
                         .timeout(timeout)
@@ -233,21 +239,25 @@ public final class DreamingModel implements AutoCloseable {
                             ? ChatWorker.geminiText(envelope)
                             : toolArguments(envelope);
             return checked(JSON.fromJson(arguments, JsonObject.class), batch);
-        } catch (JsonParseException | IllegalStateException | NumberFormatException e) {
-            throw new IOException("Dreaming 模型响应的 JSON 或类型无效", e);
+        } catch (IOException invalid) {
+            throw new InvalidModelOutput(invalid.getMessage(), invalid);
+        } catch (JsonParseException | IllegalStateException | NumberFormatException invalid) {
+            throw new InvalidModelOutput("Dreaming 模型响应须为符合 schema 的完整 JSON 对象", invalid);
         }
     }
 
     /** 工具模式只接受目标函数的完整单次调用。 */
     private static String toolArguments(JsonObject reply) throws IOException {
         var choice = only(reply, "choices");
-        if (!Set.of("tool_calls", "stop").contains(string(choice, "finish_reason", 32)))
-            throw invalid("finish_reason");
+        String finish = string(choice, "finish_reason", 32);
+        if (!Set.of("tool_calls", "stop").contains(finish))
+            throw invalid("finish_reason 须为 tool_calls 或 stop，实际为 " + finish);
         var message = object(choice, "message");
         var call = only(message, "tool_calls");
         var function = object(call, "function");
-        if (!"function".equals(string(call, "type", 32))
-                || !TOOL.equals(string(function, "name", 64))) throw invalid("tool_calls.function");
+        String name = string(function, "name", 64);
+        if (!"function".equals(string(call, "type", 32)) || !TOOL.equals(name))
+            throw invalid("tool_calls 须调用 function " + TOOL + "，实际工具名 " + name);
         return string(function, "arguments", Integer.MAX_VALUE);
     }
 
@@ -256,12 +266,12 @@ public final class DreamingModel implements AutoCloseable {
                 && o.get(k) instanceof JsonArray a
                 && a.size() == 1
                 && a.get(0) instanceof JsonObject item) return item;
-        throw invalid(k);
+        throw invalid(k + " 须为仅含一个对象的数组，实际为 " + shape(o == null ? null : o.get(k)));
     }
 
     private static JsonObject object(JsonObject o, String key) throws IOException {
         if (o.get(key) instanceof JsonObject value) return value;
-        throw invalid(key);
+        throw invalid(key + " 须为对象，实际为 " + shape(o.get(key)));
     }
 
     /** 模型签入同一来源只能一次，旧印象与模型自报署名均不能成为证据。 */
@@ -269,7 +279,7 @@ public final class DreamingModel implements AutoCloseable {
         if (output == null
                 || !output.keySet().equals(Set.of("changes"))
                 || !(output.get("changes") instanceof JsonArray changes)
-                || changes.size() > 8) throw invalid("changes");
+                || changes.size() > 8) throw invalid("根对象须只有 changes，值须为含 0–8 项的数组");
         var offered = new HashMap<String, Long>();
         for (var entry : batch.getAsJsonArray("evidence")) {
             var evidence = entry.getAsJsonObject();
@@ -286,40 +296,41 @@ public final class DreamingModel implements AutoCloseable {
                     profile.get("version").getAsLong());
         }
         var identities = new HashSet<List<String>>();
-        for (var entry : changes) {
-            if (!(entry instanceof JsonObject item)
-                    || !item.keySet()
-                            .equals(
-                                    Set.of(
-                                            "kind",
-                                            "subject",
-                                            "expected_version",
-                                            "text",
-                                            "scope",
-                                            "reason",
-                                            "source_refs"))) throw invalid("changes.fields");
+        for (int index = 0; index < changes.size(); index++) {
+            var entry = changes.get(index);
+            String path = "changes[" + index + "]";
+            if (!(entry instanceof JsonObject item) || !item.keySet().equals(CHANGE_FIELDS))
+                throw invalid(path
+                            + " 须恰有 kind、subject、expected_version、text、scope、reason、source_refs，实际为 "
+                            + (entry instanceof JsonObject row ? row.keySet() : shape(entry)));
             String kind = string(item, "kind", 16);
             var identity = List.of(kind, string(item, "subject", 128));
             if (!Set.of("person", "topic").contains(kind) || !identities.add(identity))
-                throw invalid("kind/subject");
-            if (integer(item, "expected_version", 0) != versions.getOrDefault(identity, 0L))
-                throw invalid("expected_version");
+                throw invalid(path + " 的 kind 须为 person 或 topic，同一 kind/subject 每批仅可出现一次");
+            long expected = versions.getOrDefault(identity, 0L);
+            long submittedVersion = integer(item, "expected_version", 0);
+            if (submittedVersion != expected)
+                throw invalid(path + ".expected_version 应为 " + expected + "，实际 " + submittedVersion);
             if (!string(item, "text", 2048).startsWith("我")) throw invalid("text 须以我开头");
             string(item, "scope", 512);
             string(item, "reason", 1024);
             if (!(item.get("source_refs") instanceof JsonArray refs)
                     || refs.isEmpty()
-                    || refs.size() > 16) throw invalid("source_refs");
+                    || refs.size() > 16)
+                throw invalid(path + ".source_refs 须为含 1–16 条来源的数组，实际为 " + shape(item.get("source_refs")));
             var seen = new HashSet<String>();
             for (var raw : refs) {
                 if (!(raw instanceof JsonObject ref)
                         || !ref.keySet().equals(Set.of("record_id", "revision")))
-                    throw invalid("source_refs");
+                    throw invalid(path + ".source_refs 每项须恰有 record_id 和 revision");
                 String id = string(ref, "record_id", 64);
-                if (!id.matches("[0-9a-f]{64}")
-                        || !seen.add(id)
-                        || !Objects.equals(offered.get(id), integer(ref, "revision", 1)))
-                    throw invalid("source_refs.record_id/revision");
+                long revision = integer(ref, "revision", 1);
+                Long current = offered.get(id);
+                boolean repeated = !seen.add(id);
+                if (!id.matches("[0-9a-f]{64}") || repeated || !Objects.equals(current, revision))
+                    throw invalid(path + ".source_refs 须引用本批不重复的当前来源，收到 " + id + "@" + revision
+                            + (current == null ? "，本批未提供该 ID" : "，本批版本 " + current)
+                            + (repeated ? "，该 ID 已引用" : ""));
             }
         }
         return changes;
@@ -331,10 +342,10 @@ public final class DreamingModel implements AutoCloseable {
                 long n = v.getAsBigDecimal().longValueExact();
                 if (n >= min) return n;
             } catch (ArithmeticException e) {
-                throw new IOException("Dreaming 整数无效 " + k, e);
+                throw new IOException(k + " 须为不小于 " + min + " 的整数", e);
             }
         }
-        throw invalid(k);
+        throw invalid(k + " 须为不小于 " + min + " 的整数");
     }
 
     private static String string(JsonObject o, String k, int max) throws IOException {
@@ -342,7 +353,18 @@ public final class DreamingModel implements AutoCloseable {
             var value = p.getAsString();
             if (!value.isBlank() && value.codePointCount(0, value.length()) <= max) return value;
         }
-        throw invalid(k);
+        throw invalid(k + " 须为不超过 " + max + " 个码点的非空字符串");
+    }
+
+    /** 反馈字段类型和数组长度即可定位数量错误，无需重新发送被拒绝的正文。 */
+    private static String shape(JsonElement value) {
+        if (value == null) return "缺失";
+        if (value.isJsonNull()) return "null";
+        if (value instanceof JsonArray array) return "数组（" + array.size() + " 项）";
+        if (value.isJsonObject()) return "对象";
+        var scalar = value.getAsJsonPrimitive();
+        if (scalar.isString()) return "字符串";
+        return scalar.isNumber() ? "数字" : "布尔值";
     }
 
     private static IOException invalid(String field) {

@@ -8,9 +8,9 @@ import com.google.gson.JsonParseException;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
 import com.google.gson.reflect.TypeToken;
+import neuralcloud.controlplane.integration.inference.InvalidModelOutput;
 import neuralcloud.controlplane.memory.MemoryCall.EvidenceRef;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.HashSet;
@@ -57,8 +57,8 @@ public record MasterIntent(String assessment, String replyIntent, List<EvidenceR
             "parameters", Map.of("type", "object", "required", FIELDS, "additionalProperties", false,
                     "properties", PROPERTIES)));
 
-    /** 只有提交参数有误可以由模型补交。传输、授权和版本复核的失败由各自边界处理。 */
-    static final class InvalidSubmission extends IOException {
+    /** 模型输出违反提交契约时才消耗补正机会。传输、授权和版本复核有各自的恢复入口。 */
+    static final class InvalidSubmission extends InvalidModelOutput {
         InvalidSubmission(String rule) {
             super("Master 提交不符合契约：" + rule);
         }
