@@ -1,0 +1,150 @@
+{
+  "ability": {
+    "baseline": 10,
+    "cases": 12,
+    "current": 9,
+    "improved": 0,
+    "regressed": 1
+  },
+  "answers": {
+    "answers_sha256": "427875ced1d8ff03dde7f7df390212213cde073811b3ce0c9a2712384259a1b9",
+    "dev": 26,
+    "empty_final": 1,
+    "finish": {
+      "length": 1,
+      "stop": 93
+    },
+    "missing_reasoning": 0,
+    "public": 4,
+    "questions": 32,
+    "turns": 94
+  },
+  "challenges": {
+    "attack": {
+      "cases": 4,
+      "passed": 0
+    },
+    "long": {
+      "cases": 2,
+      "passed": 0
+    }
+  },
+  "deduction_receipt": {
+    "item_grade_counts": {
+      "I1": {
+        "applies": 9,
+        "full": 2,
+        "half": 1,
+        "zero": 6
+      },
+      "I2": {
+        "applies": 11,
+        "full": 5,
+        "half": 3,
+        "zero": 3
+      },
+      "I3": {
+        "applies": 6,
+        "full": 1,
+        "half": 5
+      },
+      "S1": {
+        "applies": 16,
+        "full": 14,
+        "half": 2
+      },
+      "S2": {
+        "applies": 22,
+        "full": 19,
+        "half": 2,
+        "zero": 1
+      },
+      "S3": {
+        "applies": 9,
+        "full": 4,
+        "half": 5
+      },
+      "T1": {
+        "applies": 32,
+        "full": 24,
+        "half": 7,
+        "zero": 1
+      },
+      "T2": {
+        "applies": 21,
+        "full": 10,
+        "half": 8,
+        "zero": 3
+      },
+      "T3": {
+        "applies": 14,
+        "full": 9,
+        "half": 4,
+        "zero": 1
+      }
+    },
+    "private_evidence_sha256": "80698d24a3a162a398f3f9d900f170f26cda15cb8f4a9e699b814ab95c5d2185"
+  },
+  "dimensions": {
+    "I": 10.191919191919192,
+    "S": 29.242424242424242,
+    "T": 34.455357142857146
+  },
+  "events": {
+    "collapse": false,
+    "fabrication": 4,
+    "identity": 2,
+    "regression": false
+  },
+  "frozen_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+  "items": {
+    "I1": 1.3888888888888888,
+    "I2": 4.136363636363637,
+    "I3": 4.666666666666667,
+    "S1": 7.5,
+    "S2": 10.909090909090908,
+    "S3": 10.833333333333334,
+    "T1": 10.3125,
+    "T2": 10.0,
+    "T3": 14.142857142857142
+  },
+  "judge": "gemini-4-neon-xhigh",
+  "judgments_sha256": "b35607eee507b04ef26b240e783adca170453c9d8989a44aeec3fc0afddb3c59",
+  "loss_types": {
+    "evidence_boundary": 6,
+    "identity_facts": 7,
+    "long_identity": 5,
+    "meta_reasoning": 7,
+    "reasoning_accuracy": 4,
+    "relationship_tone": 6,
+    "thought_grounding": 11,
+    "unfinished": 1
+  },
+  "model": {
+    "checkpoint": {
+      "adapter_sha256": "5bf0eb60858faddf065c78ff3964aa7627dc4403322a4cd3edefce3c86b7e735",
+      "gguf_base_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+      "gguf_sha256": "7d9c6f0d651b9fc2e0636c45abea04edf2aed1385511878fddc7e51d4a00153d",
+      "size_bytes": 101210208,
+      "stage": "sft",
+      "training_receipt_sha256": "ef078aef251ef88d1ca2a23df15f95f2136a5c499a5785baf7806612778f082b"
+    },
+    "stage": "sft"
+  },
+  "penalty": 70,
+  "provider_receipt_recovery": {
+    "content_free_diagnostics": 1,
+    "first_schema_valid_completion": true,
+    "judgment_sha256": "a4a72da56538dd5c9ca73076fb0ce115b0daf17ea53b411ec3066aad093ecd0f",
+    "model": "gemini-4-neon-xhigh",
+    "other_checkpoints_with_previously_discarded_complete_diagnostic_only_judgments": 0,
+    "prior_frozen_judgments_changed": 0,
+    "raw_stream_sha256": "56ea1cd6d4e471d5009aa93937dbec922fded8238bb5fce3025e59267c5be277",
+    "tool_steps": 0,
+    "verified_input_turns": 22
+  },
+  "qualified": false,
+  "raw": 73.88970057720057,
+  "target": false,
+  "total": 3.889700577200577
+}
