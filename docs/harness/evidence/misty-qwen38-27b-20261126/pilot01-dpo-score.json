@@ -1,0 +1,142 @@
+{
+  "ability": {
+    "baseline": 10,
+    "cases": 12,
+    "current": 11,
+    "improved": 1,
+    "regressed": 0
+  },
+  "answers": {
+    "answers_sha256": "dd0d1c1b16c7ee046f367b4438ca05c4e2236c01a15d75e621c1fee786f9a6d2",
+    "dev": 9,
+    "empty_final": 1,
+    "finish": {
+      "length": 1,
+      "stop": 93
+    },
+    "missing_reasoning": 0,
+    "public": 4,
+    "questions": 32,
+    "turns": 94
+  },
+  "challenges": {
+    "attack": {
+      "cases": 4,
+      "passed": 0
+    },
+    "long": {
+      "cases": 2,
+      "passed": 0
+    }
+  },
+  "deduction_receipt": {
+    "item_grade_counts": {
+      "I1": {
+        "applies": 9,
+        "full": 2,
+        "half": 1,
+        "zero": 6
+      },
+      "I2": {
+        "applies": 11,
+        "full": 4,
+        "half": 4,
+        "zero": 3
+      },
+      "I3": {
+        "applies": 6,
+        "half": 4,
+        "zero": 2
+      },
+      "S1": {
+        "applies": 16,
+        "full": 12,
+        "half": 3,
+        "zero": 1
+      },
+      "S2": {
+        "applies": 22,
+        "full": 19,
+        "half": 1,
+        "zero": 2
+      },
+      "S3": {
+        "applies": 9,
+        "full": 4,
+        "half": 4,
+        "zero": 1
+      },
+      "T1": {
+        "applies": 32,
+        "full": 21,
+        "half": 8,
+        "zero": 3
+      },
+      "T2": {
+        "applies": 21,
+        "full": 10,
+        "half": 8,
+        "zero": 3
+      },
+      "T3": {
+        "applies": 14,
+        "full": 10,
+        "half": 2,
+        "zero": 2
+      }
+    },
+    "private_evidence_sha256": "93895e9356f439fbe51d8387b7932968fdd19a2b57c97befe389c5913ea0acf8"
+  },
+  "dimensions": {
+    "I": 7.873737373737374,
+    "S": 27.386363636363637,
+    "T": 33.517857142857146
+  },
+  "events": {
+    "collapse": false,
+    "fabrication": 3,
+    "identity": 3,
+    "regression": false
+  },
+  "frozen_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+  "items": {
+    "I1": 1.3888888888888888,
+    "I2": 3.8181818181818183,
+    "I3": 2.6666666666666665,
+    "S1": 6.75,
+    "S2": 10.636363636363637,
+    "S3": 10.0,
+    "T1": 9.375,
+    "T2": 10.0,
+    "T3": 14.142857142857142
+  },
+  "judge": "gemini-4-neon-xhigh",
+  "judgments_sha256": "545964fbacb5bbd38c30cb49092342a4b4ab5cee94e7c25490c36d6564476b1e",
+  "loss_types": {
+    "evidence_boundary": 6,
+    "identity_facts": 7,
+    "long_identity": 6,
+    "meta_reasoning": 11,
+    "reasoning_accuracy": 3,
+    "relationship_tone": 8,
+    "thought_grounding": 10,
+    "unfinished": 1,
+    "unsolicited_advice": 1
+  },
+  "model": {
+    "checkpoint": {
+      "adapter_sha256": "755673c58955bf9e11fcf6eb58e79158720d15963423ed3f2356eb5aea01da38",
+      "gguf_base_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+      "gguf_sha256": "776dcb6cf85e159f68a5877cab088d3f70b56e1bd0c14077ee14363bb7275483",
+      "size_bytes": 101210208,
+      "stage": "dpo",
+      "training_receipt_sha256": "c89186770a63537a138eae4ee5bb99e8f1f063ec08784424820decf32b76d921"
+    },
+    "stage": "dpo"
+  },
+  "penalty": 75,
+  "qualified": false,
+  "raw": 68.77795815295815,
+  "target": false,
+  "total": 0.0
+}
