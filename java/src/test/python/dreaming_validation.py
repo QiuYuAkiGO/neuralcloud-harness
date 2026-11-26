@@ -32,12 +32,14 @@ class ValidationTrial(DreamTrial):
         refs_schema = schema["properties"]["changes"]["items"]["properties"]["source_refs"]
         self.model_calls.append(dict(texts=texts, prompt=prompt, schema=refs_schema))
         attempt = len(self.model_calls)
+        if attempt == 2:
+            self.checkpoint("repair-response")  # 中断用例在模型收到请求、宿主收到响应之前停机。
         # 只让指定那次补正失败。若重试失控，第三次将生成合法空提交，Memory 出口也能观察到越界。
         changes = []
         if attempt <= 2:
             if attempt == 1:
                 refs = []
-            elif self.scenario == "correct":
+            elif self.scenario != "suspend":
                 refs = [ref(self.source)]
             else:
                 refs = None
@@ -66,14 +68,16 @@ def check_request(trial):
 
 
 def run(trial, scenario):
-    """一次补正获准时只写一次，连续两次不合约时跨重启保留同一覆盖位置。"""
+    """验收合法补正、两次拒绝及补正响应丢失。后两种情况下重启仍须保留覆盖位置。"""
     memory = trial.start("memory", ["-jar", trial.mjar, "--config", trial.mc])
     trial.ready(lambda: trial.mem("health")["status"] == "TEXT_READY", memory)
     trial.scenario = scenario
     trial.source = trial.ingest("source", NOTE, "值班员")
     gemini = scenario == "suspend"
+    held = trial.arm("repair-response") if scenario == "interrupted" else None
     trial.start_dreaming(gemini=gemini)
-    trial.wait_for(lambda: len(trial.model_calls) >= 2, "模型收到同批的补正请求")
+    if held is None:
+        trial.wait_for(lambda: len(trial.model_calls) >= 2, "模型收到同批的补正请求")
     if scenario == "correct":
         row = trial.wait_committed(trial.source)
         assert len(trial.model_calls) == 2 and len(trial.commits) == 1
@@ -82,17 +86,27 @@ def run(trial, scenario):
         return
 
     offered = next(b for b in trial.batches if b["after"] < b["through"])
-    # 配置的轮询间隔为一秒。分别在两次运行里给调度器多个周期来尝试错误的第三次调用。
-    for restarted in (False, True):
-        if restarted:
+    if held:
+        try:
+            held.wait()
             trial.stop_harness()
-            trial.launch(trial.settings(gemini=True), trial.console)
-            trial.ready(lambda: call(trial.hp, "/api/nodes")[0] == 200, trial.hproc)
+        finally:
+            held.release.set()
+    else:
+        # 配置的轮询间隔为一秒，在原进程中给调度器多个周期确认补正已经用尽。
         time.sleep(3.2)
-        assert len(trial.model_calls) == 2 and not trial.commits, "同批补正失败后轮询和重启都必须停止调用与提交"
+        assert len(trial.model_calls) == 2 and not trial.commits, "同批补正失败后轮询必须停止调用与提交"
+        trial.stop_harness()
+    trial.launch(trial.settings(gemini=gemini), trial.console)
+    trial.ready(lambda: call(trial.hp, "/api/nodes")[0] == 200, trial.hproc)
+    time.sleep(3.2)
+    assert len(trial.model_calls) == 2 and not trial.commits, "同批已发出补正，重启后不能再调用模型或写入"
     current = trial.mem("dreaming/batch", dict(context=context("dreaming:trial"), scopes=[SCOPE], limit=16))
-    assert (current["after"], current["through"]) == (offered["after"], offered["through"]), "挂起不能推进覆盖"
+    assert all(current[k] == offered[k] for k in ("stream_id", "policy_version", "after", "through", "evidence")), (
+        "挂起必须保留原批证据、版本与覆盖位置")
     check_request(trial)
+    if held:
+        return
 
     # 换成 Memory 新签发的证据修订后，宿主可以重新整理；合法空 changes 同样取得持久回执。
     trial.correct(trial.source, CHANGED)
@@ -108,7 +122,7 @@ if __name__ == "__main__":
         parser.add_argument(arg, type=Path)
     parser.set_defaults(live=False)
     args = parser.parse_args()
-    for case in ("correct", "suspend"):
+    for case in ("correct", "suspend", "interrupted"):
         trial = ValidationTrial(argparse.Namespace(**{**vars(args), "output": args.output / case}))
         try:
             run(trial, case)
