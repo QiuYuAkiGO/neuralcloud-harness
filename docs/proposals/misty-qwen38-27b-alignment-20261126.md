@@ -53,7 +53,7 @@ SFT 入口接受可选的 `--sft-exposures FILE`。该 JSON 对象恰含 `data_s
 
 训练入口新增可选参数 `--dpo-sft-weight W`。仅 DPO 可使用，W 须为有限正数。启用后，优化目标为标准 sigmoid DPO 损失加上 W 倍的正例助理续答平均负对数似然，只对正例续答中受监督的词元取平均。提示词元不参与这项监督。标准 DPO 的系数为 1，β 维持 0.1，参考适配器仍固定为本轮 SFT。TRL 的加权组合接口直接支持这两项损失。[TRL 的多种损失组合](https://huggingface.co/docs/trl/dpo_trainer#multi-loss-type-training)
 
-提供有效参数时，`training.json` 用 `dpo_sft_weight` 记录实际 W。省略参数时沿用现有标准 DPO 及回执格式。SFT 传入该参数，或系数为零、负数及非有限值时，入口须返回非零、诊断指出 `dpo-sft-weight` 并保持成品目录不存在。第三轮沿用冻结的标准 DPO 配置。若需第四轮，预定 W 为 0.1，训练后按相同定义复算正、负例各自的概率变化。
+提供有效参数时，`training.json` 用 `dpo_sft_weight` 记录实际 W。 既有回执字段 `training_loss` 记录实际优化目标在训练期间的平均值。只有一个优化步、一个样本时，它就是参数更新前该样本的完整损失。`log_history` 的 DPO 训练记录还提供 `logps/chosen`，表示先对各样本正例续答的受监督词元求对数概率之和，再取批内样本平均。省略参数时沿用现有标准 DPO 及回执格式。SFT 传入该参数，或系数为零、负数及非有限值时，入口须返回非零、诊断指出 `dpo-sft-weight` 并保持成品目录不存在。第三轮沿用冻结的标准 DPO 配置。若需第四轮，预定 W 为 0.1，训练后按相同定义复算正、负例各自的概率变化。
 
 ## 评测侧语料检查入口
 
