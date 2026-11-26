@@ -54,7 +54,8 @@ public final class ResidentV2 extends ResidentMemory {
             try {
                 return decode(pending.get());
             } catch (ServiceError e) {
-                if (e.status == 409 && Set.of("DREAM_BATCH_CHANGED", "REVISION_CONFLICT", "SOURCE_CHANGED").contains(e.code))
+                if (e.status == 409 && Set.of("DREAM_BATCH_CHANGED", "REVISION_CONFLICT",
+                        "IDENTITY_VERSION_CONFLICT", "SOURCE_CHANGED").contains(e.code))
                     throw new SourceChanged(e);
                 throw e;
             } catch (java.util.concurrent.ExecutionException e) {
@@ -218,7 +219,9 @@ public final class ResidentV2 extends ResidentMemory {
         if (!(health.get("capabilities") instanceof JsonArray caps))
             throw new IOException("Memory v2 缺少能力列表");
         audienceReads = scopedRecall() && caps.contains(new JsonPrimitive("audience_reads"));
-        dreaming = audienceReads && caps.contains(new JsonPrimitive("dreaming"));
+        // 人物提案与认识共用提交。只有两项协议均已协商，才允许启用后台整理。
+        dreaming = audienceReads && caps.contains(new JsonPrimitive("dreaming"))
+                && caps.contains(new JsonPrimitive("dreaming_qq_aliases"));
         identityLookup = caps.contains(new JsonPrimitive("identity_lookup"));
         qqAuthorHistory = audienceReads && caps.contains(new JsonPrimitive("qq_author_history"));
         var required =
@@ -455,19 +458,22 @@ public final class ResidentV2 extends ResidentMemory {
                                                 messageId,
                                                 "conversation_id",
                                                 scope.conversationId())));
-        if (inbound && scope.group().map(Trace.QqGroup::managed).orElse(false))
-            return submitGroupText(scope, body, content, messageId, observation);
-        return submit(body);
+        if (inbound) {
+            if (scope.group().map(Trace.QqGroup::managed).orElse(false)
+                    && (content.equals("/通知") || content.startsWith("/通知 ")
+                            || content.equals("/变更通知") || content.startsWith("/变更通知 ")))
+                return submitGroupText(scope, body, content, messageId, observation);
+            // 普通 QQ 入站保留本条消息的渠道见证。角色的已送达回复及群通知各有自己的作者与来源。
+            scope.qq().ifPresent(q -> q.message().addTo(body.getAsJsonObject("channel")));
+            scope.group().ifPresent(g -> g.message().addTo(body.getAsJsonObject("channel")));
+        }
+        return submit(body, observation);
     }
 
     /** 显式群通知沿用首条平台消息定位。变更须带原作者和预期版本，写前日志与普通入账共用。 */
     private Receipt submitGroupText(
             Trace.Scope scope, JsonObject body, String text, String messageId, ObserveQueue.Origin observation)
             throws IOException, InterruptedException {
-        if (!(text.equals("/通知")
-                || text.startsWith("/通知 ")
-                || text.equals("/变更通知")
-                || text.startsWith("/变更通知 "))) return submit(body, observation);
         var command =
                 java.util.regex.Pattern.compile("^/(通知|变更通知)(?: ([\\s\\S]+))?$").matcher(text);
         if (!command.matches() || command.group(2) == null || command.group(2).isBlank())

@@ -23,8 +23,12 @@ public final class DreamingModel implements AutoCloseable {
     private static final Gson JSON =
             new GsonBuilder().setStrictness(Strictness.STRICT).disableHtmlEscaping().create();
     private static final String TOOL = "submit_dreaming";
-    private static final Set<String> CHANGE_FIELDS = Set.of(
-            "kind", "subject", "expected_version", "text", "scope", "reason", "source_refs");
+    private static final Set<String> CHANGE_FIELDS =
+            Set.of("kind", "subject", "expected_version", "text", "scope", "reason", "source_refs");
+    private static final Set<String> CLAIM_FIELDS =
+            Set.of("person_id", "expected_identity_version", "name", "relation", "scope", "source_refs");
+    private static final Set<String> RELATIONS =
+            Set.of("SELF_NAME", "PREFERRED_NAME", "DIRECT_CONFIRMATION", "MENTION");
     private static final Set<String> REQUIRED =
             Set.of(
                     "protocol",
@@ -159,16 +163,51 @@ public final class DreamingModel implements AutoCloseable {
         return interval;
     }
 
-    /** 屏蔽回执和水位等宿主字段，两个协议共用同一组一手依据、提示词和输出校验。 */
+    /** 旧调用方只消费认识修订；单独返回称呼的批次需要走完整提案入口。 */
     public JsonArray organize(JsonObject batch) throws IOException, InterruptedException {
-        return organize(batch, null);
+        var proposal = propose(batch, null);
+        if (!proposal.nameClaims().isEmpty()) throw new IOException("称呼提案需随认识一并提交");
+        return proposal.changes();
     }
 
-    /** 每次只发一个请求。补正由调度器按已持久化的错误发起，继续核对同一批证据。 */
-    JsonArray organize(JsonObject batch, String correction) throws IOException, InterruptedException {
+    /** 两类操作归同一领取位置，宿主在一个带持久事件键的命令中交给 Memory。 */
+    record Proposal(JsonArray changes, JsonArray nameClaims) {}
+
+    /** 只向两个后端交付本批获准的原句、档案和人物提示，水位与提交权限留在宿主。 */
+    Proposal propose(JsonObject batch, String correction) throws IOException, InterruptedException {
         var material = new JsonObject();
-        material.add("evidence", batch.getAsJsonArray("evidence"));
-        material.add("profiles", batch.getAsJsonArray("profiles"));
+        material.add("evidence", batch.get("evidence"));
+        material.add("profiles", batch.get("profiles"));
+        var aliases = new HashMap<String, String>();
+        if (batch.has("person_names")) {
+            // 属于本批次的已确认称呼同时约束提示词和模型输出，旧版 Memory 可省略此字段。
+            if (!(batch.get("person_names") instanceof JsonArray names)) throw invalid("person_names");
+            for (var raw : names) {
+                if (!(raw instanceof JsonObject person)
+                        || !(person.get("aliases") instanceof JsonArray previous))
+                    throw invalid("person_names.aliases");
+                String subject = string(person, "subject", 128);
+                for (var name : previous) {
+                    if (!(name instanceof JsonPrimitive p) || !p.isString())
+                        throw invalid("person_names.aliases");
+                    aliases.put(p.getAsString(), subject);
+                }
+            }
+            material.add("person_names", names);
+        }
+        var people = new HashMap<String, JsonObject>();
+        if (batch.has("persons")) {
+            if (!(batch.get("persons") instanceof JsonArray persons)) throw invalid("persons");
+            for (var raw : persons) {
+                if (!(raw instanceof JsonObject person)
+                        || !(person.get("aliases") instanceof JsonArray)
+                        || people.putIfAbsent(string(person, "person_id", 128), person) != null)
+                    throw invalid("persons.person_id/aliases");
+                integer(person, "identity_version", 0);
+                if (person.has("subject")) string(person, "subject", 128);
+            }
+            material.add("persons", persons);
+        }
         if (correction != null) material.addProperty("validation_error", correction);
         String input = JSON.toJson(material);
         var request =
@@ -238,7 +277,7 @@ public final class DreamingModel implements AutoCloseable {
                     protocol == Protocol.GEMINI
                             ? ChatWorker.geminiText(envelope)
                             : toolArguments(envelope);
-            return checked(JSON.fromJson(arguments, JsonObject.class), batch);
+            return checked(JSON.fromJson(arguments, JsonObject.class), batch, people, aliases);
         } catch (IOException invalid) {
             throw new InvalidModelOutput(invalid.getMessage(), invalid);
         } catch (JsonParseException | IllegalStateException | NumberFormatException invalid) {
@@ -274,66 +313,151 @@ public final class DreamingModel implements AutoCloseable {
         throw invalid(key + " 须为对象，实际为 " + shape(o.get(key)));
     }
 
-    /** 模型签入同一来源只能一次，旧印象与模型自报署名均不能成为证据。 */
-    private static JsonArray checked(JsonObject output, JsonObject batch) throws IOException {
-        if (output == null
-                || !output.keySet().equals(Set.of("changes"))
-                || !(output.get("changes") instanceof JsonArray changes)
-                || changes.size() > 8) throw invalid("根对象须只有 changes，值须为含 0–8 项的数组");
-        var offered = new HashMap<String, Long>();
+    /** 核对两个操作数组及其各自的版本。未收到任何人物引用的旧批仍接受仅含 changes 的响应。 */
+    private static Proposal checked(JsonObject output, JsonObject batch, Map<String, JsonObject> people,
+                                    Map<String, String> aliases) throws IOException {
+        if (output == null || !(output.get("changes") instanceof JsonArray changes) || changes.size() > 8)
+            throw invalid("changes 须为 0–8 项的数组，实际为 " + shape(output == null ? null : output.get("changes")));
+        JsonArray claims;
+        if (people.isEmpty() && output.keySet().equals(Set.of("changes"))) {
+            claims = new JsonArray();
+        } else if (output.keySet().equals(Set.of("changes", "name_claims"))
+                && output.get("name_claims") instanceof JsonArray array && array.size() <= 16) {
+            claims = array;
+        } else {
+            throw invalid("有签发人物时须提交 changes 与 name_claims，称呼提案须为 0–16 项的数组，实际字段 " + output.keySet());
+        }
+        var offered = new HashMap<String, JsonObject>();
         for (var entry : batch.getAsJsonArray("evidence")) {
             var evidence = entry.getAsJsonObject();
-            offered.put(
-                    evidence.get("record_id").getAsString(), evidence.get("revision").getAsLong());
+            offered.put(evidence.get("record_id").getAsString(), evidence);
         }
-        var versions = new HashMap<List<String>, Long>();
-        for (var entry : batch.getAsJsonArray("profiles")) {
+        var proposedNames = checkClaims(claims, people, offered);
+        checkChanges(changes, batch.getAsJsonArray("profiles"), people, aliases, proposedNames, offered);
+        return new Proposal(changes, claims);
+    }
+
+    /** 只有本批签发的身份版本和逐字原话可用于称呼；旧主名和同批可能生效的新主名交给 Memory 裁定。 */
+    private static Set<List<String>> checkClaims(JsonArray claims, Map<String, JsonObject> people,
+                                                 Map<String, JsonObject> offered) throws IOException {
+        var proposedNames = new HashSet<List<String>>();
+        for (int index = 0; index < claims.size(); index++) {
+            var entry = claims.get(index);
+            String path = "name_claims[" + index + "]";
+            if (!(entry instanceof JsonObject claim) || !claim.keySet().equals(CLAIM_FIELDS))
+                throw invalid(path + " 须恰含 " + CLAIM_FIELDS);
+            String id = string(claim, "person_id", 128);
+            var person = people.get(id);
+            if (person == null) throw invalid(path + ".person_id 未在本批签发，收到 " + id);
+            long version = person.get("identity_version").getAsLong();
+            if (integer(claim, "expected_identity_version", 0) != version)
+                throw invalid(path + ".expected_identity_version 应为 " + version);
+            String name = string(claim, "name", 128), relation = string(claim, "relation", 32);
+            if (!RELATIONS.contains(relation)) throw invalid(path + ".relation 须为 " + RELATIONS);
+            String scope = string(claim, "scope", 256);
+            var sources = sources(path, claim, offered, true);
+            if (!scope.equals("global") && sources.stream().noneMatch(
+                    e -> e.has("conversation_id") && e.get("conversation_id").getAsString().equals(scope)))
+                throw invalid(path + ".scope 须为 global 或引用原句所在会话");
+            if (!relation.equals("MENTION") && (!person.has("subject")
+                    || (relation.equals("PREFERRED_NAME") && scope.equals("global"))))
+                proposedNames.add(List.of(id, name));
+        }
+        return proposedNames;
+    }
+
+    /** QQ 按签发 ID 和人物版本定位，同名的两份认识可独立修订。无身份材料的旧档沿用名称。 */
+    private static void checkChanges(JsonArray changes, JsonArray profiles, Map<String, JsonObject> people,
+                                     Map<String, String> aliases, Set<List<String>> proposedNames,
+                                     Map<String, JsonObject> offered) throws IOException {
+        var byId = new HashMap<String, JsonObject>();
+        var byName = new HashMap<List<String>, JsonObject>();
+        var ambiguous = new HashSet<List<String>>();
+        for (var entry : profiles) {
             var profile = entry.getAsJsonObject();
-            versions.put(
-                    List.of(
-                            profile.get("kind").getAsString(),
-                            profile.get("subject").getAsString()),
-                    profile.get("version").getAsLong());
+            if (profile.has("person_id")) byId.put(profile.get("person_id").getAsString(), profile);
+            var key = List.of(profile.get("kind").getAsString(), profile.get("subject").getAsString());
+            if (byName.putIfAbsent(key, profile) != null) ambiguous.add(key);
         }
         var identities = new HashSet<List<String>>();
         for (int index = 0; index < changes.size(); index++) {
             var entry = changes.get(index);
             String path = "changes[" + index + "]";
-            if (!(entry instanceof JsonObject item) || !item.keySet().equals(CHANGE_FIELDS))
-                throw invalid(path
-                            + " 须恰有 kind、subject、expected_version、text、scope、reason、source_refs，实际为 "
-                            + (entry instanceof JsonObject row ? row.keySet() : shape(entry)));
+            if (!(entry instanceof JsonObject item) || !item.keySet().containsAll(CHANGE_FIELDS)
+                    || item.size() != CHANGE_FIELDS.size() + (item.has("person_id") ? 1 : 0))
+                throw invalid(path + " 须包含 " + CHANGE_FIELDS + "，人物可附 person_id");
             String kind = string(item, "kind", 16);
-            var identity = List.of(kind, string(item, "subject", 128));
-            if (!Set.of("person", "topic").contains(kind) || !identities.add(identity))
-                throw invalid(path + " 的 kind 须为 person 或 topic，同一 kind/subject 每批仅可出现一次");
-            long expected = versions.getOrDefault(identity, 0L);
-            long submittedVersion = integer(item, "expected_version", 0);
-            if (submittedVersion != expected)
-                throw invalid(path + ".expected_version 应为 " + expected + "，实际 " + submittedVersion);
+            String subject = string(item, "subject", 128);
+            if (!Set.of("person", "topic").contains(kind)) throw invalid(path + ".kind 须为 person 或 topic");
+            var sources = sources(path, item, offered, false);
+            var identity = List.of(kind, subject);
+            JsonObject prior;
+            if (item.has("person_id")) {
+                String id = string(item, "person_id", 128);
+                var person = people.get(id);
+                if (!kind.equals("person") || person == null) throw invalid(path + ".person_id 须填写本批签发的目标人物 ID");
+                if (!(person.has("subject") && person.get("subject").getAsString().equals(subject))
+                        && !proposedNames.contains(List.of(id, subject))
+                        && (person.has("subject") || !initialName(id, subject, offered.values())))
+                    throw invalid(path + ".subject 须为此人的有效主称呼或同批有据的新称呼");
+                identity = List.of(kind, "person_id", id);
+                prior = byId.get(id);
+            } else {
+                if (ambiguous.contains(identity) || (kind.equals("person")
+                        && sources.stream().anyMatch(e -> e.has("speaker_person_id"))))
+                    throw invalid(path + ".person_id 须填写本批签发的目标人物 ID");
+                if (kind.equals("person") && aliases.containsKey(subject))
+                    throw invalid("subject 须使用主称呼 " + aliases.get(subject));
+                prior = byName.get(identity);
+                if (prior != null && prior.has("person_id"))
+                    identity = List.of(kind, "person_id", prior.get("person_id").getAsString());
+            }
+            if (!identities.add(identity)) throw invalid(path + " 重复修订同一人物或主题");
+            long expected = prior == null ? 0L : prior.get("version").getAsLong();
+            long actual = integer(item, "expected_version", 0);
+            if (actual != expected)
+                throw invalid(path + ".expected_version 应为 " + expected + "，实际 " + actual);
             if (!string(item, "text", 2048).startsWith("我")) throw invalid("text 须以我开头");
             string(item, "scope", 512);
             string(item, "reason", 1024);
-            if (!(item.get("source_refs") instanceof JsonArray refs)
-                    || refs.isEmpty()
-                    || refs.size() > 16)
-                throw invalid(path + ".source_refs 须为含 1–16 条来源的数组，实际为 " + shape(item.get("source_refs")));
-            var seen = new HashSet<String>();
-            for (var raw : refs) {
-                if (!(raw instanceof JsonObject ref)
-                        || !ref.keySet().equals(Set.of("record_id", "revision")))
-                    throw invalid(path + ".source_refs 每项须恰有 record_id 和 revision");
-                String id = string(ref, "record_id", 64);
-                long revision = integer(ref, "revision", 1);
-                Long current = offered.get(id);
-                boolean repeated = !seen.add(id);
-                if (!id.matches("[0-9a-f]{64}") || repeated || !Objects.equals(current, revision))
-                    throw invalid(path + ".source_refs 须引用本批不重复的当前来源，收到 " + id + "@" + revision
-                            + (current == null ? "，本批未提供该 ID" : "，本批版本 " + current)
-                            + (repeated ? "，该 ID 已引用" : ""));
-            }
         }
-        return changes;
+    }
+
+    /** Memory 在本次提交内登记真实渠道称呼。首批尚无主名时，模型可引用该人的已签发显示名。 */
+    private static boolean initialName(String id, String name, Collection<JsonObject> evidence) {
+        var owner = new JsonPrimitive(id);
+        var label = new JsonPrimitive(name);
+        for (var source : evidence) {
+            if (owner.equals(source.get("speaker_person_id"))
+                    && (label.equals(source.get("nickname")) || label.equals(source.get("card")))) return true;
+            if (owner.equals(source.get("reviewed_person_id")) && label.equals(source.get("reviewed_name"))) return true;
+        }
+        return false;
+    }
+
+    /** 同项引用按记录去重，称呼还需逐字匹配该版获准原文；判断谁在说谁由权威端复核。 */
+    private static List<JsonObject> sources(String path, JsonObject item, Map<String, JsonObject> offered, boolean quoted)
+            throws IOException {
+        if (!(item.get("source_refs") instanceof JsonArray refs) || refs.isEmpty() || refs.size() > 16)
+            throw invalid(path + ".source_refs 须为含 1–16 条来源的数组，实际为 " + shape(item.get("source_refs")));
+        var expected = quoted ? Set.of("record_id", "revision", "quote") : Set.of("record_id", "revision");
+        var seen = new HashSet<String>();
+        var sources = new ArrayList<JsonObject>();
+        for (var raw : refs) {
+            if (!(raw instanceof JsonObject ref) || !ref.keySet().equals(expected)) throw invalid(path + ".source_refs 每项须恰含 " + expected);
+            String id = string(ref, "record_id", 64);
+            var source = offered.get(id);
+            long revision = integer(ref, "revision", 1);
+            boolean repeated = !seen.add(id);
+            if (repeated || source == null || source.get("revision").getAsLong() != revision)
+                throw invalid(path + ".source_refs 须引用本批不重复的当前来源，收到 " + id + "@" + revision
+                        + (source == null ? "，本批未提供该 ID" : "，本批版本 " + source.get("revision"))
+                        + (repeated ? "，该 ID 已引用" : ""));
+            if (quoted && !source.get("content").getAsString().contains(string(ref, "quote", 2048)))
+                throw invalid(path + ".source_refs.quote 须逐字出自 " + id + "@" + revision + " 的原话");
+            sources.add(source);
+        }
+        return sources;
     }
 
     private static long integer(JsonObject o, String k, long min) throws IOException {
