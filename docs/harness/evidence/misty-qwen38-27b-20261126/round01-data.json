@@ -1,0 +1,110 @@
+{
+  "by_split": {
+    "dev": {
+      "dpo": 26,
+      "kind": {
+        "conversation": 3,
+        "emotion": 1,
+        "facts": 2,
+        "general": 2,
+        "identity": 3,
+        "logic": 3,
+        "long": 1,
+        "memory": 2,
+        "observation": 4,
+        "relation": 2,
+        "schedule": 3
+      },
+      "max_preference_tokens": 2178,
+      "scenarios": 26,
+      "sft": 98,
+      "sha256": {
+        "dpo": "1506bddbea5bcbca76a24f45850a9dc85af8813e32078cff86cfa012ec0ff07d",
+        "sft": "1c9c6a0dbd2fb8d2322c3bbc2e643baee72e750bfb008ab73cc366f272921431",
+        "source": "30eea2cbe21946d1963a6490006169bb68b61aaeb948b258675f6e6a5c2953af"
+      }
+    },
+    "train": {
+      "dpo": 240,
+      "kind": {
+        "conversation": 26,
+        "emotion": 12,
+        "facts": 19,
+        "general": 22,
+        "identity": 22,
+        "logic": 30,
+        "long": 3,
+        "memory": 26,
+        "observation": 27,
+        "relation": 20,
+        "schedule": 33
+      },
+      "max_preference_tokens": 2401,
+      "scenarios": 240,
+      "sft": 794,
+      "sha256": {
+        "dpo": "0716a6b40bc819115373cf99f78469b63952598426225447f3c3db59a3adad3d",
+        "sft": "4db8b9604aff4eeaef18fe8b2938c1c080ed07111ee6782a36d2128a0fdb5b72",
+        "source": "04da5d08309eb67a62181b2f21eae02fa7e38a2cd14782913c819b31170f1597"
+      }
+    }
+  },
+  "cosine_cutoff": 0.989,
+  "counts": {
+    "after_first_clean": 345,
+    "first_clean_rejected": 21,
+    "generated": 366,
+    "pending_at_cutoff": 28,
+    "released": 285,
+    "sealed_decisions": {
+      "distinct": 285,
+      "duplicate": 28,
+      "uncertain": 4
+    },
+    "sealed_reviewed": 317
+  },
+  "dataset_receipt_sha256": "5013475487c64bf452a735425da53592e85f6c8bd4b8a08685712bdb1e917a79",
+  "family_overlap": 0,
+  "frozen_at": "2026-11-26T08:51:19+08:00",
+  "frozen_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+  "grounding_review": {
+    "dropped": 27,
+    "dropped_by_kind": {
+      "facts": 12,
+      "identity": 8,
+      "long": 1,
+      "memory": 4,
+      "observation": 2
+    },
+    "model": "gemini-4-neon-high",
+    "pilot_dev_in_current_train": 0,
+    "pilot_dev_reference_quarantined": 2,
+    "pilot_dev_reserved": 9,
+    "released_ids_quarantined": 19,
+    "reviewed": 144,
+    "reviewed_by_kind": {
+      "facts": 35,
+      "identity": 35,
+      "long": 5,
+      "memory": 35,
+      "observation": 34
+    },
+    "sha256": "25cd123636829c5a745b36d942d23a1384789f7ab846d1b12b741c95f8ca3c36"
+  },
+  "long_dialogues": {
+    "dev": [
+      22
+    ],
+    "train": [
+      21,
+      22,
+      22
+    ]
+  },
+  "model": "gemini-4-neon-xhigh",
+  "protected_scenarios": 36,
+  "provider_retry_at": "2026-11-26T13:02:04+08:00",
+  "sealed_snapshot_sha256": "282227ac517f601c74e955baa896e860f29e9c65e7dc24d4d4d46f18325b69ff",
+  "source_release_sha256": "a5a9bec678195111e500c1c8d7837e479b0f28eef2bf7450a47f44058810769f",
+  "unique_normalized_user_histories": 266
+}
