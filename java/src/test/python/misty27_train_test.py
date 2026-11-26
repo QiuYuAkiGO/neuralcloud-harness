@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import os
 import subprocess
 import sys
@@ -103,6 +104,14 @@ class TrainTest(unittest.TestCase):
             encoding="utf-8", errors="replace", timeout=600,
         )
 
+    def sft_reference(self):
+        """DPO 正反例共用从正式入口生成的只读 SFT 参考，独立选跑时也可生成。"""
+        directory = self.workspace / "sft"
+        if not directory.exists():
+            run = self.train("sft", self.sft_data, directory)
+            self.assertEqual(run.returncode, 0, run.stdout)
+        return directory
+
     def read_adapter(self, stage, directory, data):
         """核对回执摘要，将发布的适配器交给 PEFT 重载，并逐张量对照成品。"""
         import torch
@@ -135,13 +144,13 @@ class TrainTest(unittest.TestCase):
         """从本轮 SFT 进入 DPO，核对策略有实际权值变化且原 SFT 成品逐字节一致。"""
         import torch
 
-        sft, dpo = self.workspace / "sft", self.workspace / "dpo"
-        run = self.train("sft", self.sft_data, sft)
-        self.assertEqual(run.returncode, 0, run.stdout)
+        sft, dpo = self.sft_reference(), self.workspace / "dpo"
         sft_receipt, sft_tensors = self.read_adapter("sft", sft, self.sft_data)
         run = self.train("dpo", self.dpo_data, dpo, "--sft-adapter", str(sft))
         self.assertEqual(run.returncode, 0, run.stdout)
         dpo_receipt, dpo_tensors = self.read_adapter("dpo", dpo, self.dpo_data)
+        self.assertNotIn("dpo_sft_weight", dpo_receipt)
+        self.assertAlmostEqual(dpo_receipt["training_loss"], math.log(2), delta=0.01)
         self.assertEqual(dpo_receipt["sft_adapter_sha256"], sft_receipt["adapter_sha256"])
         self.assertEqual(sha256(sft / "adapter_model.safetensors"), sft_receipt["adapter_sha256"])
         self.assertEqual(set(sft_tensors), set(dpo_tensors))
@@ -157,6 +166,62 @@ class TrainTest(unittest.TestCase):
         self.assertNotEqual(run.returncode, 0)
         self.assertRegex(run.stdout, r"sft[-_]adapter")
         self.assertFalse(output.exists())
+
+    def test_dpo_sft_weight_optimizes_chosen_completion_mean(self):
+        """在一个真实更新步上复算 DPO 与正例监督的总损失，并核对策略张量有更新。"""
+        import torch
+        from safetensors.torch import load_file
+        from transformers import AutoTokenizer
+
+        pair = json.loads(self.dpo_data.read_bytes())
+        pair["rejected"] = "r r r r r r\n</think>\n\nb b b b b b<|im_end|>"
+        data = self.workspace / "unequal-completions.jsonl"
+        data.write_text(json.dumps(pair) + "\n", encoding="utf-8")
+        tokenizer = AutoTokenizer.from_pretrained(self.model, local_files_only=True)
+        chosen_ids = tokenizer.encode(pair["chosen"], add_special_tokens=False)
+        sft = self.sft_reference()
+        source = sft / "adapter_model.safetensors"
+        source_hash = sha256(source)
+        output = self.workspace / "dpo-with-chosen-supervision"
+        weight = 0.37
+        run = self.train("dpo", data, output, "--sft-adapter", str(sft),
+                         "--dpo-sft-weight", str(weight))
+        self.assertEqual(run.returncode, 0, run.stdout)
+        receipt = json.loads((output / "training.json").read_bytes())
+        self.assertEqual(receipt["dpo_sft_weight"], weight)
+        self.assertEqual((receipt["examples"], receipt["steps"]), (1, 1))
+        self.assertEqual(receipt["sft_adapter_sha256"], source_hash)
+        self.assertEqual(sha256(source), source_hash)
+
+        # 更新前策略与参考相同，偏好项为 ln(2)。正例的均值只除以其实际续答词元数。
+        chosen_logps = [
+            entry["logps/chosen"] for entry in receipt["log_history"] if "logps/chosen" in entry
+        ]
+        self.assertTrue(chosen_logps, "DPO 单步回执缺少 logps/chosen")
+        self.assertLess(chosen_logps[0], 0)
+        expected_loss = math.log(2) - weight * chosen_logps[0] / len(chosen_ids)
+        self.assertAlmostEqual(receipt["training_loss"], expected_loss, delta=0.01)
+        before = load_file(str(source), device="cpu")
+        after = load_file(str(output / "adapter_model.safetensors"), device="cpu")
+        self.assertEqual(set(before), set(after))
+        self.assertTrue(any(not torch.equal(before[key], after[key]) for key in before),
+                        "DPO 加入正例监督后应实际更新策略张量")
+
+    def test_invalid_dpo_sft_weight_rejects_without_publishing(self):
+        """SFT 禁用系数，DPO 每次只改变系数，检查违规参数的诊断和成品目录。"""
+        stages = (
+            ("sft", self.sft_data, (), ("0.37",)),
+            ("dpo", self.dpo_data, ("--sft-adapter", str(self.sft_reference())),
+             ("0", "-0.1", "nan", "inf", "-inf")),
+        )
+        for stage, data, extra, values in stages:
+            for value in values:
+                with self.subTest(stage=stage, weight=value):
+                    output = self.workspace / f"invalid-weight-{stage}-{value}"
+                    run = self.train(stage, data, output, *extra, f"--dpo-sft-weight={value}")
+                    self.assertNotEqual(run.returncode, 0, run.stdout)
+                    self.assertIn("dpo-sft-weight", run.stdout)
+                    self.assertFalse(output.exists())
 
     def test_sft_exposures_schedule_and_receipt(self):
         """两行分别训练五次和一次，每轮六次、两轮共十二次，每累积三次更新一次。"""
