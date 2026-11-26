@@ -33,6 +33,21 @@ def read_data(path, stage):
     return rows, hashlib.sha256(raw).hexdigest()
 
 
+def read_sft_exposures(path, data_hash, row_count):
+    """清单绑定训练文件的原始字节，避免语料变更后仍按旧行号增加训练次数。"""
+    raw = path.read_bytes()
+    try:
+        manifest = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError("sft-exposures 须为合法 JSON 对象") from error
+    if (not isinstance(manifest, dict) or set(manifest) != {"data_sha256", "counts"}
+            or manifest["data_sha256"] != data_hash or not isinstance(manifest["counts"], list)
+            or len(manifest["counts"]) != row_count
+            or any(type(count) is not int or count < 1 for count in manifest["counts"])):
+        raise ValueError("sft-exposures 须提供匹配训练文件的 data_sha256 和每行一个正整数的 counts")
+    return manifest["counts"], hashlib.sha256(raw).hexdigest()
+
+
 def adapter_hash(model, name):
     """在内存中核对不同名字的同一组低秩矩阵，参考副本须一直等于初始 SFT。"""
     import torch
@@ -48,7 +63,7 @@ def adapter_hash(model, name):
     return digest.hexdigest()
 
 
-def train(args, rows, data_hash, work):
+def train(args, rows, data_hash, work, exposures=None):
     import torch
     from datasets import Dataset
     from peft import LoraConfig, PeftModel, get_peft_model
@@ -70,16 +85,22 @@ def train(args, rows, data_hash, work):
     base.config.use_cache = False
     epochs, accumulation = args.epochs, args.accumulation
     rate = args.learning_rate if args.learning_rate is not None else (0.0001 if args.stage == "sft" else 0.00002)
+    dataset = Dataset.from_list(rows)
+    extra = {}
+    if exposures is not None:
+        # 各行至少出现一次。训练器打乱扩展后的行索引，原始清洗语料和摘要可以逐行复核。
+        counts, exposure_hash = exposures
+        indices = [index for index, count in enumerate(counts) for _ in range(count)]
+        dataset = dataset.select(indices)
+        extra.update(examples_per_epoch=len(dataset), sft_exposures_sha256=exposure_hash)
     common = dict(
         output_dir=str(work / "trainer"), num_train_epochs=epochs, learning_rate=rate, seed=27,
         per_device_train_batch_size=1, gradient_accumulation_steps=accumulation,
         gradient_checkpointing=True, gradient_checkpointing_kwargs={"use_reentrant": False},
-        bf16=True, tf32=True, max_length=None, warmup_steps=int(math.ceil(len(rows) / accumulation) * epochs * .05),
+        bf16=True, tf32=True, max_length=None, warmup_steps=int(math.ceil(len(dataset) / accumulation) * epochs * .05),
         lr_scheduler_type="cosine", optim="adamw_torch", save_strategy="no", report_to="none",
         logging_steps=1, dataloader_num_workers=0, disable_tqdm=True,
     )
-    dataset = Dataset.from_list(rows)
-    extra = {}
     if args.stage == "sft":
         config = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.0, task_type="CAUSAL_LM",
                             target_modules=["v_proj", "o_proj", "up_proj", "down_proj"])
@@ -131,12 +152,15 @@ def main():
     for field in ("model", "data", "output"):
         parser.add_argument("--" + field, type=Path, required=True)
     parser.add_argument("--sft-adapter", type=Path)
+    parser.add_argument("--sft-exposures", type=Path, help="SFT 各行每轮训练次数及数据摘要的 JSON 清单")
     parser.add_argument("--learning-rate", type=float)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--accumulation", type=int, default=4)
     args = parser.parse_args()
     if (args.stage == "dpo") != (args.sft_adapter is not None):
         parser.error("--sft-adapter 须且仅须在 DPO 阶段提供")
+    if args.sft_exposures is not None and args.stage != "sft":
+        parser.error("--sft-exposures 仅适用于 SFT 阶段")
     if args.epochs < 1 or args.accumulation < 1 or (
         args.learning_rate is not None and not 0 < args.learning_rate < math.inf
     ):
@@ -144,9 +168,12 @@ def main():
     if args.output.exists():
         parser.error("output 须为新目录")
     rows, data_hash = read_data(args.data, args.stage)
+    exposures = None
+    if args.sft_exposures is not None:
+        exposures = read_sft_exposures(args.sft_exposures, data_hash, len(rows))
     # 半成品只在同一卷的临时目录中，权重和摘要全部写好后才可由调用方加载。
     with TemporaryDirectory(dir=args.output.parent, prefix=".misty27-") as temporary:
-        artifact = train(args, rows, data_hash, Path(temporary))
+        artifact = train(args, rows, data_hash, Path(temporary), exposures)
         artifact.rename(args.output)
 
 
