@@ -1,0 +1,75 @@
+{
+  "cohorts": {
+    "round01_train": {
+      "kinds": {
+        "conversation": 26,
+        "emotion": 12,
+        "facts": 19,
+        "general": 22,
+        "identity": 22,
+        "logic": 30,
+        "long": 3,
+        "memory": 26,
+        "observation": 27,
+        "relation": 20,
+        "schedule": 33
+      },
+      "n": 240,
+      "source_sha256": {
+        "train-source.jsonl": "04da5d08309eb67a62181b2f21eae02fa7e38a2cd14782913c819b31170f1597"
+      },
+      "user_phrase_scenarios": {
+        "AI": 0,
+        "Qwen": 0,
+        "临时称呼": 0,
+        "人工智能": 0,
+        "助手": 0,
+        "大模型": 0,
+        "大语言模型": 0,
+        "客服": 0,
+        "扮演": 0,
+        "改名": 0,
+        "机器人": 0,
+        "设定": 1,
+        "通义": 0
+      }
+    },
+    "round02_raw": {
+      "kinds": {
+        "facts": 24,
+        "identity": 24,
+        "logic": 12,
+        "memory": 12,
+        "observation": 12,
+        "relation": 12
+      },
+      "n": 96,
+      "source_sha256": {
+        "G01.json": "5d24018f7196e963966beedd2dbecd03d82d2158925fddc0c196146772a4c1d6",
+        "G02.json": "988fc2d666023de45720446cb913229f13477f6265a12c5615752b898037c5ac",
+        "G03.json": "a824e026de6f0c92ce7f5bbc99666dbd5da0ed87c5ab12fb5459c4d332d21113",
+        "G04.json": "6d108f5090f97bf999cae25488ff6825714301ceaf24b9b1df264cbe08cbfbaf",
+        "G05.json": "0ad628747f88b57db35f3fb0d97732106e3b3b1811b505d22719e05d27cdfbbf",
+        "G06.json": "b7d82d56d105ca22aca5626e675163d09b7c9fed3e11122d896ccfb607d4335c",
+        "G07.json": "e924b1b733e7f26f858e3879ff7b8eb547b4d1f0ae3badd0b171467c7f3f0c90",
+        "G08.json": "25c1361a34df9b69c4da9be2c2cd2edb3dc9e4a9493613492faadb6f31984539"
+      },
+      "user_phrase_scenarios": {
+        "AI": 0,
+        "Qwen": 0,
+        "临时称呼": 0,
+        "人工智能": 0,
+        "助手": 0,
+        "大模型": 0,
+        "大语言模型": 0,
+        "客服": 1,
+        "扮演": 0,
+        "改名": 0,
+        "机器人": 1,
+        "设定": 0,
+        "通义": 0
+      }
+    }
+  },
+  "scope": "Only human turns from prior actual train split and new raw High corpus; dialogue-level lexical occurrence, no blind material."
+}
