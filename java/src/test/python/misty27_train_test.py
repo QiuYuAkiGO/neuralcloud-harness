@@ -92,12 +92,12 @@ class TrainTest(unittest.TestCase):
         ):
             path.write_bytes((json.dumps(row) + "\n").encode("utf-8"))
 
-    def train(self, stage, data, output, *extra):
+    def train(self, stage, data, output, *extra, accumulation=1):
         """所有请求都经正式进程入口，模型、数据与成品路径均指向本组临时目录。"""
         return subprocess.run(
             [sys.executable, "tools/train_misty27_alignment.py", "--stage", stage,
              "--model", str(self.model), "--data", str(data), "--output", str(output),
-             "--accumulation", "1", *extra],
+             "--accumulation", str(accumulation), *extra],
             cwd=ROOT, env=dict(os.environ, HF_HUB_OFFLINE="1", HF_HOME=str(self.workspace / "hf")),
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
             encoding="utf-8", errors="replace", timeout=600,
@@ -157,6 +157,64 @@ class TrainTest(unittest.TestCase):
         self.assertNotEqual(run.returncode, 0)
         self.assertRegex(run.stdout, r"sft[-_]adapter")
         self.assertFalse(output.exists())
+
+    def test_sft_exposures_schedule_and_receipt(self):
+        """两行分别训练五次和一次，每轮六次、两轮共十二次，每累积三次更新一次。"""
+        first = json.loads(self.sft_data.read_bytes())
+        second = dict(first, completion="r\n</think>\n\nb<|im_end|>")
+        data = self.workspace / "two-rows.jsonl"
+        lines = "".join(json.dumps(row) + "\r\n" for row in (first, second))
+        data.write_bytes(lines.encode("utf-8"))
+        exposures = self.workspace / "six-per-epoch.json"
+        manifest = {"data_sha256": sha256(data), "counts": [5, 1]}
+        exposures.write_bytes((json.dumps(manifest, indent=2) + "\n").encode("utf-8"))
+        output = self.workspace / "weighted-sft"
+
+        run = self.train("sft", data, output, "--sft-exposures", str(exposures),
+                         "--epochs", "2", accumulation=3)
+        self.assertEqual(run.returncode, 0, run.stdout)
+        receipt = json.loads((output / "training.json").read_bytes())
+        for field, expected in {
+            "steps": 4, "examples": 2, "examples_per_epoch": 6,
+            "data_sha256": manifest["data_sha256"], "sft_exposures_sha256": sha256(exposures),
+            "adapter_sha256": sha256(output / "adapter_model.safetensors"),
+        }.items():
+            self.assertEqual(receipt[field], expected, field)
+
+    def test_invalid_sft_exposures_reject_without_publishing(self):
+        """每次仅违反一个清单约定，DPO 禁用清单的用例另备有效的 SFT 参考成品。"""
+        def assert_rejected(label, stage, data, manifest, *extra):
+            with self.subTest(case=label):
+                exposures = self.workspace / f"{label}.json"
+                exposures.write_text(json.dumps(manifest), encoding="utf-8")
+                output = self.workspace / f"rejected-{label}"
+                run = self.train(stage, data, output, "--sft-exposures", str(exposures), *extra)
+                self.assertNotEqual(run.returncode, 0, run.stdout)
+                self.assertIn("sft-exposures", run.stdout)
+                self.assertFalse(output.exists())
+
+        valid = {"data_sha256": sha256(self.sft_data), "counts": [1]}
+        valid_exposures = self.workspace / "valid-single-exposure.json"
+        valid_exposures.write_text(json.dumps(valid), encoding="utf-8")
+        reference = self.workspace / "exposure-rejection-reference"
+        run = self.train("sft", self.sft_data, reference, "--sft-exposures", str(valid_exposures))
+        self.assertEqual(run.returncode, 0, run.stdout)
+        for label, manifest in (
+            ("not-object", [valid]),
+            ("missing-field", {"data_sha256": valid["data_sha256"]}),
+            ("extra-field", dict(valid, extra=1)),
+            ("wrong-data", dict(valid, data_sha256=sha256(self.dpo_data))),
+            ("not-array", dict(valid, counts=1)),
+            ("wrong-length", dict(valid, counts=[1, 1])),
+            ("zero", dict(valid, counts=[0])),
+            ("boolean", dict(valid, counts=[True])),
+            ("decimal", dict(valid, counts=[1.0])),
+        ):
+            assert_rejected(label, "sft", self.sft_data, manifest)
+
+        assert_rejected("dpo", "dpo", self.dpo_data,
+                        {"data_sha256": sha256(self.dpo_data), "counts": [1]},
+                        "--sft-adapter", str(reference))
 
 
 if __name__ == "__main__":
