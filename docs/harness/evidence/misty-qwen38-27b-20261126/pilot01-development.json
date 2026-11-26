@@ -1,0 +1,82 @@
+{
+  "dpo": {
+    "original_nine": {
+      "all": {
+        "answer_correct": 2,
+        "complete": 7,
+        "grounded": 8,
+        "n": 9,
+        "natural_thought": 2,
+        "voice": 7
+      },
+      "persona": {
+        "answer_correct": 2,
+        "complete": 6,
+        "grounded": 7,
+        "n": 8,
+        "natural_thought": 2,
+        "voice": 6
+      },
+      "practical": {
+        "answer_correct": 0,
+        "complete": 1,
+        "grounded": 1,
+        "n": 1,
+        "natural_thought": 0,
+        "voice": 1
+      }
+    },
+    "qualitative_judgments_sha256": "f0853db9335ee6d0795d3ebd470e42702201f516eedb14b7b34506adc7e454be",
+    "raw_output_sha256": "5c50a8b6ed20aa78c42a0a677da021a64f833382ee2497d0fb5846edd00ea600",
+    "retained_seven": {
+      "answer_correct": 1,
+      "complete": 5,
+      "grounded": 7,
+      "n": 7,
+      "natural_thought": 1,
+      "voice": 5
+    }
+  },
+  "frozen_role_score_weight": 0,
+  "initial_dev_scenarios": 9,
+  "judge": "gemini-4-neon-xhigh",
+  "later_grounded_same_ids": 7,
+  "sft": {
+    "original_nine": {
+      "all": {
+        "answer_correct": 5,
+        "complete": 6,
+        "grounded": 8,
+        "n": 9,
+        "natural_thought": 6,
+        "voice": 6
+      },
+      "persona": {
+        "answer_correct": 5,
+        "complete": 5,
+        "grounded": 7,
+        "n": 8,
+        "natural_thought": 5,
+        "voice": 5
+      },
+      "practical": {
+        "answer_correct": 0,
+        "complete": 1,
+        "grounded": 1,
+        "n": 1,
+        "natural_thought": 1,
+        "voice": 1
+      }
+    },
+    "qualitative_judgments_sha256": "90998bae2e143ea0c11ea47ddf9ecdac48b6cb0d902a30ce8e79b5c4e07aac50",
+    "raw_output_sha256": "da521910d1db3d1c8071cc6126b54fbe6d408d7f54185195360f8d3c9385cc74",
+    "retained_seven": {
+      "answer_correct": 4,
+      "complete": 4,
+      "grounded": 7,
+      "n": 7,
+      "natural_thought": 5,
+      "voice": 4
+    }
+  }
+}
