@@ -1,0 +1,41 @@
+{
+  "epochs": 2,
+  "exposures_sha256": "8b92b7bd9ed455813dd9a4369c329f4ca8a31f4c2525c905cef7ebafaafe3bc0",
+  "method": "Original tokenizer on each full rendered sample. The prompt mask is the common token prefix with its standalone prompt. Channel counts include the original whitespace; the closing thought token and end of message are counted separately.",
+  "observed_final_trainer_tokens": 877144,
+  "per_epoch": {
+    "dev": {
+      "all_tokens": 56903,
+      "boundary_token_joins": 0,
+      "close_and_stop": 280,
+      "exposures": 140,
+      "masked_prompt": 37988,
+      "maximum_sequence_tokens": 2178,
+      "median_sequence_tokens": 276.5,
+      "multi_turn_rows": 100,
+      "rows": 140,
+      "rows_with_20plus_user_turns": 3,
+      "thought_before_close": 10981,
+      "visible_after_close_before_stop": 7654
+    },
+    "train": {
+      "all_tokens": 438572,
+      "boundary_token_joins": 0,
+      "close_and_stop": 2662,
+      "exposures": 1331,
+      "masked_prompt": 277723,
+      "maximum_sequence_tokens": 2401,
+      "median_sequence_tokens": 231,
+      "multi_turn_rows": 814,
+      "rows": 1175,
+      "rows_with_20plus_user_turns": 10,
+      "thought_before_close": 94940,
+      "visible_after_close_before_stop": 63247
+    }
+  },
+  "reconstructed_training_tokens": 877144,
+  "revision": "37561816e66b5b9153b1b64c10968c18c1e6f4a0",
+  "sft_dev_sha256": "58d460b50b8069bc9985e56a1e4855a84bf6fd5b9ce58caf99d1ae48afb1a317",
+  "sft_source_sha256": "0fe7d9f61f1a4d45c7e507951143cb3ad8f5ea9c0fea73e888b4e719b0720238",
+  "training_receipt_sha256": "aa563f5679a393ad8c49b7e5ea6a9cc16d10425a61b74203a11ce323a82c9fd6"
+}
