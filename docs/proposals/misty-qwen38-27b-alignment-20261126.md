@@ -35,6 +35,14 @@
 
 开发集按场景族整组留出。每个候选在相同的保留前文上回答最后一轮，独立 XHigh 结合原题和可复算的参考答复，记录答案正确、交付完整、陈述有据、思考自然、口吻合适五项通过数。报告分别列实用题与角色题，开发集用于决定后续训练调整。百分制成绩仅由冻结盲卷产生。
 
+### 从多轮会话提取首轮偏好
+
+第五轮新增的 200 个会话都在第二次及以后的用户发言处给出偏好对。补充语料让 High 在同一个多轮会话中同时编写首轮备选回复。`python tools/misty27_opening_preferences.py --input FILE --output FILE` 将带首轮标注的 UTF-8 JSONL 转成单独送审的首轮候选 JSONL。每个场景和它的首轮候选沿用同一个场景族和训练或开发划分。
+
+输入每行恰含 `id`、`family`、`kind`、`history`、`chosen`、`rejected`、`opening_rejected`。前三项是非空字符串，`id` 全文件唯一。`history` 至少三条，由用户与助理交替发言，以用户开头和结束。用户消息恰含 `role=user` 与 `content`，助理消息恰含 `role=assistant`、`reasoning_content` 与 `content`。三个续答字段都是恰含 `reasoning_content` 与 `content` 的对象，文本须是非空白字符串。末轮两个续答须有差异，首轮备选与历史中的第一条助理续答也须有差异，差异可以只出现在一个字段。
+
+输出按输入顺序，每行恰含 `id`、`family`、`kind`、`history`、`chosen`、`rejected`。`id` 为源 ID 追加 `-opening`，场景族、种类和文本照录。`history` 只含第一条用户原话，`chosen` 取第一条助理消息的两个文本字段，`rejected` 取 `opening_rejected`。文件须至少有一行。任一行不符合契约时，入口以非零状态退出，诊断指出行号和违规字段，并保持目标文件原状。输出只作为清洗与密封查重的输入，放行后才可用于训练。
+
 ### 权重训练入口
 
 `python tools/train_misty27_alignment.py --stage sft|dpo --model DIR --data JSONL --output NEW_DIR` 使用本地 Dense Qwen3.5 架构的文本网络、CUDA NF4 和 BF16 计算。实验权重取自已逐片核验的 Qwen3.8-27B。训练数据为按该模型原生模板渲染的提示与续答，SFT 每行有 `prompt`、`completion`，DPO 每行有 `prompt`、`chosen`、`rejected`。字符串须非空，偏好对内容须不同。调用方生成的最终续答需含合成思考正文、闭合标记、最终答复和原生结束符；训练时屏蔽提示与填充。DPO 必须额外传 `--sft-adapter DIR`，以同一适配器初始化策略和冻结参考。SFT 不接收该参数。
