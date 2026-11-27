@@ -1,7 +1,7 @@
 {
   "actual_prior_prefixes_authenticated": 46,
   "authenticated_author_batches": 8,
-  "dataset_sha256": "ff031083bb6e8577cec04959167c47a3e9d7dfd0eb8c03b815ab23178925c761",
+  "dataset_sha256": "f411e7417794233c01e1cd6768240fba23b6a95fb7629d28ad9a07aab36cbf9b",
   "first_turn_review": {
     "batches": 8,
     "brief_sha256": "b513afe6b88ea6c84ffedd686407bc38bdda91f3173ff69686bd47fef47b8fab",
@@ -75,7 +75,39 @@
       22
     ]
   },
-  "newly_admitted": 61,
+  "newly_admitted": 56,
+  "positive_hard_term_audit": {
+    "excluded_scenarios_by_split": {
+      "dev": 1,
+      "train": 4
+    },
+    "final_rows_checked": {
+      "dev": {
+        "dpo_positive_rows": 39,
+        "positive_matches": 0,
+        "rejected_rows_containing_rubric_literals": 1,
+        "sft_positive_rows": 137
+      },
+      "train": {
+        "dpo_positive_rows": 363,
+        "positive_matches": 0,
+        "rejected_rows_containing_rubric_literals": 5,
+        "sft_positive_rows": 1160
+      }
+    },
+    "full_style_anchor_matches": {},
+    "initial_release_sha256": "ff031083bb6e8577cec04959167c47a3e9d7dfd0eb8c03b815ab23178925c761",
+    "interrupted_at_logged_optimizer_step": 117,
+    "matched_occurrences_by_channel": {
+      "reasoning_content": 7
+    },
+    "pattern": "Qwen|大语言模型|作为\\s*(?:(?:一个|一名)\\s*)?(?:AI|人工智能)|人设卡|ORAL_EXPRESSION_V2|规则要求",
+    "positive_audit_sha256": "605e4445120e134259180883671862888cb8795af50772c43496e65bfc86d19f",
+    "preflight_log_sha256": "8bc8809c70bd6e7e4a4eb058a08fc208040068e5249b6cd406b268840caf4dd1",
+    "preflight_rows": 402,
+    "restarted_from_original_base": true,
+    "rule": "Scan positive assistant thought and visible text in history and chosen for rubric terms, remove the entire matching scenario. User text and rejected outputs are retained."
+  },
   "prior_retired": 10,
   "prior_scenarios": 351,
   "prior_split_family_moves": 0,
@@ -104,28 +136,28 @@
     }
   },
   "sft_exposures": {
-    "data_sha256": "0fe7d9f61f1a4d45c7e507951143cb3ad8f5ea9c0fea73e888b4e719b0720238",
-    "effective_examples_per_epoch": 1331,
+    "data_sha256": "3312bf85affe4ead081c4ba9c7f51f997fe963b0fb926ff105bcbf1b1bb41da9",
+    "effective_examples_per_epoch": 1316,
     "exposure_counts": {
-      "1": 1104,
+      "1": 1089,
       "3": 64,
       "5": 7
     },
     "rule": "Five exposures for canonical first replies in facts/identity when the incoming user did not supply the name, otherwise three for canonical replies in those families. At least three for independently preferred first replies with a real sampled error. Remaining rows appear once.",
-    "sft_exposures_sha256": "8b92b7bd9ed455813dd9a4369c329f4ca8a31f4c2525c905cef7ebafaafe3bc0",
-    "source_sha256": "8a8eab1b29c4136c64f8a0a2f68a7a740014922de8822129893d7c02218ea16b",
-    "unique_sft_rows": 1175,
+    "sft_exposures_sha256": "26db28f96634e36826e8eb72c816832c039bc3c22d7a5e1252d3779d186f1936",
+    "source_sha256": "a65656b1727bbb277883a78affb9b1dcfbda9f4ea2e33c745413a5fef689c390",
+    "unique_sft_rows": 1160,
     "weighted_rows": 71
   },
   "splits": {
     "dev": {
-      "dpo": 40,
+      "dpo": 39,
       "kind": {
         "conversation": 3,
         "emotion": 3,
         "facts": 5,
         "general": 3,
-        "identity": 7,
+        "identity": 6,
         "logic": 5,
         "long": 1,
         "memory": 3,
@@ -134,22 +166,22 @@
         "schedule": 3
       },
       "max_preference_tokens": 2178,
-      "scenarios": 40,
-      "sft": 140,
+      "scenarios": 39,
+      "sft": 137,
       "sha256": {
-        "dpo": "95f9d00df589e386316b029b5f6f2ca2157ae54e8a5d4a1fed667b6d4193bddc",
-        "sft": "58d460b50b8069bc9985e56a1e4855a84bf6fd5b9ce58caf99d1ae48afb1a317",
-        "source": "c873ed31bee0d7e160acd1f7956975c98f69ec193790cc567ad1d787a5ef89c5"
+        "dpo": "97442dbadc067d23d0626842fe2662f721d0c8dd1a88c221c333d547516f6631",
+        "sft": "09583070ce5cab8cc3c3c03c70bd7b9609d906b40c1e47acbced5a1f8c718a72",
+        "source": "bfc852539e9827a77820c99cf56dcf48baf214cf49a553a156691530eabdb229"
       }
     },
     "train": {
-      "dpo": 367,
+      "dpo": 363,
       "kind": {
         "conversation": 26,
         "emotion": 23,
         "facts": 39,
         "general": 30,
-        "identity": 55,
+        "identity": 51,
         "logic": 48,
         "long": 4,
         "memory": 42,
@@ -158,12 +190,12 @@
         "schedule": 31
       },
       "max_preference_tokens": 2401,
-      "scenarios": 362,
-      "sft": 1175,
+      "scenarios": 358,
+      "sft": 1160,
       "sha256": {
-        "dpo": "595ecff10de3d8e7bd1d07867924fe6bebc6c14aa6e516fff513d620665ccb69",
-        "sft": "0fe7d9f61f1a4d45c7e507951143cb3ad8f5ea9c0fea73e888b4e719b0720238",
-        "source": "8a8eab1b29c4136c64f8a0a2f68a7a740014922de8822129893d7c02218ea16b"
+        "dpo": "e68840fc35e309cda1d6a53558233fdbcb280c93bbc8357db1fab9ae32f53a43",
+        "sft": "3312bf85affe4ead081c4ba9c7f51f997fe963b0fb926ff105bcbf1b1bb41da9",
+        "source": "a65656b1727bbb277883a78affb9b1dcfbda9f4ea2e33c745413a5fef689c390"
       }
     }
   },
