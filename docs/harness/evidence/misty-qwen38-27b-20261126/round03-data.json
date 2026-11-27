@@ -1,0 +1,178 @@
+{
+  "actual_prior_prefixes_authenticated": 46,
+  "authenticated_author_batches": 8,
+  "dataset_sha256": "ff031083bb6e8577cec04959167c47a3e9d7dfd0eb8c03b815ab23178925c761",
+  "first_turn_review": {
+    "batches": 8,
+    "brief_sha256": "b513afe6b88ea6c84ffedd686407bc38bdda91f3173ff69686bd47fef47b8fab",
+    "checkpoint_sha256": "02e78f845105ce90b7bbb7bcc2ded231be4a76703cae3593d66918eaf5d5083e",
+    "judgments": {
+      "neither": 4,
+      "sampled": 6,
+      "teacher": 5,
+      "tie": 31
+    },
+    "model": "gemini-4-neon-high",
+    "retained_complete_teacher_preferred": 5,
+    "reviewed": 46,
+    "sampled_output_sha256": "9a2779c3d4fea5cdbc7160d889188e4fe95b93ff33b875749536bd610b7f9aa3",
+    "selected_input_sha256": "296d4b33d1af0dff0736c868fc62396b0ecb358835b450d51463ae9bb6b5d54b",
+    "source_release_sha256": "3d0dd4bd200d1e2a67538c11904ef1df579d1402d762e349d003d05d6fb2e9c8",
+    "source_sha256": "e7393b9eba844e3b6a787e1b2405e7031f86c7ce023c3958a49c461108171341",
+    "teacher_preferred_reasons": {
+      "grounding": 3,
+      "identity": 1,
+      "task": 1
+    }
+  },
+  "first_turn_screen": {
+    "automatic_cutoff": 0.989,
+    "hard_rejected": {},
+    "input_candidates": 5,
+    "model": "gemini-4-neon-xhigh",
+    "official_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+    "protected": 36,
+    "released": 5,
+    "sealed_decisions": {
+      "distinct": 5
+    },
+    "selected_input_sha256": "296d4b33d1af0dff0736c868fc62396b0ecb358835b450d51463ae9bb6b5d54b",
+    "source_review_sha256": "8d3c0f6dcbee50f602fb2b1642959ce1f48d93cb6b21368695fc610d819892e5"
+  },
+  "frozen_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+  "full_dialogue_screen": {
+    "cosine_cutoff": 0.989,
+    "duplicate_prior_or_new": 0,
+    "encoder": "intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    "encoder_reasons": {},
+    "frozen_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+    "generated": 76,
+    "model": "gemini-4-neon-xhigh",
+    "protected_scenarios": 36,
+    "quality_rejected": 8,
+    "quality_sha256": "14f47cdfa35c93904b59eb7c23c48c7556e864ec3e0094cac95c067b8af78bb1",
+    "released": 62,
+    "sealed_filter_sha256": "e1287c336a72d482f488be6e8729d28cb57d27fb9b99d2b036244904b08f10ba",
+    "sealed_review": {
+      "distinct": 62,
+      "duplicate": 4,
+      "uncertain": 2
+    }
+  },
+  "generated_high": 76,
+  "high_external_review_batches": {
+    "cleaning": 7,
+    "voice-review": 2
+  },
+  "long_user_turns": {
+    "dev": [
+      22
+    ],
+    "train": [
+      21,
+      21,
+      22,
+      22
+    ]
+  },
+  "newly_admitted": 61,
+  "prior_retired": 10,
+  "prior_scenarios": 351,
+  "prior_split_family_moves": 0,
+  "protected_scenarios": 36,
+  "quality_sha256": "14f47cdfa35c93904b59eb7c23c48c7556e864ec3e0094cac95c067b8af78bb1",
+  "retired_due_to_positive_reference": 10,
+  "sealed_authentication": {
+    "full_dialogues": {
+      "authenticated_streams": 5,
+      "discarded_attempts": {},
+      "model": "gemini-4-neon-xhigh",
+      "private_stream_digest": "51f545af1cf444615c36d2e018fe5271c7f3cfdaec9a87260c8cc0101a89fb73",
+      "release_sha256": "1bd9abdf1fe74fc77cb2556cfce112af16973aa2982a700da6693da25f8270ce",
+      "released_distinct": 62,
+      "verified_decisions": 68
+    },
+    "official_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+    "standalone_first_turn": {
+      "authenticated_streams": 1,
+      "discarded_attempts": {},
+      "model": "gemini-4-neon-xhigh",
+      "private_stream_digest": "eceff9a4f721f711735d3f843d5a3797bd8bc3fa3bcb43ac622dae28d23e7a94",
+      "release_sha256": "5937f9b7154a6d3f778e1df6e80cd7eb67dc82bbfcaf2b21f2f894146e63d60e",
+      "released_distinct": 5,
+      "verified_decisions": 5
+    }
+  },
+  "sft_exposures": {
+    "data_sha256": "0fe7d9f61f1a4d45c7e507951143cb3ad8f5ea9c0fea73e888b4e719b0720238",
+    "effective_examples_per_epoch": 1331,
+    "exposure_counts": {
+      "1": 1104,
+      "3": 64,
+      "5": 7
+    },
+    "rule": "Five exposures for canonical first replies in facts/identity when the incoming user did not supply the name, otherwise three for canonical replies in those families. At least three for independently preferred first replies with a real sampled error. Remaining rows appear once.",
+    "sft_exposures_sha256": "8b92b7bd9ed455813dd9a4369c329f4ca8a31f4c2525c905cef7ebafaafe3bc0",
+    "source_sha256": "8a8eab1b29c4136c64f8a0a2f68a7a740014922de8822129893d7c02218ea16b",
+    "unique_sft_rows": 1175,
+    "weighted_rows": 71
+  },
+  "splits": {
+    "dev": {
+      "dpo": 40,
+      "kind": {
+        "conversation": 3,
+        "emotion": 3,
+        "facts": 5,
+        "general": 3,
+        "identity": 7,
+        "logic": 5,
+        "long": 1,
+        "memory": 3,
+        "observation": 3,
+        "relation": 4,
+        "schedule": 3
+      },
+      "max_preference_tokens": 2178,
+      "scenarios": 40,
+      "sft": 140,
+      "sha256": {
+        "dpo": "95f9d00df589e386316b029b5f6f2ca2157ae54e8a5d4a1fed667b6d4193bddc",
+        "sft": "58d460b50b8069bc9985e56a1e4855a84bf6fd5b9ce58caf99d1ae48afb1a317",
+        "source": "c873ed31bee0d7e160acd1f7956975c98f69ec193790cc567ad1d787a5ef89c5"
+      }
+    },
+    "train": {
+      "dpo": 367,
+      "kind": {
+        "conversation": 26,
+        "emotion": 23,
+        "facts": 39,
+        "general": 30,
+        "identity": 55,
+        "logic": 48,
+        "long": 4,
+        "memory": 42,
+        "observation": 32,
+        "relation": 32,
+        "schedule": 31
+      },
+      "max_preference_tokens": 2401,
+      "scenarios": 362,
+      "sft": 1175,
+      "sha256": {
+        "dpo": "595ecff10de3d8e7bd1d07867924fe6bebc6c14aa6e516fff513d620665ccb69",
+        "sft": "0fe7d9f61f1a4d45c7e507951143cb3ad8f5ea9c0fea73e888b4e719b0720238",
+        "source": "8a8eab1b29c4136c64f8a0a2f68a7a740014922de8822129893d7c02218ea16b"
+      }
+    }
+  },
+  "train_dev_exact_prompt_overlap": 0,
+  "train_dev_family_overlap": 0,
+  "voice_screen": {
+    "dropped": 3,
+    "excluded_among_released": 1,
+    "flagged": 10,
+    "scanned_scenarios": 76
+  }
+}
