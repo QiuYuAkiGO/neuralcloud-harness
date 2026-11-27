@@ -134,6 +134,112 @@
       }
     }
   },
+  "objective_turn_coverage": {
+    "dataset_receipt_sha256": "ff031083bb6e8577cec04959167c47a3e9d7dfd0eb8c03b815ab23178925c761",
+    "method": "Re-rendered every visible prefix from the source JSONL with the actual official tokenizer using the same native template. Every training/development SFT and DPO prompt matched its original number of user turns.",
+    "receipt_sha256": "b675a94170a68522e409db18c9b1da57243292e51bd40f59b51abf896da2bb41",
+    "split": {
+      "dev": {
+        "by_objective": {
+          "dpo": {
+            "first_turn_distinct_prompts": 0,
+            "first_user_turn": 0,
+            "input_sha256": "95f9d00df589e386316b029b5f6f2ca2157ae54e8a5d4a1fed667b6d4193bddc",
+            "rows": 40,
+            "rows_by_user_turn": {
+              "2": 13,
+              "22": 1,
+              "3": 16,
+              "4": 6,
+              "5": 4
+            }
+          },
+          "sft": {
+            "first_turn_distinct_prompts": 40,
+            "first_user_turn": 40,
+            "input_sha256": "58d460b50b8069bc9985e56a1e4855a84bf6fd5b9ce58caf99d1ae48afb1a317",
+            "rows": 140,
+            "rows_by_user_turn": {
+              "1": 40,
+              "10": 1,
+              "11": 1,
+              "12": 1,
+              "13": 1,
+              "14": 1,
+              "15": 1,
+              "16": 1,
+              "17": 1,
+              "18": 1,
+              "19": 1,
+              "2": 40,
+              "20": 1,
+              "21": 1,
+              "22": 1,
+              "3": 27,
+              "4": 11,
+              "5": 5,
+              "6": 1,
+              "7": 1,
+              "8": 1,
+              "9": 1
+            }
+          }
+        },
+        "source_sha256": "c873ed31bee0d7e160acd1f7956975c98f69ec193790cc567ad1d787a5ef89c5"
+      },
+      "train": {
+        "by_objective": {
+          "dpo": {
+            "first_turn_distinct_prompts": 5,
+            "first_user_turn": 5,
+            "input_sha256": "595ecff10de3d8e7bd1d07867924fe6bebc6c14aa6e516fff513d620665ccb69",
+            "rows": 367,
+            "rows_by_user_turn": {
+              "1": 5,
+              "2": 114,
+              "21": 2,
+              "22": 2,
+              "3": 145,
+              "4": 68,
+              "5": 31
+            }
+          },
+          "sft": {
+            "first_turn_distinct_prompts": 361,
+            "first_user_turn": 361,
+            "input_sha256": "0fe7d9f61f1a4d45c7e507951143cb3ad8f5ea9c0fea73e888b4e719b0720238",
+            "rows": 1175,
+            "rows_by_user_turn": {
+              "1": 361,
+              "10": 4,
+              "11": 4,
+              "12": 4,
+              "13": 4,
+              "14": 4,
+              "15": 4,
+              "16": 4,
+              "17": 4,
+              "18": 4,
+              "19": 4,
+              "2": 362,
+              "20": 4,
+              "21": 4,
+              "22": 2,
+              "3": 248,
+              "4": 103,
+              "5": 35,
+              "6": 4,
+              "7": 4,
+              "8": 4,
+              "9": 4
+            }
+          }
+        },
+        "source_sha256": "8a8eab1b29c4136c64f8a0a2f68a7a740014922de8822129893d7c02218ea16b"
+      }
+    },
+    "tokenizer": "Qwen/Qwen3.8-27B@37561816e66b5b9153b1b64c10968c18c1e6f4a0"
+  },
   "scope": "This enriched cohort contains existing non-blind training and held-out first turns. Mentions only locate the verbatim texts and are not pass/fail judgments.",
   "selection_sha256": "bdc175c9015ad8a1512ffa8336017948e50d2cf7f07dfc45488d700a1cec199a",
   "service_window": {
