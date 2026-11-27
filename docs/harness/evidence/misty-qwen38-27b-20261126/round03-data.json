@@ -1,6 +1,104 @@
 {
   "actual_prior_prefixes_authenticated": 46,
   "authenticated_author_batches": 8,
+  "contextual_name_coverage": {
+    "conditional_fifth_author_change": "In one author group, request ordinary third-party labels in an actual editing deliverable when the user requires verbatim copying. A preference pair can use the same product name correctly on both sides, with the substantive difference elsewhere. No keyword acceptance gate or scoring change.",
+    "fifth_author_after_sha256": "4bc90ed64d3c93592d71ffae60c4501932e316ebe006e4b1af67cd46f98841bd",
+    "fifth_author_before_sha256": "311638d5d0ed160e4e1901a05b582877951535fe45a9075aee66a2ed798bbe43",
+    "formal_score_weight": 0,
+    "local_receipt_sha256": "7aeff38aea05e4706dbaa86dccc1f592ea24f0ce9a41b283b0df96df2e81f36e",
+    "round03_packed_coverage": {
+      "dev": {
+        "dpo": {
+          "mentions_in_rows": {
+            "chosen": {
+              "reasoning": {
+                "latin_or_chinese": 1,
+                "latin_qwen": 1
+              },
+              "visible": {
+                "latin_or_chinese": 0,
+                "latin_qwen": 0
+              }
+            },
+            "rejected": {
+              "reasoning": {
+                "latin_or_chinese": 1,
+                "latin_qwen": 1
+              },
+              "visible": {
+                "latin_or_chinese": 0,
+                "latin_qwen": 0
+              }
+            }
+          },
+          "rows": 40,
+          "source_sha256": "95f9d00df589e386316b029b5f6f2ca2157ae54e8a5d4a1fed667b6d4193bddc"
+        },
+        "sft": {
+          "mentions_in_rows": {
+            "completion": {
+              "reasoning": {
+                "latin_or_chinese": 1,
+                "latin_qwen": 1
+              },
+              "visible": {
+                "latin_or_chinese": 0,
+                "latin_qwen": 0
+              }
+            }
+          },
+          "rows": 140,
+          "source_sha256": "58d460b50b8069bc9985e56a1e4855a84bf6fd5b9ce58caf99d1ae48afb1a317"
+        }
+      },
+      "train": {
+        "dpo": {
+          "mentions_in_rows": {
+            "chosen": {
+              "reasoning": {
+                "latin_or_chinese": 10,
+                "latin_qwen": 4
+              },
+              "visible": {
+                "latin_or_chinese": 2,
+                "latin_qwen": 0
+              }
+            },
+            "rejected": {
+              "reasoning": {
+                "latin_or_chinese": 7,
+                "latin_qwen": 3
+              },
+              "visible": {
+                "latin_or_chinese": 5,
+                "latin_qwen": 1
+              }
+            }
+          },
+          "rows": 367,
+          "source_sha256": "595ecff10de3d8e7bd1d07867924fe6bebc6c14aa6e516fff513d620665ccb69"
+        },
+        "sft": {
+          "mentions_in_rows": {
+            "completion": {
+              "reasoning": {
+                "latin_or_chinese": 13,
+                "latin_qwen": 6
+              },
+              "visible": {
+                "latin_or_chinese": 2,
+                "latin_qwen": 0
+              }
+            }
+          },
+          "rows": 1175,
+          "source_sha256": "0fe7d9f61f1a4d45c7e507951143cb3ad8f5ea9c0fea73e888b4e719b0720238"
+        }
+      }
+    },
+    "source_reason": "User accepted normal references to Qwen; fourth packed positive visible responses contained its English spelling in 0/1,175 training continuations, while two positives used a Chinese form."
+  },
   "dataset_sha256": "ff031083bb6e8577cec04959167c47a3e9d7dfd0eb8c03b815ab23178925c761",
   "first_turn_review": {
     "batches": 8,
