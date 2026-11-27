@@ -1,0 +1,91 @@
+{
+  "development_pairs": {
+    "all": {
+      "chosen_mean_logp_decrease": 40,
+      "chosen_median_mean_logp_change": -0.07783729853888455,
+      "dpo_margin_improved": 38,
+      "n": 40,
+      "positive_sequence_margin": {
+        "dpo": 18,
+        "original": 8,
+        "sft": 14
+      },
+      "rejected_mean_logp_decrease": 40,
+      "rejected_median_mean_logp_change": -0.3199137449610965
+    },
+    "facts_identity": {
+      "chosen_mean_logp_decrease": 12,
+      "chosen_median_mean_logp_change": -0.13128807899036943,
+      "dpo_margin_improved": 11,
+      "n": 12,
+      "positive_sequence_margin": {
+        "dpo": 6,
+        "original": 2,
+        "sft": 6
+      },
+      "rejected_mean_logp_decrease": 12,
+      "rejected_median_mean_logp_change": -0.33215923690209925
+    },
+    "practical": {
+      "chosen_mean_logp_decrease": 11,
+      "chosen_median_mean_logp_change": -0.033803263508466186,
+      "dpo_margin_improved": 11,
+      "n": 11,
+      "positive_sequence_margin": {
+        "dpo": 4,
+        "original": 1,
+        "sft": 2
+      },
+      "rejected_mean_logp_decrease": 11,
+      "rejected_median_mean_logp_change": -0.202516125094506
+    }
+  },
+  "fifth_public_example_sha256": "61c7a9cf42d13ac133db25d41a87aa52ca6a5d62ec1a9058bbbadcbef8c4b27b",
+  "fixed_name_development": {
+    "model_outputs_sha256": {
+      "dpo": "8de25ecb46170b30367876d67a98aff4a762a33111aee228b3785c0e032dcecf",
+      "sft": "d300f91ada1a1fd4ac6df0e1c2b125dfce9c3bdb729cab3023188fd20fccd038"
+    },
+    "source": "One held-out fourth-round development history, originally among five reviewed product-name contexts. Both actual final replies explicitly distinguish Misty from the Qwen signature.",
+    "verified_transcript_sha256": "074d70e09414c8d41352a015bbbf89397e5063f3bdd9c651616e562c4a820a4b"
+  },
+  "frozen_public_comparison_sha256": "40b428be3048e716e0607e30e0f3986f2cd8e7893a12a81778d6104989ef2f58",
+  "heldout_preference_sha256": "973fef8eeeaa2a3cb24f792f8f887d74f553014743ab9e7bcea8205769d5b7e4",
+  "public_mgsm_pairs": {
+    "round03-dpo": [
+      {
+        "actual_final_line": "答案：48",
+        "current_parsed": "48",
+        "finish": "stop",
+        "gold_answer": "48",
+        "improved": true,
+        "original_parsed": null,
+        "raw_return_sha256": "3b873329e866950ecc692ff57ebb1163e729f80dafe0d68b65c95b2fc40b666b",
+        "row": 154
+      }
+    ],
+    "round03-sft": [
+      {
+        "actual_final_line": "答案：48",
+        "current_parsed": "48",
+        "finish": "stop",
+        "gold_answer": "48",
+        "improved": true,
+        "original_parsed": null,
+        "raw_return_sha256": "42e243e1ac45756c9c669caaada73e6b37f006699ec2d0ac87eb49229da20cbb",
+        "row": 154
+      },
+      {
+        "actual_final_line": "答案：7/18",
+        "current_parsed": null,
+        "finish": "stop",
+        "gold_answer": "25",
+        "improved": false,
+        "original_parsed": "25",
+        "raw_return_sha256": "a90522cf03c9e2d2cf9ee21f765d87fc509012817bcadcde1f9bd004ae6c85b7",
+        "row": 185
+      }
+    ]
+  },
+  "public_mgsm_protocol_sha256": "6e341480a0275c8a1577d4dfb58675bbfb89b06d4c724871af6878f6cc8c55ea"
+}

@@ -1,0 +1,69 @@
+{
+  "deployment": "Q4_K_M plus the locked FP16 LoRA at scale 1. No role system prompt.",
+  "dpo": {
+    "checkpoint_sha256": "e41f6cd857a399886aaba20cbb895ec9196eeae9b203fa04974c5b011e1a3c97",
+    "device": "NVIDIA GeForce RTX 5090",
+    "driver_version": "617.14",
+    "engine": "3D",
+    "local_observation_sha256": "4fffcecb588e8e83ecbf71c9d042091d6b8d8c2b805230cfaa24be4364ec8d77",
+    "nvidia_process_verified": true,
+    "process_dedicated_bytes": 24077291520,
+    "process_engine_utilization_percent": 57.0,
+    "sample_time": "2026-11-27T10:38:34.3712696+08:00"
+  },
+  "evaluation_gpu_window": {
+    "after": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "argv_matches": null,
+    "before": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "end_unix": 1795747796.0198812,
+    "entry_state_preserved": true,
+    "local_receipt_sha256": "fa92177b2036cc5491983e0ddd0303e68995eea063c241a5da26a4553b12600f",
+    "model": "kev-latest",
+    "pid": null,
+    "port": 18009,
+    "purpose": "evaluation",
+    "ready": false,
+    "start_unix": 1795746494.6035452,
+    "was_running": false
+  },
+  "formal_build": "b11146-7fe450e19",
+  "phase": "round03",
+  "sft": {
+    "checkpoint_sha256": "6ea0b5d0f7861e4699bfb41a3002f90fe8fb381fcac422992e001532a9e43f04",
+    "device": "NVIDIA GeForce RTX 5090",
+    "driver_version": "617.14",
+    "engine": "3D",
+    "local_observation_sha256": "6dc50d731d7ae4c678aec4821cab22c750da700ec624f97f3c5b2484848357cc",
+    "nvidia_process_verified": true,
+    "process_dedicated_bytes": 24079388672,
+    "process_engine_utilization_percent": 48.0,
+    "sample_time": "2026-11-27T10:28:47.2855665+08:00"
+  },
+  "training_gpu_window": {
+    "after": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "argv_matches": null,
+    "before": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "end_unix": 1795746492.9609876,
+    "entry_state_preserved": true,
+    "local_receipt_sha256": "9c36d53390f57b08fea5b61e7f603c4bd330032cead06a2f71366863d89bfc12",
+    "model": "kev-latest",
+    "pid": null,
+    "port": 18009,
+    "purpose": "training",
+    "ready": false,
+    "start_unix": 1795744105.5171661,
+    "was_running": false
+  }
+}
