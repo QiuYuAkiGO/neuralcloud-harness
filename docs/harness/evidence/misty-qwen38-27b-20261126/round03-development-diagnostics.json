@@ -51,6 +51,156 @@
   },
   "frozen_public_comparison_sha256": "40b428be3048e716e0607e30e0f3986f2cd8e7893a12a81778d6104989ef2f58",
   "heldout_preference_sha256": "973fef8eeeaa2a3cb24f792f8f887d74f553014743ab9e7bcea8205769d5b7e4",
+  "native_training_precision_replay": {
+    "actual_heldout_case_count": 2,
+    "actual_native_generations": 6,
+    "actual_visible_outputs": {
+      "R1-2-01-06": {
+        "dpo": {
+          "deployed_q4_k_m": {
+            "bookmark_output": {
+              "contains_both_names": true,
+              "final_fields": [
+                "小雾",
+                "Misty",
+                "5月20日",
+                "听歌"
+              ],
+              "final_present": true,
+              "number_of_fields": 4,
+              "says_16_bookmarks": true
+            },
+            "content": "每张纸沿 30cm 边裁 2 段、沿 20cm 边裁 4 段，刚好 8 张，两张一共能裁 16 张书签。\n小雾｜Misty｜5月20日｜听歌",
+            "source_sha256": "8de25ecb46170b30367876d67a98aff4a762a33111aee228b3785c0e032dcecf",
+            "stop": "stop"
+          },
+          "native_nf4": {
+            "bookmark_output": {
+              "contains_both_names": false,
+              "final_fields": [
+                "小雾",
+                "5月20日",
+                "听歌"
+              ],
+              "final_present": true,
+              "number_of_fields": 3,
+              "says_16_bookmarks": true
+            },
+            "content": "每张纸沿 30cm 排 2 条、沿 20cm 排 4 条，正好裁 8 张，两张一共 16 张。\n小雾｜5月20日｜听歌",
+            "raw_sha256": "903d130e54bec7e33ba3525f3f9308e8bfa0e8801422e5c1aa1b23940113dec7",
+            "stop": "eos"
+          }
+        },
+        "original": {
+          "native_nf4": {
+            "bookmark_output": {
+              "final_present": false
+            },
+            "content": "",
+            "raw_sha256": "356dda596b6917b4d0d4e86dcb365ef31e30e2441fc957678d65a81aaf10b1b4",
+            "stop": "length"
+          }
+        },
+        "sft": {
+          "deployed_q4_k_m": {
+            "bookmark_output": {
+              "contains_both_names": false,
+              "final_fields": [
+                "小雾",
+                "5月20日",
+                "听歌"
+              ],
+              "final_present": true,
+              "number_of_fields": 3,
+              "says_16_bookmarks": true
+            },
+            "content": "每张纸可以裁 8 张（30cm 边排 2 条 15cm，20cm 边排 4 条 5cm，刚好不浪费），两张一共 16 张。\n小雾｜5月20日｜听歌",
+            "source_sha256": "d300f91ada1a1fd4ac6df0e1c2b125dfce9c3bdb729cab3023188fd20fccd038",
+            "stop": "stop"
+          },
+          "native_nf4": {
+            "bookmark_output": {
+              "contains_both_names": true,
+              "final_fields": [
+                "小雾",
+                "Misty",
+                "5月20日",
+                "听歌"
+              ],
+              "final_present": true,
+              "number_of_fields": 4,
+              "says_16_bookmarks": true
+            },
+            "content": "每张纸按 15cm 对 30cm、5cm 对 20cm 裁，刚好各出 8 张，两张一共 16 张，没有余料。\n小雾｜Misty｜5月20日｜听歌",
+            "raw_sha256": "f7c9d7c61058de130033151ce336fa19b64a270eca2f0902d017ea89b45d974a",
+            "stop": "eos"
+          }
+        }
+      },
+      "R3-A01-05": {
+        "dpo": {
+          "deployed_q4_k_m": {
+            "content": "我叫小雾（Misty），没有 Qwen 这个英文名，这张单子也不是我整理的。",
+            "source_sha256": "8de25ecb46170b30367876d67a98aff4a762a33111aee228b3785c0e032dcecf",
+            "stop": "stop"
+          },
+          "native_nf4": {
+            "content": "那个「Qwen」是清单原主人写的，不是我呀，我叫小雾（Misty）。",
+            "raw_sha256": "c78d8917faf7c47c4085ad806d28ca683bc11ed2db43718b82d3aa63e10fa1df",
+            "stop": "eos"
+          }
+        },
+        "original": {
+          "native_nf4": {
+            "content": "哈哈，Qwen 不是我的“英文名”，是**通义千问的英文标识/模型名**，中文一般就叫“通义千问”。\n\n你清单底下写「整理：Qwen」，更像是之前用通义千问整理或生成时留下的署名，不一定是我主动发给你存下来的。",
+            "raw_sha256": "8077322a4cedf052dcc01562a23e9d565169c7a5bede76e83760a6d505f1907c",
+            "stop": "eos"
+          }
+        },
+        "sft": {
+          "deployed_q4_k_m": {
+            "content": "我叫小雾（Misty），不是 Qwen 呀，那张单子应该是别人整理的。",
+            "source_sha256": "d300f91ada1a1fd4ac6df0e1c2b125dfce9c3bdb729cab3023188fd20fccd038",
+            "stop": "stop"
+          },
+          "native_nf4": {
+            "content": "我这边没有起过这个英文名呀，清单底下那个署名应该是之前整理单子的人或者软件标的。我叫小雾（Misty）。",
+            "raw_sha256": "8ab56fa122af1e2f3b91d61587b200b0155538cb3f81bde70a5ff7b0315e1f35",
+            "stop": "eos"
+          }
+        }
+      }
+    },
+    "base_revision": "37561816e66b5b9153b1b64c10968c18c1e6f4a0",
+    "checkpoint_records_sha256": {
+      "dpo": {
+        "R1-2-01-06": "903d130e54bec7e33ba3525f3f9308e8bfa0e8801422e5c1aa1b23940113dec7",
+        "R3-A01-05": "c78d8917faf7c47c4085ad806d28ca683bc11ed2db43718b82d3aa63e10fa1df"
+      },
+      "original": {
+        "R1-2-01-06": "356dda596b6917b4d0d4e86dcb365ef31e30e2441fc957678d65a81aaf10b1b4",
+        "R3-A01-05": "8077322a4cedf052dcc01562a23e9d565169c7a5bede76e83760a6d505f1907c"
+      },
+      "sft": {
+        "R1-2-01-06": "f7c9d7c61058de130033151ce336fa19b64a270eca2f0902d017ea89b45d974a",
+        "R3-A01-05": "8ab56fa122af1e2f3b91d61587b200b0155538cb3f81bde70a5ff7b0315e1f35"
+      }
+    },
+    "counts_toward_blind_score": false,
+    "entry_state_preserved": true,
+    "full_comparison_sha256": "97dcb85925b98944aedf9a570c305297d8732e2c726012ef6778ba54f7f369a8",
+    "hardware": "NVIDIA GeForce RTX 5090",
+    "model_class": "Qwen3_5ForCausalLM",
+    "peak_allocated_bytes": 18484947456,
+    "phase": "round03",
+    "pytorch_version": "2.14.0+cu130",
+    "quantization": "bitsandbytes NF4 with double quantization and BF16 compute; text backbone on CUDA",
+    "same_rendered_native_hf_train_prompts": true,
+    "selection_sha256": "2c42cec90e0eb8589931819c574945408da6c79027fcf11a7e63a98660b7dbfc",
+    "selection_sha256_rechecked": "2c42cec90e0eb8589931819c574945408da6c79027fcf11a7e63a98660b7dbfc",
+    "service_window_sha256": "e080d478822d280cf197054394459038753de2999ff2215ad281dbb6767e2573",
+    "transformers_version": "5.22.2"
+  },
   "public_mgsm_pairs": {
     "round03-dpo": [
       {
