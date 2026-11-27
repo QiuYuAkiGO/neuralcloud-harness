@@ -201,6 +201,63 @@
     "service_window_sha256": "e080d478822d280cf197054394459038753de2999ff2215ad281dbb6767e2573",
     "transformers_version": "5.22.2"
   },
+  "preference_channel_lengths": {
+    "author_change": "Ask for a mix of reasoning lengths on either side. Some rejected reasoning can be detailed and substantively wrong; some chosen reasoning can be brief and sufficient. Only the independent substantive judgments select training data.",
+    "by_split": {
+      "dev": {
+        "identical_visible": 20,
+        "rows": 40,
+        "source_sha256": "95f9d00df589e386316b029b5f6f2ca2157ae54e8a5d4a1fed667b6d4193bddc",
+        "thought_chars": {
+          "chosen_longer": 39,
+          "chosen_shorter": 1,
+          "equal_length": 0,
+          "median_chosen": 192.0,
+          "median_rejected": 65.0
+        },
+        "visible_chars": {
+          "chosen_longer": 13,
+          "chosen_shorter": 6,
+          "equal_length": 21,
+          "median_chosen": 101.5,
+          "median_rejected": 95.0
+        }
+      },
+      "train": {
+        "identical_visible": 126,
+        "rows": 367,
+        "source_sha256": "595ecff10de3d8e7bd1d07867924fe6bebc6c14aa6e516fff513d620665ccb69",
+        "thought_chars": {
+          "chosen_longer": 327,
+          "chosen_shorter": 40,
+          "equal_length": 0,
+          "median_chosen": 158,
+          "median_rejected": 68
+        },
+        "visible_chars": {
+          "chosen_longer": 130,
+          "chosen_shorter": 103,
+          "equal_length": 134,
+          "median_chosen": 78,
+          "median_rejected": 79
+        }
+      }
+    },
+    "conditional_fifth_author_after_sha256": "f8cde82004450257ea6ae415480ccc0f5a225735a139ab9f982243df616deb69",
+    "conditional_fifth_author_before_sha256": "4bc90ed64d3c93592d71ffae60c4501932e316ebe006e4b1af67cd46f98841bd",
+    "heldout": {
+      "actual_preference_receipt_sha256": "973fef8eeeaa2a3cb24f792f8f887d74f553014743ab9e7bcea8205769d5b7e4",
+      "chosen_more_tokens": 36,
+      "dpo_minus_sft_per_token_margin_gained": 40,
+      "dpo_minus_sft_sequence_sum_margin_gained": 38,
+      "median_chosen_tokens": 255.0,
+      "median_per_token_margin_gain": 0.22260714338138476,
+      "median_rejected_tokens": 116.0,
+      "n": 40
+    },
+    "measurement": "Unicode character counts in packed chosen/rejected channels after removal of outer whitespace and template delimiters. Actual scoring and admissions do not use lengths.",
+    "verification_sha256": "0f799bfee7bef03f46a994ca8eaab3899cffb64469ae70f0c4e4eaed3a5dd11f"
+  },
   "public_mgsm_pairs": {
     "round03-dpo": [
       {
