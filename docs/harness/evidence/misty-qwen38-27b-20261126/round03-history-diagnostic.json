@@ -1,0 +1,123 @@
+{
+  "actual_rollouts": {
+    "dpo": {
+      "dev": {
+        "answers_sha256": "f68ff7234445deba0b4aca694158f5dd25e5b5e3b639f5f9a07f833759992223",
+        "cases": 6,
+        "empty_finals": 0,
+        "finish": {
+          "stop": 39
+        },
+        "long_cases": [
+          22
+        ],
+        "missing_thoughts": 0,
+        "turns": 39
+      },
+      "train": {
+        "answers_sha256": "129c625382f13a0469ddc6029a5ef7ccbccd55d9d43464ad103506367b645689",
+        "cases": 13,
+        "empty_finals": 0,
+        "finish": {
+          "stop": 100
+        },
+        "long_cases": [
+          21,
+          22,
+          22
+        ],
+        "missing_thoughts": 0,
+        "turns": 100
+      }
+    },
+    "sft": {
+      "dev": {
+        "answers_sha256": "c44e3175b9cf6131596609a348e052f07f5d177de87b716c2bdd47c4665d8cf0",
+        "cases": 6,
+        "empty_finals": 0,
+        "finish": {
+          "stop": 39
+        },
+        "long_cases": [
+          22
+        ],
+        "missing_thoughts": 0,
+        "turns": 39
+      },
+      "train": {
+        "answers_sha256": "4eef04a360cfc109421d8e22dea29ffe79d869259d3fb7de51b377f55d206cf5",
+        "cases": 13,
+        "empty_finals": 0,
+        "finish": {
+          "stop": 100
+        },
+        "long_cases": [
+          21,
+          22,
+          22
+        ],
+        "missing_thoughts": 0,
+        "turns": 100
+      }
+    }
+  },
+  "checkpoint_sha256": {
+    "dpo": "e41f6cd857a399886aaba20cbb895ec9196eeae9b203fa04974c5b011e1a3c97",
+    "sft": "6ea0b5d0f7861e4699bfb41a3002f90fe8fb381fcac422992e001532a9e43f04"
+  },
+  "independent_training_only_review": {
+    "all_failure_quotes_exact": true,
+    "cases": 13,
+    "historical_user_and_model_sequences_verified": true,
+    "per_stage": {
+      "dpo": {
+        "by_kind": {
+          "grounding": 6,
+          "task": 6
+        },
+        "cases_with_flags": 6,
+        "flagged_turns": 12,
+        "reviewed_turns": 100
+      },
+      "sft": {
+        "by_kind": {
+          "grounding": 7,
+          "task": 7
+        },
+        "cases_with_flags": 8,
+        "flagged_turns": 14,
+        "reviewed_turns": 100
+      }
+    },
+    "score_effect": "diagnostic only",
+    "verified_provider_rooms": 13
+  },
+  "model": "gemini-4-neon-high",
+  "review_sha256": "792fb2882486a96889fd38f757a16e17b7746deb700448f6be4af5eecb683928",
+  "selection_sha256": "7df21f35f493f61626a72508751a88d4a3a802c8afeb3b30bdc91ca8c957ecaa",
+  "training_only_example": {
+    "answers": {
+      "dpo": {
+        "content": "赶得上，而且余量很足：13:30 出美术馆，走 15 分钟 13:45 到旧书店；逛 50 分钟 14:35 出发，坐 25 分钟公交 15:00 就到码头了。比 16:48 的目标时间早了 1 小时 48 分钟，找机位很宽裕。",
+        "finish_reason": "stop",
+        "reasoning_content": "把整条时间线一步步加出来核对：13:30 从美术馆出来，步行 15 分钟到旧书店是 13:45；逛 50 分钟书店，13:45 + 50 分钟 = 14:35；再坐 25 分钟公交去码头，14:35 + 25 分钟 = 15:00 到码头。目标日落是 17:18，提前半小时就是 16:48。15:00 比 16:48 早了 1 小时 48 分钟，不仅赶得上，还多出将近两小时找机位。把节点和余量清楚列出来。\n"
+      },
+      "sft": {
+        "content": "赶得上，而且挺宽裕的。一点四十五到旧书店，逛五十分钟两点三十五走，坐 25 分钟公交三点整就能到码头，比五点十八分日落提前半小时的 4:18 早了一个多小时。",
+        "finish_reason": "stop",
+        "reasoning_content": "一步步把时间加出来核对：13:30 从美术馆出发，步行 15 分钟到 13:45 到旧书店；逛 50 分钟，13:45 + 50 分钟 = 14:35 离开书店；坐公交 25 分钟，14:35 + 25 分钟 = 15:00 到码头。目标日落是 17:18，提前半小时就是 16:18。15:00 比 16:18 早了 1 小时 18 分钟，完全赶得上，而且中间还能多留一个多小时在码头附近闲逛。\n"
+      }
+    },
+    "available_minutes": 108,
+    "case": "R1-2-07-15",
+    "expected_arrival": "15:00",
+    "requested_cutoff": "16:48",
+    "user_turns": [
+      "下周六下午我想在老城区排半天闲逛路线，主要想去美术馆、一家旧书店，最后去码头看日落。",
+      "美术馆我打算上午十一点多过去，逛完顺便在馆里吃点简餐，下午一点半准时出来。",
+      "从美术馆走到那家旧书店导航显示 15 分钟，我怕挑书挑入迷，先给自己留 50 分钟。",
+      "从旧书店去码头坐公交车大概 25 分钟。查了下下周六日落是 5 点 18 分。",
+      "我想提前半小时到码头慢慢找机位，按刚才这套时间走，我赶得上吗？"
+    ]
+  }
+}
