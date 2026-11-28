@@ -59,11 +59,31 @@ def adapter_hash(model, name):
     digest = hashlib.sha256()
     for key, tensor in matched:
         digest.update(key.encode())
-        digest.update(tensor.detach().contiguous().view(torch.uint8).cpu().numpy().tobytes())
+        # PEFT 以 FP32 载入父权重，QLoRA 会转为 BF16。按冻结参考的 FP32 数值口径核对。
+        values = tensor.detach().to(dtype=torch.float32).contiguous()
+        digest.update(values.cpu().numpy().tobytes())
     return digest.hexdigest()
 
 
+def sft_parent_hash(directory, model, option):
+    """载入 LoRA 前核对父回执、基础模型路径和权重文件，防止从错误的检查点续训。"""
+    try:
+        parent = json.loads((directory / "training.json").read_bytes())
+        digest = file_hash(directory / "adapter_model.safetensors")
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"{option} 须提供可读取的 SFT 回执和权重") from error
+    if (not isinstance(parent, dict) or parent.get("stage") != "sft"
+            or parent.get("adapter_sha256") != digest or parent.get("base_model") != str(model.resolve())):
+        raise ValueError(f"{option} 的阶段、权重摘要或基础权重与本轮不符")
+    return digest
+
+
 def train(args, rows, data_hash, work, exposures=None):
+    parent_dir = args.sft_start_adapter if args.stage == "sft" else args.sft_adapter
+    if parent_dir is not None:
+        option = "--sft-start-adapter" if args.stage == "sft" else "--sft-adapter"
+        parent_hash = sft_parent_hash(parent_dir, args.model, option)
+
     import torch
     from datasets import Dataset
     from peft import LoraConfig, PeftModel, get_peft_model
@@ -101,20 +121,18 @@ def train(args, rows, data_hash, work, exposures=None):
         lr_scheduler_type="cosine", optim="adamw_torch", save_strategy="no", report_to="none",
         logging_steps=1, dataloader_num_workers=0, disable_tqdm=True,
     )
-    if args.stage == "sft":
+    # 首次 SFT 新建 LoRA。监督补训与 DPO 都从经回执核对的父权重开始。
+    if parent_dir is None:
         config = LoraConfig(r=16, lora_alpha=32, lora_dropout=0.0, task_type="CAUSAL_LM",
                             target_modules=["v_proj", "o_proj", "up_proj", "down_proj"])
         model = get_peft_model(base, config)
+    else:
+        model = PeftModel.from_pretrained(base, parent_dir, local_files_only=True, is_trainable=True)
+    if args.stage == "sft":
         trainer = SFTTrainer(model=model, processing_class=tokenizer, train_dataset=dataset,
                              args=SFTConfig(**common, completion_only_loss=True, packing=False))
     else:
         # TRL 给已有的策略适配器复制独立 ref，再预计算参考概率。核对副本以防引用裸主干。
-        parent = json.loads((args.sft_adapter / "training.json").read_text(encoding="utf-8"))
-        parent_hash = file_hash(args.sft_adapter / "adapter_model.safetensors")
-        if (parent["stage"] != "sft" or parent["adapter_sha256"] != parent_hash
-                or parent["base_model"] != str(args.model.resolve())):
-            raise ValueError("sft-adapter 的阶段、权重摘要或基础权重与本轮不符")
-        model = PeftModel.from_pretrained(base, args.sft_adapter, local_files_only=True, is_trainable=True)
         policy_start = adapter_hash(model, "default")
         extra = {"sft_adapter_sha256": parent_hash, "reference_tensor_sha256": policy_start, "beta": 0.1}
         losses = {}
@@ -130,6 +148,8 @@ def train(args, rows, data_hash, work, exposures=None):
 
     trainable = sum(t.numel() for t in model.parameters() if t.requires_grad)
     before = adapter_hash(model, "default")
+    if args.sft_start_adapter is not None:
+        extra.update(initial_sft_adapter_sha256=parent_hash, initial_sft_tensor_sha256=before)
     result = trainer.train()
     if not math.isfinite(result.training_loss) or trainer.state.global_step == 0:
         raise RuntimeError("训练须产生有限 loss 和实际更新步数")
@@ -157,12 +177,15 @@ def main():
     for field in ("model", "data", "output"):
         parser.add_argument("--" + field, type=Path, required=True)
     parser.add_argument("--sft-adapter", type=Path)
+    parser.add_argument("--sft-start-adapter", type=Path, help="监督补训的起始 SFT 适配器目录")
     parser.add_argument("--sft-exposures", type=Path, help="SFT 各行每轮训练次数及数据摘要的 JSON 清单")
     parser.add_argument("--dpo-sft-weight", type=float, help="DPO 中正例续答平均负对数似然的系数")
     parser.add_argument("--learning-rate", type=float)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--accumulation", type=int, default=4)
     args = parser.parse_args()
+    if args.sft_start_adapter is not None and args.stage != "sft":
+        parser.error("--sft-start-adapter 仅适用于 SFT 阶段")
     if (args.stage == "dpo") != (args.sft_adapter is not None):
         parser.error("--sft-adapter 须且仅须在 DPO 阶段提供")
     if args.sft_exposures is not None and args.stage != "sft":
