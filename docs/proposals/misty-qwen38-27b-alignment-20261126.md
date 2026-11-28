@@ -51,6 +51,8 @@
 
 对已有监督检查点补训时，SFT 可以传入 `--sft-start-adapter DIR`，从该目录的 LoRA 权重开始新一段监督训练。输入须为本入口产生的 SFT 检查点，其 `training.json` 的阶段须为 `sft`，基础模型须与当前解析后的绝对路径一致，`adapter_sha256` 须等于父权重文件的实际 SHA-256。父检查点保持只读，新段使用本次传入的语料、学习率和轮数，新建优化器。新回执的 `initial_sft_adapter_sha256` 记录父权重文件摘要，`initial_sft_tensor_sha256` 记录首个优化步前实际载入的 LoRA 参数摘要，按既有 DPO 初始参考张量相同的规范计算。省略该参数时继续从基础模型新建 LoRA。DPO 传入此参数，或父检查点的阶段、基础模型、权重摘要不符，须返回非零，指出 `sft-start-adapter` 且不发布成品目录。
 
+为保留已通过人工复核的偏好模型的对话习惯，SFT 可用 `--sft-start-dpo-adapter DIR` 从之前实际完成的 DPO 适配器开始新的监督段。它与 `--sft-start-adapter` 互斥。DPO 父回执的 `stage` 必须为 `dpo`，基础模型绝对路径和实际适配器文件摘要须匹配。父目录只读。新的 SFT 回执用 `initial_dpo_adapter_sha256` 记录父权重文件摘要，用 `initial_dpo_tensor_sha256` 记录首个优化步前实际载入的低秩矩阵，沿用既有初始参考的 FP32 数值摘要口径。新权重仍可作为随后 DPO 的 SFT 参考。该选项用于 DPO 训练、与另一起始选项并用、父阶段或校验不符时，入口须返回非零，诊断指出 `sft-start-dpo-adapter`，成品目录不存在。既有两种 SFT 起点及 DPO 参考入口沿用现行契约。
+
 输出目录须是新路径。成功后包含可由 PEFT 重载的 `adapter_config.json`、`adapter_model.safetensors` 和 `training.json`。回执的 `stage`、`steps`、`examples`、`data_sha256`、`adapter_sha256` 分别记录阶段、实跑更新步数、输入条数、输入与成品摘要。DPO 另记录输入 SFT 文件的 `sft_adapter_sha256`，验证参考适配器训练前后权值相同。输入违反约定或训练失败时返回非零且不发布成品。默认各跑一轮，LoRA 秩 16、尺度参数 32；`--learning-rate`、`--epochs`、`--accumulation` 可用于记录在案的后续轮次。
 
 ### 角色事实样本的每轮训练次数
