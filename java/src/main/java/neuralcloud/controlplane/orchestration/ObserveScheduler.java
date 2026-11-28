@@ -31,13 +31,31 @@ public final class ObserveScheduler implements AutoCloseable {
 
         private final AtomicInteger active = new AtomicInteger();
         private volatile Runnable onIdle = () -> {};
+        private final java.util.concurrent.atomic.AtomicLong generation = new java.util.concurrent.atomic.AtomicLong();
+        private volatile Runnable activity = () -> {};
+
+        /** 整理器与群观察共用前台活动信号，各自持有独立的队列和覆盖位置。 */
+        public boolean idle() {
+            return active.get() == 0;
+        }
+
+        public long generation() { return generation.get(); }
+
+        /** 新的前台工作及其释放都唤醒整理器，使在途推理及时让出。 */
+        public void onActivity(Runnable listener) { activity = listener; }
 
         public <T> T run(Call<T> call) throws IOException, InterruptedException {
-            active.incrementAndGet();
+            if (active.getAndIncrement() == 0) {
+                generation.incrementAndGet();
+                activity.run();
+            }
             try {
                 return call.run();
             } finally {
-                if (active.decrementAndGet() == 0) onIdle.run();
+                if (active.decrementAndGet() == 0) {
+                    onIdle.run();
+                    activity.run();
+                }
             }
         }
 

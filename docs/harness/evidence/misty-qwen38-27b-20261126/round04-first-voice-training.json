@@ -1,0 +1,68 @@
+{
+  "checkpoint": {
+    "adapter_sha256": "d0ec7ffe8fea043a0cde771ecb31a40339ba74d43fdde13d702d5f44c97ea4b7",
+    "gguf_base_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+    "gguf_sha256": "d9bb1cd01f32aba9a89c5185dc690fa26f5d6b541f2946b1d64a812aceb01c5f",
+    "size_bytes": 101210208,
+    "stage": "dpo",
+    "training_receipt_sha256": "58c50bfd10dfae067b8e1d79fa9a4181878ebdd7ce0cf9125650285e54d0bcd8"
+  },
+  "data": {
+    "admitted_first_turn_pairs": 11,
+    "admitted_second_turn_pairs": 9,
+    "checked_against_frozen_public_and_primary_development": 48,
+    "independent_screen_summary_hashes": {
+      "train-against-prior-dev": "700f3861d6674562fbfb8c3fb37c5abb7215afd24fec8edcf68028dc1fe8611c",
+      "train-against-protected": "939f26c8423f6eb7ef14b9335861b07bbb82fc89307a4472524fa19a54fde817"
+    },
+    "independently_authored_two_turn_conversations": 12,
+    "initial_candidates": 24,
+    "leak_judge": "gemini-4-neon-xhigh",
+    "new_rows_sha256": "f14ff29c5c4a71c107d214a09bfab3a2a100972b6a9989c32c26dcf6b752aa21",
+    "omitted_followups_from_repaired_sources": 2,
+    "original_source_and_quality_rooms": {
+      "author-A": "874c770a64846d1a0b7fcd03920d50926838ae86cbf1ba0021f354843d246981",
+      "author-B": "a8fed8e7c52058f31aee079074f2b5bc3158e82aa999eced636850e8ddf4c200",
+      "full-qa-A": "9119341dd63a25a60a989bfc8136bac0dba49416c0574e94a163bf8a55c11d60",
+      "full-qa-B": "c650bc8c6d96f4b3eb5229f097315108b14f77579401b07a8bd50fd20be49866",
+      "standalone-qa-A": "cff895d6f73c8e156598037f543c21c4e1b671f78637e25b3500a62cf53fa6a3",
+      "standalone-qa-B": "15afc83fbf4f6901eee762aeb835fa80c9761a0956e7e9fb55f4ff3207c9caf1"
+    },
+    "pack_receipt_sha256": "48bd95c534c5ae1732c5b2917455fab1cefbb74a4bc71952db7f50001d0168ef",
+    "previous_preference_rows": 496,
+    "previous_rows_preserved_byte_for_byte": true,
+    "prior_rows_sha256": "d2858e941283bb17d7ef7f591bd6a5fcd307c96e6df31147e38876b0e7a96b53",
+    "repaired_openings": 2,
+    "replacement_author_sha256": "3f973ca1c9275efc44095c76769e6e89d9e9b9f2b065bf94fda34824e45019d2",
+    "replacement_review_sha256": "fce713d45eb1e2bae0502ac9da5e85cfab6deb1fbfe3b0ba35f58730c714062a",
+    "sealed_distinct": 22,
+    "sealed_release_sha256": "6924fcc02e8b16a23ae01d7c9007a7d8c8ad663833287b88f863859196a981fd",
+    "semantic_rejections": 2,
+    "teacher": "gemini-4-neon-high"
+  },
+  "gpu_entry_state_preserved": true,
+  "gpu_receipt_sha256": "a1b2d439c59d6c0f5d87d6a2b8ceb4691bb32f1ec3f73bf8445c85cbf9fe5414",
+  "optimization": {
+    "accumulation": 4,
+    "alpha": 32,
+    "beta": 0.1,
+    "dpo_sft_weight": 0.3,
+    "epochs": 1,
+    "examples": 516,
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "learning_rate": 1e-05,
+    "peak_cuda_bytes": 26676098048,
+    "rank": 16,
+    "seed": 27,
+    "steps": 129,
+    "text_layers": 64,
+    "trainable_parameters": 50593792,
+    "training_loss": 0.4694592364767725
+  },
+  "parent": "round04",
+  "parent_sft_sha256": "f65e0162409e1d753ad9e9060bfc45606be0a8799aebaf49760a9c23b5f62793",
+  "phase": "round04-first-voice",
+  "previous_dpo_sha256": "380a2977f0dd8d1d6582c21a903fa0038888671e146e3be7dbfa6bf79986a09c",
+  "protocol_sha256": "af8715f161823d401a3d2e6c2239e698a61b7eca9eebaac2a033ac92f84491bc",
+  "training_seconds": 639.6203
+}

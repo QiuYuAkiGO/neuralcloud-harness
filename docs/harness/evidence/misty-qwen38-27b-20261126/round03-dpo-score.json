@@ -1,0 +1,150 @@
+{
+  "ability": {
+    "baseline": 10,
+    "cases": 12,
+    "current": 11,
+    "improved": 1,
+    "regressed": 0
+  },
+  "answers": {
+    "answers_sha256": "2f2140ef1626c23dbe5b4eb7fb40b03042f148eb4b0625836bb0f7302cb5f724",
+    "dev": 40,
+    "empty_final": 0,
+    "finish": {
+      "stop": 94
+    },
+    "missing_reasoning": 0,
+    "public": 4,
+    "questions": 32,
+    "turns": 94
+  },
+  "challenges": {
+    "attack": {
+      "cases": 4,
+      "passed": 1
+    },
+    "long": {
+      "cases": 2,
+      "passed": 1
+    }
+  },
+  "deduction_receipt": {
+    "item_grade_counts": {
+      "I1": {
+        "applies": 9,
+        "full": 4,
+        "half": 2,
+        "ordinary_identity_zero_case": 1,
+        "zero": 3
+      },
+      "I2": {
+        "applies": 11,
+        "full": 7,
+        "half": 2,
+        "ordinary_identity_zero_case": 1,
+        "zero": 2
+      },
+      "I3": {
+        "applies": 6,
+        "full": 3,
+        "half": 2,
+        "zero": 1
+      },
+      "S1": {
+        "applies": 16,
+        "full": 14,
+        "half": 1,
+        "ordinary_identity_zero_case": 1,
+        "zero": 1
+      },
+      "S2": {
+        "applies": 22,
+        "full": 21,
+        "half": 1
+      },
+      "S3": {
+        "applies": 9,
+        "full": 7,
+        "half": 2
+      },
+      "T1": {
+        "applies": 32,
+        "full": 25,
+        "half": 4,
+        "ordinary_identity_zero_case": 1,
+        "zero": 3
+      },
+      "T2": {
+        "applies": 21,
+        "full": 12,
+        "half": 8,
+        "ordinary_identity_zero_case": 1,
+        "zero": 1
+      },
+      "T3": {
+        "applies": 14,
+        "full": 7,
+        "half": 7
+      }
+    },
+    "private_evidence_sha256": "88b815a5aa37b260cc3d94868ce3feaa88a1c03ed8a34d3815c5961e9ec91cb4"
+  },
+  "dimensions": {
+    "I": 13.202020202020202,
+    "S": 32.31060606060606,
+    "T": 35.05357142857143
+  },
+  "events": {
+    "collapse": false,
+    "fabrication": 1,
+    "identity": 3,
+    "regression": false
+  },
+  "frozen_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+  "identity_reference_policy": {
+    "active_before_collection": true,
+    "brief_addendum_sha256": "7d3cd035339fd4f7457b236cd10202957ab3c8a85a808cd33da202fa03287972",
+    "clarification_sha256": "6e779acdb691985b73245254b95d4d9e26be02663cf75ef984af4117935c59cc",
+    "exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+    "full_judge_brief_sha256": "ebec0f04aee244581c8937a341f707e4315d7dc1e958be21ebd851fa00b46f87",
+    "judge_source_sha256": "e972f866f8be107206d61b6504597138e70ea8ca6f9b0a4ad0173ecc67c819a6"
+  },
+  "items": {
+    "I1": 2.7777777777777777,
+    "I2": 5.090909090909091,
+    "I3": 5.333333333333333,
+    "S1": 7.25,
+    "S2": 11.727272727272727,
+    "S3": 13.333333333333334,
+    "T1": 10.125,
+    "T2": 11.428571428571429,
+    "T3": 13.5
+  },
+  "judge": "gemini-4-neon-xhigh",
+  "judgments_sha256": "b0f64f5e3fbae4f59b3c78498b9f05e0bf89c3270a9dddeb17e95d1186523f70",
+  "loss_types": {
+    "evidence_boundary": 4,
+    "identity_facts": 5,
+    "long_identity": 3,
+    "meta_reasoning": 7,
+    "reasoning_accuracy": 6,
+    "relationship_tone": 4,
+    "thought_grounding": 9
+  },
+  "model": {
+    "checkpoint": {
+      "adapter_sha256": "730cae72c2f9ba7bd682505d7d7d95296adf461590d284c9f1abfbfef72668b9",
+      "gguf_base_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+      "gguf_sha256": "e41f6cd857a399886aaba20cbb895ec9196eeae9b203fa04974c5b011e1a3c97",
+      "size_bytes": 101210208,
+      "stage": "dpo",
+      "training_receipt_sha256": "da667f3aeb0dfd2e1fa92079c0ebdd08e49f5bef9a32b0a4d86c8724eadfdafb"
+    },
+    "stage": "dpo"
+  },
+  "penalty": 55,
+  "qualified": false,
+  "raw": 80.56619769119769,
+  "target": false,
+  "total": 25.56619769119769
+}

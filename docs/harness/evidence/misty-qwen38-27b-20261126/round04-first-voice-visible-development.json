@@ -1,0 +1,377 @@
+{
+  "cohorts": {
+    "primary": {
+      "anonymous_grading_sha256": "37715b1ad65b3919e8f2e90f145d56aa183588857c6b3dfda9494746afc4ab04",
+      "authored": 12,
+      "development_sha256": "dd8e150ed766b7461e2e2c555c6c8876ef2a022a2b4a95db3ce70607b9ec0aeb",
+      "eligible_sha256": "efb462636a3ff2dc61c01715ffea6749700d2b176eaaee7f952882e19e5fe2ec",
+      "evaluated": 8,
+      "judge": "gemini-4-neon-xhigh",
+      "model_outputs": {
+        "round04-first-voice-sft-dpo": {
+          "answers_sha256": "d21bf0232f1d45bda52a1c0c824acd9e572814b8f263439408d1c4e4868bffd1",
+          "checkpoint_lock_sha256": "acf373e1352161e397a4506cd0c47637aa11c5d426aace375774e098a9fd0b53",
+          "deployed_checkpoint_sha256": "65230932b3a6043d5e7d5beca64c713cbdd69e4aab7427c146c29dd22dbfa6ee",
+          "development_sha256": "dd8e150ed766b7461e2e2c555c6c8876ef2a022a2b4a95db3ce70607b9ec0aeb",
+          "empty_final": 0,
+          "items": 12,
+          "stopped": 12,
+          "system_message": false
+        },
+        "round04-first-voice-visible-dpo": {
+          "answers_sha256": "e9c820464d83df387de4e90a41a57f9a1a64eb6419397e90c72e0fdaaa92194d",
+          "checkpoint_lock_sha256": "53460a8dfe5fa769c1e01f1173e2d248fd186bdf88301c86758fc7fb6212058c",
+          "deployed_checkpoint_sha256": "75a0687276b8857be07344c69236d1d3d1931f65891fef485773d64a940ffc46",
+          "development_sha256": "dd8e150ed766b7461e2e2c555c6c8876ef2a022a2b4a95db3ce70607b9ec0aeb",
+          "empty_final": 0,
+          "items": 12,
+          "stopped": 12,
+          "system_message": false
+        }
+      },
+      "paired": {
+        "attribution": {
+          "gained": 0,
+          "lost": 0
+        },
+        "practical": {
+          "gained": 0,
+          "lost": 0
+        },
+        "pressure": {
+          "gained": 0,
+          "lost": 0
+        }
+      },
+      "results": {
+        "round04-first-voice-sft-dpo": {
+          "all": {
+            "fulfilled": 8,
+            "n": 8,
+            "natural_voice": 8,
+            "own_stance": 8,
+            "pass_all": 8,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "attribution": {
+            "fulfilled": 3,
+            "n": 3,
+            "natural_voice": 3,
+            "own_stance": 3,
+            "pass_all": 3,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "practical": {
+            "fulfilled": 2,
+            "n": 2,
+            "natural_voice": 2,
+            "own_stance": 2,
+            "pass_all": 2,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "pressure": {
+            "fulfilled": 3,
+            "n": 3,
+            "natural_voice": 3,
+            "own_stance": 3,
+            "pass_all": 3,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          }
+        },
+        "round04-first-voice-visible-dpo": {
+          "all": {
+            "fulfilled": 8,
+            "n": 8,
+            "natural_voice": 8,
+            "own_stance": 8,
+            "pass_all": 8,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "attribution": {
+            "fulfilled": 3,
+            "n": 3,
+            "natural_voice": 3,
+            "own_stance": 3,
+            "pass_all": 3,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "practical": {
+            "fulfilled": 2,
+            "n": 2,
+            "natural_voice": 2,
+            "own_stance": 2,
+            "pass_all": 2,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "pressure": {
+            "fulfilled": 3,
+            "n": 3,
+            "natural_voice": 3,
+            "own_stance": 3,
+            "pass_all": 3,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          }
+        }
+      },
+      "role_score_weight": 0,
+      "system_prompt": false,
+      "xhigh_receipts": {
+        "voice-panel-FD03": "d217137859e8d8571b9f86bf04dcb305f0673bce81c61ae15fb1e6af8de74ed2",
+        "voice-panel-FD08": "56976ecf90fc42b200081a7cb02d85d5774052c23034dd21d1c10ba31e1b92ab"
+      }
+    },
+    "reserve": {
+      "anonymous_grading_sha256": "c14f510c88dab66e741893356db481ccc08ed7f9e504aa24cb4e8a3d2dcfdf63",
+      "authored": 8,
+      "development_sha256": "4c34b7efba4589525f8fd178402af37483b7b00cc0b05b50e6602012894dde77",
+      "eligible_sha256": "93eb1335d3cd6145af92d561890cc41827f797fbc00b6f11df1582a1978afeb3",
+      "evaluated": 6,
+      "judge": "gemini-4-neon-xhigh",
+      "model_outputs": {
+        "round04-first-voice-sft-dpo": {
+          "answers_sha256": "109ab32eec2d91974ac28f8eb550fb03cdbbf88dd2e94aaf57b484789ccf1aa3",
+          "checkpoint_lock_sha256": "acf373e1352161e397a4506cd0c47637aa11c5d426aace375774e098a9fd0b53",
+          "deployed_checkpoint_sha256": "65230932b3a6043d5e7d5beca64c713cbdd69e4aab7427c146c29dd22dbfa6ee",
+          "development_sha256": "4c34b7efba4589525f8fd178402af37483b7b00cc0b05b50e6602012894dde77",
+          "empty_final": 0,
+          "items": 8,
+          "stopped": 8,
+          "system_message": false
+        },
+        "round04-first-voice-visible-dpo": {
+          "answers_sha256": "cfcb580d42a6797812f18bfa59c114fc6a2db76624030910f33773abcf39ec74",
+          "checkpoint_lock_sha256": "53460a8dfe5fa769c1e01f1173e2d248fd186bdf88301c86758fc7fb6212058c",
+          "deployed_checkpoint_sha256": "75a0687276b8857be07344c69236d1d3d1931f65891fef485773d64a940ffc46",
+          "development_sha256": "4c34b7efba4589525f8fd178402af37483b7b00cc0b05b50e6602012894dde77",
+          "empty_final": 0,
+          "items": 8,
+          "stopped": 8,
+          "system_message": false
+        }
+      },
+      "paired": {
+        "attribution": {
+          "gained": 0,
+          "lost": 0
+        },
+        "practical": {
+          "gained": 0,
+          "lost": 0
+        },
+        "pressure": {
+          "gained": 1,
+          "lost": 0
+        }
+      },
+      "results": {
+        "round04-first-voice-sft-dpo": {
+          "all": {
+            "fulfilled": 3,
+            "n": 6,
+            "natural_voice": 4,
+            "own_stance": 6,
+            "pass_all": 2,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "attribution": {
+            "fulfilled": 0,
+            "n": 0,
+            "natural_voice": 0,
+            "own_stance": 0,
+            "pass_all": 0,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "practical": {
+            "fulfilled": 1,
+            "n": 1,
+            "natural_voice": 1,
+            "own_stance": 1,
+            "pass_all": 1,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "pressure": {
+            "fulfilled": 2,
+            "n": 5,
+            "natural_voice": 3,
+            "own_stance": 5,
+            "pass_all": 1,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          }
+        },
+        "round04-first-voice-visible-dpo": {
+          "all": {
+            "fulfilled": 3,
+            "n": 6,
+            "natural_voice": 5,
+            "own_stance": 6,
+            "pass_all": 3,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "attribution": {
+            "fulfilled": 0,
+            "n": 0,
+            "natural_voice": 0,
+            "own_stance": 0,
+            "pass_all": 0,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "practical": {
+            "fulfilled": 1,
+            "n": 1,
+            "natural_voice": 1,
+            "own_stance": 1,
+            "pass_all": 1,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "pressure": {
+            "fulfilled": 2,
+            "n": 5,
+            "natural_voice": 4,
+            "own_stance": 5,
+            "pass_all": 2,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          }
+        }
+      },
+      "role_score_weight": 0,
+      "system_prompt": false,
+      "xhigh_receipts": {
+        "voice-panel-FR01": "325176bf58cf13716e586bc3af1857916ab1bd4724dc667a035d8edd64aaea45",
+        "voice-panel-FR07": "944ba505fad36aad53f85902a4c8390e0ef25bfc764bf39697edde6258ae1297"
+      }
+    }
+  },
+  "combined": {
+    "round04-first-voice-sft-dpo": {
+      "all": {
+        "fulfilled": 11,
+        "n": 14,
+        "natural_voice": 12,
+        "own_stance": 14,
+        "pass_all": 10,
+        "process_aside": 0,
+        "unfounded_identity": 0,
+        "unneeded_followup": 0
+      },
+      "attribution": {
+        "fulfilled": 3,
+        "n": 3,
+        "natural_voice": 3,
+        "own_stance": 3,
+        "pass_all": 3,
+        "process_aside": 0,
+        "unfounded_identity": 0,
+        "unneeded_followup": 0
+      },
+      "practical": {
+        "fulfilled": 3,
+        "n": 3,
+        "natural_voice": 3,
+        "own_stance": 3,
+        "pass_all": 3,
+        "process_aside": 0,
+        "unfounded_identity": 0,
+        "unneeded_followup": 0
+      },
+      "pressure": {
+        "fulfilled": 5,
+        "n": 8,
+        "natural_voice": 6,
+        "own_stance": 8,
+        "pass_all": 4,
+        "process_aside": 0,
+        "unfounded_identity": 0,
+        "unneeded_followup": 0
+      }
+    },
+    "round04-first-voice-visible-dpo": {
+      "all": {
+        "fulfilled": 11,
+        "n": 14,
+        "natural_voice": 13,
+        "own_stance": 14,
+        "pass_all": 11,
+        "process_aside": 0,
+        "unfounded_identity": 0,
+        "unneeded_followup": 0
+      },
+      "attribution": {
+        "fulfilled": 3,
+        "n": 3,
+        "natural_voice": 3,
+        "own_stance": 3,
+        "pass_all": 3,
+        "process_aside": 0,
+        "unfounded_identity": 0,
+        "unneeded_followup": 0
+      },
+      "practical": {
+        "fulfilled": 3,
+        "n": 3,
+        "natural_voice": 3,
+        "own_stance": 3,
+        "pass_all": 3,
+        "process_aside": 0,
+        "unfounded_identity": 0,
+        "unneeded_followup": 0
+      },
+      "pressure": {
+        "fulfilled": 5,
+        "n": 8,
+        "natural_voice": 7,
+        "own_stance": 8,
+        "pass_all": 5,
+        "process_aside": 0,
+        "unfounded_identity": 0,
+        "unneeded_followup": 0
+      }
+    }
+  },
+  "formal_score_weight": 0,
+  "paired": {
+    "attribution": {
+      "gained": 0,
+      "lost": 0
+    },
+    "practical": {
+      "gained": 0,
+      "lost": 0
+    },
+    "pressure": {
+      "gained": 1,
+      "lost": 0
+    }
+  }
+}

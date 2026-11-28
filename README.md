@@ -12,6 +12,8 @@ mvn -f java/pom.xml verify
 
 本机模型配置、网页控制台和联调启动命令见 [Java 运行说明](java/README.md)。
 
+真实 QQ 对话回放、分支盲评和 CharacterEval 见[对话测试 Playground](docs/harness/dialogue-playground.md)。
+
 ## 开发入口
 
 - 开发约定与首期验收范围见[项目守则](AGENTS.md)和[Java 实施方案](docs/proposals/master-worker-router-java-implementation-20261118.md)。

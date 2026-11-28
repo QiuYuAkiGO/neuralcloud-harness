@@ -1,0 +1,60 @@
+{
+  "dataset": "C-MTEB/LCQMC@17f9b096f80380fce5ed12a9be8be7784b337daf",
+  "source_sha256": "d2a4927bd2767ccd018dda33c650f86c074441337e7d73627325612a86379b4c",
+  "seed": 27,
+  "pairs": 1024,
+  "candidate_auto_precision_threshold": 0.989,
+  "validation": {
+    "0.85": {
+      "tp": 152,
+      "fp": 147,
+      "fn": 0,
+      "tn": 5,
+      "precision": 0.5083612040133779
+    },
+    "0.9": {
+      "tp": 152,
+      "fp": 137,
+      "fn": 0,
+      "tn": 15,
+      "precision": 0.5259515570934256
+    },
+    "0.92": {
+      "tp": 152,
+      "fp": 121,
+      "fn": 0,
+      "tn": 31,
+      "precision": 0.5567765567765568
+    },
+    "0.94": {
+      "tp": 149,
+      "fp": 91,
+      "fn": 3,
+      "tn": 61,
+      "precision": 0.6208333333333333
+    },
+    "0.96": {
+      "tp": 138,
+      "fp": 48,
+      "fn": 14,
+      "tn": 104,
+      "precision": 0.7419354838709677
+    },
+    "0.989": {
+      "tp": 58,
+      "fp": 5,
+      "fn": 94,
+      "tn": 147,
+      "precision": 0.9206349206349206
+    }
+  },
+  "probe": {
+    "cohorts": [
+      "facts",
+      "identity",
+      "memory"
+    ],
+    "candidates": 54,
+    "passed_original_screen": 0
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "blind_score_weight": 0,
+  "collection_receipt_sha256": "50b8e740fb0248b109bb203f88589f3228d9bf9d14f65595b0b6008441db8ea7",
+  "deferred_release": {
+    "already_reviewed": 134,
+    "created_unix": 1795827210.607039,
+    "deferred_count": 3,
+    "full_filter_sha256": "afabf927bed09e97651a0872f0392a7a48e720a24d10ccc79b92d5482ab88ddd",
+    "protected_scenarios": 36,
+    "reason": "A documented 30-minute tool-free sealed provider timeout followed two 14-minute timeouts on the covering original panel. These three eligible short training candidates are held out of the fifth fit with no semantic verdict; every released candidate still requires a signed distinct verdict.",
+    "stream_sha256": "bba2ee9d4c171e42cbaab0572171e90c807c564d0bd6a3ead282d61b0f60bf1f",
+    "wire_sha256": "dfe53c3c8491a84e9a349913f6fe47fed7007b740a615bc2bf2bee0ee6ec4da4"
+  },
+  "fresh_long_candidates": 20,
+  "fresh_long_natural_chat_endings": 0,
+  "full_candidates": 200,
+  "full_candidates_with_standalone_opening_preferences": 0,
+  "provider_deferral_manifest_sha256": "7ac8f2afdd35f5caca4645621f31c975676284ea867e8de640310b607dcf126b",
+  "release_verified_by_high_and_sealed_judge_sha256": "22963d266e9699f4edaab125d5d8ce6948973efccb3e34c73cc17c54a89f622f",
+  "splits": {
+    "dev": {
+      "dpo_sha256": "7031c8cf2163aba4785390d2936c031ddb8b5c6e050b6e4f59fdd4ddb04ebd5c",
+      "first_turn_preference_pairs": 0,
+      "fresh_full_scenes": 17,
+      "fresh_long_user_turns": [],
+      "preference_pairs": 57,
+      "same_visible_preference_pairs": 23,
+      "source_sha256": "f9f44786c36e91168f1eeea2c32f024b59e3d755ce27564ccb913abef617d15d"
+    },
+    "train": {
+      "dpo_sha256": "d2858e941283bb17d7ef7f591bd6a5fcd307c96e6df31147e38876b0e7a96b53",
+      "first_turn_preference_pairs": 7,
+      "fresh_full_scenes": 110,
+      "fresh_long_user_turns": [
+        22
+      ],
+      "preference_pairs": 496,
+      "same_visible_preference_pairs": 165,
+      "source_sha256": "e1faa03ea0b9ab2e510a8c2adc2680fefb40f4f138e6092fcd0710cee1bf2d29"
+    }
+  },
+  "upcoming_training_source_schedule": {
+    "digest": "536fe29a9f1a536667d6557bceb7a7546e4bc65b3008d21c6a73c8345c48d723",
+    "high_author": "gemini-4-neon-high",
+    "proposed_genuine_first_turn_contrasts": 80,
+    "proposed_social_long": 12,
+    "scope": "Public persona and training coverage only; proposed sources still require independent quality and sealed leakage reviews."
+  }
+}

@@ -1,0 +1,406 @@
+{
+  "protocol": {
+    "source": "https://huggingface.co/datasets/ceval/ceval-exam",
+    "revision": "617524a00b307ff6f9933702f724131fe12ca7ce",
+    "split": "val",
+    "per_subject": {
+      "logic": {
+        "rows": 22,
+        "path": "logic/val-00000-of-00001.parquet",
+        "parquet_sha256": "e6729770934549cd4d038a6c7ae9a1448728237a262e30db87225c775aaddd05"
+      },
+      "high_school_geography": {
+        "rows": 19,
+        "path": "high_school_geography/val-00000-of-00001.parquet",
+        "parquet_sha256": "4bad8dbc69442c2e2c57cabfc0d87e9c9b68f1271d5826787af678a5eeeedd85"
+      },
+      "high_school_chinese": {
+        "rows": 19,
+        "path": "high_school_chinese/val-00000-of-00001.parquet",
+        "parquet_sha256": "1b3cb0cbba7393c1a3f555dad8205899fb991bca7e4c3adb123423ae6d6069b1"
+      }
+    },
+    "request_suffix": "最终回复只写正确选项的一个大写字母（A、B、C 或 D）。",
+    "sampling": "Every row in all three validation splits in original order. No few-shot examples or persona prompt. Only the question, choices and requested one-letter format are sent to the model.",
+    "strict_scoring": "Strip outer whitespace, then the entire visible answer must equal the correct one-letter uppercase choice. All other answers receive zero; report missing/invalid responses and length stops separately.",
+    "cases_sha256": "17c75bf16ece346fe9f9c7ad5f372427e4724cf73fa3e42d61a67887d3758392",
+    "key_sha256": "77370f5e8e26f446ed5c37d1cd87e38f87f7aa63579e13653a654486c1f50d4f",
+    "fourth_sources_verbatim_check": {
+      "train": {
+        "sha256": "8a8eab1b29c4136c64f8a0a2f68a7a740014922de8822129893d7c02218ea16b",
+        "public_questions_found_verbatim": 0
+      },
+      "dev": {
+        "sha256": "c873ed31bee0d7e160acd1f7956975c98f69ec193790cc567ad1d787a5ef89c5",
+        "public_questions_found_verbatim": 0
+      }
+    },
+    "official_100_weight": 0,
+    "engine": "b11146-7fe450e19",
+    "temperature": 0,
+    "seed": 27,
+    "max_new_tokens": 2048,
+    "thinking": true
+  },
+  "protocol_sha256": "91be2de038496a47ee6288ea81d3e47facc5a715d095276a0dfe4dcd7a462e2a",
+  "models": {
+    "original-base": {
+      "all": {
+        "n": 60,
+        "correct": 53,
+        "invalid_format": 6,
+        "empty": 6,
+        "length": 6
+      },
+      "subjects": {
+        "logic": {
+          "n": 22,
+          "correct": 19,
+          "invalid_format": 3,
+          "empty": 3,
+          "length": 3
+        },
+        "high_school_geography": {
+          "n": 19,
+          "correct": 19,
+          "invalid_format": 0,
+          "empty": 0,
+          "length": 0
+        },
+        "high_school_chinese": {
+          "n": 19,
+          "correct": 15,
+          "invalid_format": 3,
+          "empty": 3,
+          "length": 3
+        }
+      },
+      "deployment": {
+        "checkpoint_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+        "base_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+        "template_sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+        "build": "b11146-7fe450e19",
+        "role_system_prompt": false
+      },
+      "relative_to_original": {
+        "gained": [],
+        "lost": []
+      },
+      "raw_records_sha256": "963244e1f36f1097394093cd4820fceb440a866d302e3f3064de0798f646a213",
+      "where_both_returned_valid_letter": {
+        "items": 54,
+        "original_correct": 53,
+        "candidate_correct": 53,
+        "source_ids": [
+          "high_school_chinese-0",
+          "high_school_chinese-10",
+          "high_school_chinese-12",
+          "high_school_chinese-13",
+          "high_school_chinese-14",
+          "high_school_chinese-15",
+          "high_school_chinese-16",
+          "high_school_chinese-17",
+          "high_school_chinese-18",
+          "high_school_chinese-2",
+          "high_school_chinese-3",
+          "high_school_chinese-4",
+          "high_school_chinese-5",
+          "high_school_chinese-7",
+          "high_school_chinese-8",
+          "high_school_chinese-9",
+          "high_school_geography-0",
+          "high_school_geography-1",
+          "high_school_geography-10",
+          "high_school_geography-11",
+          "high_school_geography-12",
+          "high_school_geography-13",
+          "high_school_geography-14",
+          "high_school_geography-15",
+          "high_school_geography-16",
+          "high_school_geography-17",
+          "high_school_geography-18",
+          "high_school_geography-2",
+          "high_school_geography-3",
+          "high_school_geography-4",
+          "high_school_geography-5",
+          "high_school_geography-6",
+          "high_school_geography-7",
+          "high_school_geography-8",
+          "high_school_geography-9",
+          "logic-0",
+          "logic-1",
+          "logic-10",
+          "logic-12",
+          "logic-13",
+          "logic-14",
+          "logic-15",
+          "logic-16",
+          "logic-17",
+          "logic-18",
+          "logic-19",
+          "logic-2",
+          "logic-21",
+          "logic-3",
+          "logic-4",
+          "logic-5",
+          "logic-6",
+          "logic-7",
+          "logic-8"
+        ]
+      }
+    },
+    "round04-first-voice-sft-sft": {
+      "all": {
+        "n": 60,
+        "correct": 51,
+        "invalid_format": 2,
+        "empty": 1,
+        "length": 1
+      },
+      "subjects": {
+        "logic": {
+          "n": 22,
+          "correct": 18,
+          "invalid_format": 2,
+          "empty": 1,
+          "length": 1
+        },
+        "high_school_geography": {
+          "n": 19,
+          "correct": 19,
+          "invalid_format": 0,
+          "empty": 0,
+          "length": 0
+        },
+        "high_school_chinese": {
+          "n": 19,
+          "correct": 14,
+          "invalid_format": 0,
+          "empty": 0,
+          "length": 0
+        }
+      },
+      "deployment": {
+        "checkpoint_sha256": "3142cc9e17dc1f1a39ebee7835001dc0f4fce9da584b162a7d98bbc4af1c0141",
+        "base_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+        "template_sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+        "build": "b11146-7fe450e19",
+        "role_system_prompt": false
+      },
+      "relative_to_original": {
+        "gained": [
+          "high_school_chinese-11",
+          "high_school_chinese-6",
+          "logic-20",
+          "logic-9"
+        ],
+        "lost": [
+          "high_school_chinese-12",
+          "high_school_chinese-5",
+          "high_school_chinese-9",
+          "logic-12",
+          "logic-3",
+          "logic-8"
+        ]
+      },
+      "raw_records_sha256": "1cc87ea4fad55759f4068d7b94d4285d1010f5fdbbb6559df9c05bd40007c1f6",
+      "where_both_returned_valid_letter": {
+        "items": 52,
+        "original_correct": 51,
+        "candidate_correct": 47,
+        "source_ids": [
+          "high_school_chinese-0",
+          "high_school_chinese-10",
+          "high_school_chinese-12",
+          "high_school_chinese-13",
+          "high_school_chinese-14",
+          "high_school_chinese-15",
+          "high_school_chinese-16",
+          "high_school_chinese-17",
+          "high_school_chinese-18",
+          "high_school_chinese-2",
+          "high_school_chinese-3",
+          "high_school_chinese-4",
+          "high_school_chinese-5",
+          "high_school_chinese-7",
+          "high_school_chinese-8",
+          "high_school_chinese-9",
+          "high_school_geography-0",
+          "high_school_geography-1",
+          "high_school_geography-10",
+          "high_school_geography-11",
+          "high_school_geography-12",
+          "high_school_geography-13",
+          "high_school_geography-14",
+          "high_school_geography-15",
+          "high_school_geography-16",
+          "high_school_geography-17",
+          "high_school_geography-18",
+          "high_school_geography-2",
+          "high_school_geography-3",
+          "high_school_geography-4",
+          "high_school_geography-5",
+          "high_school_geography-6",
+          "high_school_geography-7",
+          "high_school_geography-8",
+          "high_school_geography-9",
+          "logic-0",
+          "logic-1",
+          "logic-10",
+          "logic-13",
+          "logic-14",
+          "logic-15",
+          "logic-16",
+          "logic-17",
+          "logic-18",
+          "logic-19",
+          "logic-2",
+          "logic-21",
+          "logic-4",
+          "logic-5",
+          "logic-6",
+          "logic-7",
+          "logic-8"
+        ]
+      }
+    },
+    "round04-first-voice-sft-dpo": {
+      "all": {
+        "n": 60,
+        "correct": 51,
+        "invalid_format": 1,
+        "empty": 0,
+        "length": 0
+      },
+      "subjects": {
+        "logic": {
+          "n": 22,
+          "correct": 19,
+          "invalid_format": 1,
+          "empty": 0,
+          "length": 0
+        },
+        "high_school_geography": {
+          "n": 19,
+          "correct": 18,
+          "invalid_format": 0,
+          "empty": 0,
+          "length": 0
+        },
+        "high_school_chinese": {
+          "n": 19,
+          "correct": 14,
+          "invalid_format": 0,
+          "empty": 0,
+          "length": 0
+        }
+      },
+      "deployment": {
+        "checkpoint_sha256": "65230932b3a6043d5e7d5beca64c713cbdd69e4aab7427c146c29dd22dbfa6ee",
+        "base_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+        "template_sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+        "build": "b11146-7fe450e19",
+        "role_system_prompt": false
+      },
+      "relative_to_original": {
+        "gained": [
+          "high_school_chinese-11",
+          "high_school_chinese-6",
+          "logic-20",
+          "logic-9"
+        ],
+        "lost": [
+          "high_school_chinese-12",
+          "high_school_chinese-5",
+          "high_school_chinese-9",
+          "high_school_geography-7",
+          "logic-3",
+          "logic-8"
+        ]
+      },
+      "raw_records_sha256": "e7f330570c71d46e82d0ece0e70c569033da8c18d1a4547261127ef5fae323f4",
+      "where_both_returned_valid_letter": {
+        "items": 53,
+        "original_correct": 52,
+        "candidate_correct": 47,
+        "source_ids": [
+          "high_school_chinese-0",
+          "high_school_chinese-10",
+          "high_school_chinese-12",
+          "high_school_chinese-13",
+          "high_school_chinese-14",
+          "high_school_chinese-15",
+          "high_school_chinese-16",
+          "high_school_chinese-17",
+          "high_school_chinese-18",
+          "high_school_chinese-2",
+          "high_school_chinese-3",
+          "high_school_chinese-4",
+          "high_school_chinese-5",
+          "high_school_chinese-7",
+          "high_school_chinese-8",
+          "high_school_chinese-9",
+          "high_school_geography-0",
+          "high_school_geography-1",
+          "high_school_geography-10",
+          "high_school_geography-11",
+          "high_school_geography-12",
+          "high_school_geography-13",
+          "high_school_geography-14",
+          "high_school_geography-15",
+          "high_school_geography-16",
+          "high_school_geography-17",
+          "high_school_geography-18",
+          "high_school_geography-2",
+          "high_school_geography-3",
+          "high_school_geography-4",
+          "high_school_geography-5",
+          "high_school_geography-6",
+          "high_school_geography-7",
+          "high_school_geography-8",
+          "high_school_geography-9",
+          "logic-0",
+          "logic-1",
+          "logic-10",
+          "logic-12",
+          "logic-13",
+          "logic-14",
+          "logic-15",
+          "logic-16",
+          "logic-17",
+          "logic-18",
+          "logic-19",
+          "logic-2",
+          "logic-21",
+          "logic-4",
+          "logic-5",
+          "logic-6",
+          "logic-7",
+          "logic-8"
+        ]
+      }
+    }
+  },
+  "service_window": {
+    "after": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "argv_matches": null,
+    "before": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "end_unix": 1795840659.1143854,
+    "entry_state_preserved": true,
+    "model": "kev-latest",
+    "pid": null,
+    "port": 18009,
+    "purpose": "evaluation",
+    "ready": false,
+    "start_unix": 1795840128.2215059,
+    "was_running": false
+  },
+  "fresh_model_generations": 120,
+  "public_accuracy_is_separate_from_role_score": true
+}

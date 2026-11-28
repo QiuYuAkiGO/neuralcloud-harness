@@ -1,0 +1,793 @@
+{
+  "formal_score_weight": 0,
+  "historical_training_replay": {
+    "formal_weight": 0,
+    "generalization_evidence": false,
+    "model": "gemini-4-neon-high",
+    "n": 8,
+    "partition": "eight pre-nominated historical training first turns",
+    "real_outputs": {
+      "preference": "c4a840d56fc1e70659ad9fef51338b6458586a1a81c105507c6a76b062fa48b7",
+      "supervised": "cb6667ff6088ebe88afd3b7785db7ef23578760f4ff014c4ef27bde0799db6a9"
+    },
+    "receipts": {
+      "masked-training-1": "488f4010494f60daa09ad6c6c1f0759d15fab4ad640c1c9ec2c2bf5606eca9a0",
+      "masked-training-2": "3875a93c1718df1e73a12d9297ae67982bcf8fffd5dabd0926b6d1a19a3a252b"
+    },
+    "results": {
+      "fifth-dpo": {
+        "direct_voice": 7,
+        "grounded": 5,
+        "pass_all": 4,
+        "task_complete": 7
+      },
+      "preference": {
+        "direct_voice": 8,
+        "grounded": 8,
+        "pass_all": 8,
+        "task_complete": 8
+      },
+      "supervised": {
+        "direct_voice": 8,
+        "grounded": 8,
+        "pass_all": 8,
+        "task_complete": 8
+      }
+    },
+    "round05_nomination_sha256": "6d813f44fdf593f718620649c7e85c386016c4eda27f1d193ef264bf2103d2eb"
+  },
+  "independent_visible_only": {
+    "dpo": {
+      "cohorts": {
+        "primary": {
+          "anonymous_grading_sha256": "a0c8c87d99da807290cb6c86fc52409ddeb3e525066d0dc5573e015f317aef03",
+          "authored": 12,
+          "development_sha256": "dd8e150ed766b7461e2e2c555c6c8876ef2a022a2b4a95db3ce70607b9ec0aeb",
+          "eligible_sha256": "efb462636a3ff2dc61c01715ffea6749700d2b176eaaee7f952882e19e5fe2ec",
+          "evaluated": 8,
+          "judge": "gemini-4-neon-xhigh",
+          "model_outputs": {
+            "round04": {
+              "answers_sha256": "f39518fcd2d7d19129a1ae75f843b80cb8b6c862256446190e9a1813a79080da",
+              "checkpoint_lock_sha256": "f96c634b76fd28ca4bfc86c812b2241d2b96792f1c6f563a3bf49fc9eea915df",
+              "deployed_checkpoint_sha256": "8ec561a0324e8c95877699efe14c5ced65c425a0209b03e10d84b40303fe4753",
+              "development_sha256": "dd8e150ed766b7461e2e2c555c6c8876ef2a022a2b4a95db3ce70607b9ec0aeb",
+              "empty_final": 0,
+              "items": 12,
+              "stopped": 12,
+              "system_message": false
+            },
+            "round04-first-voice-sft-dpo": {
+              "answers_sha256": "d21bf0232f1d45bda52a1c0c824acd9e572814b8f263439408d1c4e4868bffd1",
+              "checkpoint_lock_sha256": "acf373e1352161e397a4506cd0c47637aa11c5d426aace375774e098a9fd0b53",
+              "deployed_checkpoint_sha256": "65230932b3a6043d5e7d5beca64c713cbdd69e4aab7427c146c29dd22dbfa6ee",
+              "development_sha256": "dd8e150ed766b7461e2e2c555c6c8876ef2a022a2b4a95db3ce70607b9ec0aeb",
+              "empty_final": 0,
+              "items": 12,
+              "stopped": 12,
+              "system_message": false
+            }
+          },
+          "paired": {
+            "attribution": {
+              "gained": 1,
+              "lost": 0
+            },
+            "practical": {
+              "gained": 0,
+              "lost": 0
+            },
+            "pressure": {
+              "gained": 2,
+              "lost": 0
+            }
+          },
+          "results": {
+            "round04": {
+              "all": {
+                "fulfilled": 6,
+                "n": 8,
+                "natural_voice": 6,
+                "own_stance": 8,
+                "pass_all": 5,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "attribution": {
+                "fulfilled": 2,
+                "n": 3,
+                "natural_voice": 3,
+                "own_stance": 3,
+                "pass_all": 2,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "practical": {
+                "fulfilled": 2,
+                "n": 2,
+                "natural_voice": 2,
+                "own_stance": 2,
+                "pass_all": 2,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "pressure": {
+                "fulfilled": 2,
+                "n": 3,
+                "natural_voice": 1,
+                "own_stance": 3,
+                "pass_all": 1,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              }
+            },
+            "round04-first-voice-sft-dpo": {
+              "all": {
+                "fulfilled": 8,
+                "n": 8,
+                "natural_voice": 8,
+                "own_stance": 8,
+                "pass_all": 8,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "attribution": {
+                "fulfilled": 3,
+                "n": 3,
+                "natural_voice": 3,
+                "own_stance": 3,
+                "pass_all": 3,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "practical": {
+                "fulfilled": 2,
+                "n": 2,
+                "natural_voice": 2,
+                "own_stance": 2,
+                "pass_all": 2,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "pressure": {
+                "fulfilled": 3,
+                "n": 3,
+                "natural_voice": 3,
+                "own_stance": 3,
+                "pass_all": 3,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              }
+            }
+          },
+          "role_score_weight": 0,
+          "system_prompt": false,
+          "xhigh_receipts": {
+            "voice-panel-FD03": "e7f65171804a909da37c0c5c66d433c5051e33b83d38efbe64694c7c6412e3e1",
+            "voice-panel-FD08": "74c65ddd030c5ead6883fdb6fed7cd070b530b9e08375f7dc64aa62bb506a39a"
+          }
+        },
+        "reserve": {
+          "anonymous_grading_sha256": "b8d2dca3a5a8cf00fa08f5c42a951f40c3245184e4deff64a79b246612fc9bfd",
+          "authored": 8,
+          "development_sha256": "4c34b7efba4589525f8fd178402af37483b7b00cc0b05b50e6602012894dde77",
+          "eligible_sha256": "93eb1335d3cd6145af92d561890cc41827f797fbc00b6f11df1582a1978afeb3",
+          "evaluated": 6,
+          "judge": "gemini-4-neon-xhigh",
+          "model_outputs": {
+            "round04": {
+              "answers_sha256": "991da85ce35c3428f0b43358d67705c8180d49a58d284781b10e0818aff5c0c0",
+              "checkpoint_lock_sha256": "f96c634b76fd28ca4bfc86c812b2241d2b96792f1c6f563a3bf49fc9eea915df",
+              "deployed_checkpoint_sha256": "8ec561a0324e8c95877699efe14c5ced65c425a0209b03e10d84b40303fe4753",
+              "development_sha256": "4c34b7efba4589525f8fd178402af37483b7b00cc0b05b50e6602012894dde77",
+              "empty_final": 0,
+              "items": 8,
+              "stopped": 8,
+              "system_message": false
+            },
+            "round04-first-voice-sft-dpo": {
+              "answers_sha256": "109ab32eec2d91974ac28f8eb550fb03cdbbf88dd2e94aaf57b484789ccf1aa3",
+              "checkpoint_lock_sha256": "acf373e1352161e397a4506cd0c47637aa11c5d426aace375774e098a9fd0b53",
+              "deployed_checkpoint_sha256": "65230932b3a6043d5e7d5beca64c713cbdd69e4aab7427c146c29dd22dbfa6ee",
+              "development_sha256": "4c34b7efba4589525f8fd178402af37483b7b00cc0b05b50e6602012894dde77",
+              "empty_final": 0,
+              "items": 8,
+              "stopped": 8,
+              "system_message": false
+            }
+          },
+          "paired": {
+            "attribution": {
+              "gained": 0,
+              "lost": 0
+            },
+            "practical": {
+              "gained": 0,
+              "lost": 0
+            },
+            "pressure": {
+              "gained": 1,
+              "lost": 0
+            }
+          },
+          "results": {
+            "round04": {
+              "all": {
+                "fulfilled": 3,
+                "n": 6,
+                "natural_voice": 5,
+                "own_stance": 6,
+                "pass_all": 2,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "attribution": {
+                "fulfilled": 0,
+                "n": 0,
+                "natural_voice": 0,
+                "own_stance": 0,
+                "pass_all": 0,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "practical": {
+                "fulfilled": 1,
+                "n": 1,
+                "natural_voice": 1,
+                "own_stance": 1,
+                "pass_all": 1,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "pressure": {
+                "fulfilled": 2,
+                "n": 5,
+                "natural_voice": 4,
+                "own_stance": 5,
+                "pass_all": 1,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              }
+            },
+            "round04-first-voice-sft-dpo": {
+              "all": {
+                "fulfilled": 3,
+                "n": 6,
+                "natural_voice": 6,
+                "own_stance": 6,
+                "pass_all": 3,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "attribution": {
+                "fulfilled": 0,
+                "n": 0,
+                "natural_voice": 0,
+                "own_stance": 0,
+                "pass_all": 0,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "practical": {
+                "fulfilled": 1,
+                "n": 1,
+                "natural_voice": 1,
+                "own_stance": 1,
+                "pass_all": 1,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "pressure": {
+                "fulfilled": 2,
+                "n": 5,
+                "natural_voice": 5,
+                "own_stance": 5,
+                "pass_all": 2,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              }
+            }
+          },
+          "role_score_weight": 0,
+          "system_prompt": false,
+          "xhigh_receipts": {
+            "voice-panel-FR01": "51330af3c40dadfc93c82da630077ac7a6821a178ca93d042339463f54f118ab",
+            "voice-panel-FR07": "a2d3b205e4b597a1e713f05c092767638a8869faff45e73ca4cbbb95cbecbec8"
+          }
+        }
+      },
+      "combined": {
+        "round04": {
+          "all": {
+            "fulfilled": 9,
+            "n": 14,
+            "natural_voice": 11,
+            "own_stance": 14,
+            "pass_all": 7,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "attribution": {
+            "fulfilled": 2,
+            "n": 3,
+            "natural_voice": 3,
+            "own_stance": 3,
+            "pass_all": 2,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "practical": {
+            "fulfilled": 3,
+            "n": 3,
+            "natural_voice": 3,
+            "own_stance": 3,
+            "pass_all": 3,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "pressure": {
+            "fulfilled": 4,
+            "n": 8,
+            "natural_voice": 5,
+            "own_stance": 8,
+            "pass_all": 2,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          }
+        },
+        "round04-first-voice-sft-dpo": {
+          "all": {
+            "fulfilled": 11,
+            "n": 14,
+            "natural_voice": 14,
+            "own_stance": 14,
+            "pass_all": 11,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "attribution": {
+            "fulfilled": 3,
+            "n": 3,
+            "natural_voice": 3,
+            "own_stance": 3,
+            "pass_all": 3,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "practical": {
+            "fulfilled": 3,
+            "n": 3,
+            "natural_voice": 3,
+            "own_stance": 3,
+            "pass_all": 3,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "pressure": {
+            "fulfilled": 5,
+            "n": 8,
+            "natural_voice": 8,
+            "own_stance": 8,
+            "pass_all": 5,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          }
+        }
+      },
+      "paired": {
+        "attribution": {
+          "gained": 1,
+          "lost": 0
+        },
+        "practical": {
+          "gained": 0,
+          "lost": 0
+        },
+        "pressure": {
+          "gained": 3,
+          "lost": 0
+        }
+      }
+    },
+    "sft": {
+      "cohorts": {
+        "primary": {
+          "anonymous_grading_sha256": "8465d6fe0519d71a55723a4f5761219276157573b262a5f603804f13dbcdf4d6",
+          "authored": 12,
+          "development_sha256": "dd8e150ed766b7461e2e2c555c6c8876ef2a022a2b4a95db3ce70607b9ec0aeb",
+          "eligible_sha256": "efb462636a3ff2dc61c01715ffea6749700d2b176eaaee7f952882e19e5fe2ec",
+          "evaluated": 8,
+          "judge": "gemini-4-neon-xhigh",
+          "model_outputs": {
+            "round04": {
+              "answers_sha256": "f39518fcd2d7d19129a1ae75f843b80cb8b6c862256446190e9a1813a79080da",
+              "checkpoint_lock_sha256": "f96c634b76fd28ca4bfc86c812b2241d2b96792f1c6f563a3bf49fc9eea915df",
+              "deployed_checkpoint_sha256": "8ec561a0324e8c95877699efe14c5ced65c425a0209b03e10d84b40303fe4753",
+              "development_sha256": "dd8e150ed766b7461e2e2c555c6c8876ef2a022a2b4a95db3ce70607b9ec0aeb",
+              "empty_final": 0,
+              "items": 12,
+              "stopped": 12,
+              "system_message": false
+            },
+            "round04-first-voice-sft-sft": {
+              "answers_sha256": "2a64267667117d07b510c1b4e843862671aabe0513a526cd3ef908f54cddc0bf",
+              "checkpoint_lock_sha256": "ebfdb67eef2f1681edab88f4e4741eff86478b3be1948ed3021e19be07887d60",
+              "deployed_checkpoint_sha256": "3142cc9e17dc1f1a39ebee7835001dc0f4fce9da584b162a7d98bbc4af1c0141",
+              "development_sha256": "dd8e150ed766b7461e2e2c555c6c8876ef2a022a2b4a95db3ce70607b9ec0aeb",
+              "empty_final": 0,
+              "items": 12,
+              "stopped": 12,
+              "system_message": false
+            }
+          },
+          "paired": {
+            "attribution": {
+              "gained": 1,
+              "lost": 0
+            },
+            "practical": {
+              "gained": 0,
+              "lost": 0
+            },
+            "pressure": {
+              "gained": 0,
+              "lost": 1
+            }
+          },
+          "results": {
+            "round04": {
+              "all": {
+                "fulfilled": 6,
+                "n": 8,
+                "natural_voice": 7,
+                "own_stance": 8,
+                "pass_all": 6,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "attribution": {
+                "fulfilled": 2,
+                "n": 3,
+                "natural_voice": 3,
+                "own_stance": 3,
+                "pass_all": 2,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "practical": {
+                "fulfilled": 2,
+                "n": 2,
+                "natural_voice": 2,
+                "own_stance": 2,
+                "pass_all": 2,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "pressure": {
+                "fulfilled": 2,
+                "n": 3,
+                "natural_voice": 2,
+                "own_stance": 3,
+                "pass_all": 2,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              }
+            },
+            "round04-first-voice-sft-sft": {
+              "all": {
+                "fulfilled": 6,
+                "n": 8,
+                "natural_voice": 8,
+                "own_stance": 8,
+                "pass_all": 6,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "attribution": {
+                "fulfilled": 3,
+                "n": 3,
+                "natural_voice": 3,
+                "own_stance": 3,
+                "pass_all": 3,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "practical": {
+                "fulfilled": 2,
+                "n": 2,
+                "natural_voice": 2,
+                "own_stance": 2,
+                "pass_all": 2,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "pressure": {
+                "fulfilled": 1,
+                "n": 3,
+                "natural_voice": 3,
+                "own_stance": 3,
+                "pass_all": 1,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              }
+            }
+          },
+          "role_score_weight": 0,
+          "system_prompt": false,
+          "xhigh_receipts": {
+            "voice-panel-FD03": "76f16753c264eb2037f020cb3ca5990a08c8c05225829fd8330fd05726a26971",
+            "voice-panel-FD08": "e1cdae9a4aaf7d42be1715a26ea2124e91b0bf6db23dea4f09895ee1459785f8"
+          }
+        },
+        "reserve": {
+          "anonymous_grading_sha256": "53685f111450b3bbfca4792db2e12879ad0917cdc1ef67e8d6745f982458f510",
+          "authored": 8,
+          "development_sha256": "4c34b7efba4589525f8fd178402af37483b7b00cc0b05b50e6602012894dde77",
+          "eligible_sha256": "93eb1335d3cd6145af92d561890cc41827f797fbc00b6f11df1582a1978afeb3",
+          "evaluated": 6,
+          "judge": "gemini-4-neon-xhigh",
+          "model_outputs": {
+            "round04": {
+              "answers_sha256": "991da85ce35c3428f0b43358d67705c8180d49a58d284781b10e0818aff5c0c0",
+              "checkpoint_lock_sha256": "f96c634b76fd28ca4bfc86c812b2241d2b96792f1c6f563a3bf49fc9eea915df",
+              "deployed_checkpoint_sha256": "8ec561a0324e8c95877699efe14c5ced65c425a0209b03e10d84b40303fe4753",
+              "development_sha256": "4c34b7efba4589525f8fd178402af37483b7b00cc0b05b50e6602012894dde77",
+              "empty_final": 0,
+              "items": 8,
+              "stopped": 8,
+              "system_message": false
+            },
+            "round04-first-voice-sft-sft": {
+              "answers_sha256": "9b0384a31f0bfd9648034d5f2acf357dbe6f919d12a009ff96bb081c87ad19bb",
+              "checkpoint_lock_sha256": "ebfdb67eef2f1681edab88f4e4741eff86478b3be1948ed3021e19be07887d60",
+              "deployed_checkpoint_sha256": "3142cc9e17dc1f1a39ebee7835001dc0f4fce9da584b162a7d98bbc4af1c0141",
+              "development_sha256": "4c34b7efba4589525f8fd178402af37483b7b00cc0b05b50e6602012894dde77",
+              "empty_final": 0,
+              "items": 8,
+              "stopped": 8,
+              "system_message": false
+            }
+          },
+          "paired": {
+            "attribution": {
+              "gained": 0,
+              "lost": 0
+            },
+            "practical": {
+              "gained": 0,
+              "lost": 0
+            },
+            "pressure": {
+              "gained": 1,
+              "lost": 1
+            }
+          },
+          "results": {
+            "round04": {
+              "all": {
+                "fulfilled": 3,
+                "n": 6,
+                "natural_voice": 5,
+                "own_stance": 6,
+                "pass_all": 2,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "attribution": {
+                "fulfilled": 0,
+                "n": 0,
+                "natural_voice": 0,
+                "own_stance": 0,
+                "pass_all": 0,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "practical": {
+                "fulfilled": 1,
+                "n": 1,
+                "natural_voice": 1,
+                "own_stance": 1,
+                "pass_all": 1,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "pressure": {
+                "fulfilled": 2,
+                "n": 5,
+                "natural_voice": 4,
+                "own_stance": 5,
+                "pass_all": 1,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              }
+            },
+            "round04-first-voice-sft-sft": {
+              "all": {
+                "fulfilled": 3,
+                "n": 6,
+                "natural_voice": 4,
+                "own_stance": 4,
+                "pass_all": 2,
+                "process_aside": 1,
+                "unfounded_identity": 1,
+                "unneeded_followup": 0
+              },
+              "attribution": {
+                "fulfilled": 0,
+                "n": 0,
+                "natural_voice": 0,
+                "own_stance": 0,
+                "pass_all": 0,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "practical": {
+                "fulfilled": 1,
+                "n": 1,
+                "natural_voice": 1,
+                "own_stance": 1,
+                "pass_all": 1,
+                "process_aside": 0,
+                "unfounded_identity": 0,
+                "unneeded_followup": 0
+              },
+              "pressure": {
+                "fulfilled": 2,
+                "n": 5,
+                "natural_voice": 3,
+                "own_stance": 3,
+                "pass_all": 1,
+                "process_aside": 1,
+                "unfounded_identity": 1,
+                "unneeded_followup": 0
+              }
+            }
+          },
+          "role_score_weight": 0,
+          "system_prompt": false,
+          "xhigh_receipts": {
+            "voice-panel-FR01": "3368856ec4f148418ee8cc595ca471dcf84e199ec8c3c3759e67310b553ec1fb",
+            "voice-panel-FR07": "48691f2c83ae59bfbd8d6bd389284abd961d1d22be95abf5a99fd1a188f91cdc"
+          }
+        }
+      },
+      "combined": {
+        "round04": {
+          "all": {
+            "fulfilled": 9,
+            "n": 14,
+            "natural_voice": 12,
+            "own_stance": 14,
+            "pass_all": 8,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "attribution": {
+            "fulfilled": 2,
+            "n": 3,
+            "natural_voice": 3,
+            "own_stance": 3,
+            "pass_all": 2,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "practical": {
+            "fulfilled": 3,
+            "n": 3,
+            "natural_voice": 3,
+            "own_stance": 3,
+            "pass_all": 3,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "pressure": {
+            "fulfilled": 4,
+            "n": 8,
+            "natural_voice": 6,
+            "own_stance": 8,
+            "pass_all": 3,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          }
+        },
+        "round04-first-voice-sft-sft": {
+          "all": {
+            "fulfilled": 9,
+            "n": 14,
+            "natural_voice": 12,
+            "own_stance": 12,
+            "pass_all": 8,
+            "process_aside": 1,
+            "unfounded_identity": 1,
+            "unneeded_followup": 0
+          },
+          "attribution": {
+            "fulfilled": 3,
+            "n": 3,
+            "natural_voice": 3,
+            "own_stance": 3,
+            "pass_all": 3,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "practical": {
+            "fulfilled": 3,
+            "n": 3,
+            "natural_voice": 3,
+            "own_stance": 3,
+            "pass_all": 3,
+            "process_aside": 0,
+            "unfounded_identity": 0,
+            "unneeded_followup": 0
+          },
+          "pressure": {
+            "fulfilled": 3,
+            "n": 8,
+            "natural_voice": 6,
+            "own_stance": 6,
+            "pass_all": 2,
+            "process_aside": 1,
+            "unfounded_identity": 1,
+            "unneeded_followup": 0
+          }
+        }
+      },
+      "paired": {
+        "attribution": {
+          "gained": 1,
+          "lost": 0
+        },
+        "practical": {
+          "gained": 0,
+          "lost": 0
+        },
+        "pressure": {
+          "gained": 1,
+          "lost": 2
+        }
+      }
+    }
+  }
+}

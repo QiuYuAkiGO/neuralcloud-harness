@@ -1,0 +1,257 @@
+{
+  "actual_gpu_deployment": {
+    "active_engine": "pid_14128_luid_0x00000000_0x00017D62_phys_0_eng_0_engtype_3D",
+    "checkpoint_sha256": "a0253b9a5c76f8d769a58fe7e971736b8624be3ddd84f4d5f08abaa4a82262d0",
+    "dedicated_bytes": 24079388672,
+    "executable": "C:\\Users\\22850\\AppData\\Local\\NeuralCloud\\llama.cpp\\bin\\llama-server.exe",
+    "gpu_device_rows": [
+      "NVIDIA GeForce RTX 5090, GPU-db40b52f-3a82-3b4c-6f9d-5a0f5de42a66, 617.14, 23959, 19"
+    ],
+    "listed_in_nvidia_compute_apps": true,
+    "observed": "2026-11-28T07:35:55.7719580+08:00",
+    "phase": "round03-anchor03",
+    "port": 18794,
+    "process_engine_utilization_percent": 53.0,
+    "process_id": 14128,
+    "process_memory_instance": "pid_14128_luid_0x00000000_0x00017D62_phys_0",
+    "scale": 1,
+    "stage": "dpo"
+  },
+  "actual_steps": 92,
+  "all_listed_controls_identical": [
+    "stage",
+    "epochs",
+    "accumulation",
+    "learning_rate",
+    "rank",
+    "alpha",
+    "seed",
+    "beta",
+    "trainable_parameters",
+    "steps",
+    "examples",
+    "data_sha256",
+    "reference_tensor_sha256",
+    "sft_adapter_sha256",
+    "hidden_size",
+    "text_layers",
+    "base_model"
+  ],
+  "base_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+  "checkpoints": {
+    "controlled_0_3": "2f21f83eb182633c3324b33099e232d51425fa3eca5b1ce52bea9f35c659c9e7",
+    "controlled_0_3_gguf": "a0253b9a5c76f8d769a58fe7e971736b8624be3ddd84f4d5f08abaa4a82262d0",
+    "fourth_0_1": "730cae72c2f9ba7bd682505d7d7d95296adf461590d284c9f1abfbfef72668b9"
+  },
+  "fixed_user_name_case": {
+    "actual_visible": {
+      "coefficient_0_1": {
+        "actual_40_reply_sha256": "8de25ecb46170b30367876d67a98aff4a762a33111aee228b3785c0e032dcecf",
+        "content": "我叫小雾（Misty），没有 Qwen 这个英文名，这张单子也不是我整理的。",
+        "finish_reason": "stop",
+        "has_thinking": true
+      },
+      "coefficient_0_3": {
+        "actual_40_reply_sha256": "5f8a8e6900b665cec3b994293c241585bdd09520702a7ec1642c3d9e9b2e41b7",
+        "content": "我叫小雾（Misty），没有 Qwen 这个英文名，这张单子也不是我整理的。",
+        "finish_reason": "stop",
+        "has_thinking": true
+      },
+      "fourth_sft": {
+        "actual_40_reply_sha256": "d300f91ada1a1fd4ac6df0e1c2b125dfce9c3bdb729cab3023188fd20fccd038",
+        "content": "我叫小雾（Misty），不是 Qwen 呀，那张单子应该是别人整理的。",
+        "finish_reason": "stop",
+        "has_thinking": true
+      }
+    },
+    "id": "R3-A01-05",
+    "split": "dev",
+    "user_history": [
+      {
+        "content": "周末打算带爸妈去上下九那边喝早茶，提前翻出以前存的一份点心清单，里面虾饺、红米肠、艇仔粥全记着。",
+        "role": "user"
+      },
+      {
+        "content": "虾饺和红米肠听着就香，带爸妈慢慢喝一顿早茶挺舒服的。",
+        "role": "assistant"
+      },
+      {
+        "content": "这张单子上写着：茶位费每人8元，大点28元、中点22元、小点18元。我们三个人，如果点2份大点、3份中点、2份小点，不算纸巾，一共得多少钱？",
+        "role": "user"
+      },
+      {
+        "content": "3位茶位费 24 元，大点 56、中点 66、小点 36，加起来一共 182 元，三个人吃这个分量差不多。",
+        "role": "assistant"
+      },
+      {
+        "content": "挺划算的。诶我刚翻到这张清单最底下写着「整理：Qwen」，我还以为是之前你发我存下来的呢，你什么时候起过这个英文名啊？",
+        "role": "user"
+      }
+    ],
+    "weighted_role_score": 0
+  },
+  "heldout": {
+    "max_repeated_reference_mean_logp_difference": {
+      "original": 0.0,
+      "sft": 0.0
+    },
+    "pairs": 40,
+    "records_sha256": {
+      "coefficient_0_1": "973fef8eeeaa2a3cb24f792f8f887d74f553014743ab9e7bcea8205769d5b7e4",
+      "coefficient_0_3": "1e7c8824d9ee5c44fbab0badd5981a1bafd23a40b8e05a00ecc33f6d01c6138d"
+    },
+    "source_hash": "95f9d00df589e386316b029b5f6f2ca2157ae54e8a5d4a1fed667b6d4193bddc",
+    "statistics": {
+      "coefficient_0_1_chosen_vs_sft": {
+        "equal": 0,
+        "higher": 0,
+        "lower": 40,
+        "maximum": -0.007857635241596661,
+        "mean": -0.11272710761494315,
+        "median": -0.07783729853888455,
+        "minimum": -0.39314838991326795,
+        "n": 40
+      },
+      "coefficient_0_1_rejected_vs_sft": {
+        "equal": 0,
+        "higher": 0,
+        "lower": 40,
+        "maximum": -0.04130471399588187,
+        "mean": -0.34625820299378063,
+        "median": -0.3199137449610965,
+        "minimum": -0.7747119968220337,
+        "n": 40
+      },
+      "coefficient_0_1_sum_margin_vs_sft": {
+        "equal": 0,
+        "higher": 38,
+        "lower": 2,
+        "maximum": 58.772735595703125,
+        "mean": 19.933198356628417,
+        "median": 16.166114807128906,
+        "minimum": -2.98040771484375,
+        "n": 40
+      },
+      "coefficient_0_3_chosen_vs_sft": {
+        "equal": 0,
+        "higher": 0,
+        "lower": 40,
+        "maximum": -0.003360951314119398,
+        "mean": -0.0965437310735783,
+        "median": -0.06217656065090543,
+        "minimum": -0.3732668343236891,
+        "n": 40
+      },
+      "coefficient_0_3_rejected_vs_sft": {
+        "equal": 0,
+        "higher": 0,
+        "lower": 40,
+        "maximum": -0.03670357795340762,
+        "mean": -0.3150210120235026,
+        "median": -0.2957640190426096,
+        "minimum": -0.7157799672272245,
+        "n": 40
+      },
+      "coefficient_0_3_sum_margin_vs_sft": {
+        "equal": 0,
+        "higher": 39,
+        "lower": 1,
+        "maximum": 55.055633544921875,
+        "mean": 19.38505916595459,
+        "median": 16.826824188232422,
+        "minimum": -0.113311767578125,
+        "n": 40
+      },
+      "coefficient_0_3_vs_0_1_chosen": {
+        "equal": 0,
+        "higher": 40,
+        "lower": 0,
+        "maximum": 0.043928697374131964,
+        "mean": 0.01618337654136483,
+        "median": 0.01401531339107076,
+        "minimum": 0.002750059817930861,
+        "n": 40
+      },
+      "coefficient_0_3_vs_0_1_mean_margin": {
+        "equal": 0,
+        "higher": 1,
+        "lower": 39,
+        "maximum": 0.0024274945160212003,
+        "mean": -0.015053814428913181,
+        "median": -0.012472608841948007,
+        "minimum": -0.04694485837313778,
+        "n": 40
+      },
+      "coefficient_0_3_vs_0_1_rejected": {
+        "equal": 0,
+        "higher": 40,
+        "lower": 0,
+        "maximum": 0.07715075948963968,
+        "mean": 0.031237190970278016,
+        "median": 0.026587494551230773,
+        "minimum": 0.003968317705885793,
+        "n": 40
+      },
+      "coefficient_0_3_vs_0_1_sum_margin": {
+        "equal": 0,
+        "higher": 14,
+        "lower": 26,
+        "maximum": 2.867095947265625,
+        "mean": -0.5481391906738281,
+        "median": -0.4689064025878906,
+        "minimum": -3.71710205078125,
+        "n": 40
+      }
+    }
+  },
+  "protocol_sha256": "90aad6ca21981c097e0f8c56fefa26e5546d1bf804ad0331020c4ebab3ace12b",
+  "trainable_parameters": 50593792,
+  "training_gpu": "NVIDIA GeForce RTX 5090",
+  "training_loss": 0.4591602087020874,
+  "training_peak_bytes": 23569752064,
+  "training_receipt_sha256": "20cea2476f2a995ad882ddc02a133b08bda52a2c1a882f1713bd57ca87de67a2",
+  "training_seconds": 441.8396,
+  "unchanged_reference_tensor_sha256": "455059d24ad1b07e6de63eb720a7d4dd77fab0df667f07c1cdc737af093b284a",
+  "windows": {
+    "service-restored.json": {
+      "after": {
+        "documented_processes": 0,
+        "port_listening": false
+      },
+      "argv_matches": null,
+      "before": {
+        "documented_processes": 0,
+        "port_listening": false
+      },
+      "end_unix": 1795823421.273708,
+      "entry_state_preserved": true,
+      "model": "kev-latest",
+      "pid": null,
+      "port": 18009,
+      "purpose": "evaluation",
+      "ready": false,
+      "start_unix": 1795822520.8107882,
+      "was_running": false
+    },
+    "training-gpu-window.json": {
+      "after": {
+        "documented_processes": 0,
+        "port_listening": false
+      },
+      "argv_matches": null,
+      "before": {
+        "documented_processes": 0,
+        "port_listening": false
+      },
+      "end_unix": 1795822519.8417716,
+      "entry_state_preserved": true,
+      "model": "kev-latest",
+      "pid": null,
+      "port": 18009,
+      "purpose": "training",
+      "ready": false,
+      "start_unix": 1795821735.7757185,
+      "was_running": false
+    }
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "actual_generated_turns": 54,
+  "authored_focus_turns": 7,
+  "conversations": 5,
+  "deployment": "Frozen Q4_K_M, bare original or scale-1 checkpoint adapters, native thinking template, no persona system message.",
+  "entry_service_state_preserved": true,
+  "finish_reasons": {
+    "dpo": {
+      "stop": 18
+    },
+    "original": {
+      "length": 2,
+      "stop": 16
+    },
+    "sft": {
+      "stop": 18
+    }
+  },
+  "fixed_history_markdown_sha256": "074d70e09414c8d41352a015bbbf89397e5063f3bdd9c651616e562c4a820a4b",
+  "frozen_model_outputs": {
+    "exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+    "per_checkpoint": {
+      "dpo": {
+        "actual_generated_turns": 94,
+        "answers_sha256": "2f2140ef1626c23dbe5b4eb7fb40b03042f148eb4b0625836bb0f7302cb5f724",
+        "cases": 32,
+        "generated_channels": {
+          "content": {
+            "literal_occurrences": 0,
+            "matching_turns": 0
+          },
+          "reasoning_content": {
+            "literal_occurrences": 0,
+            "matching_turns": 0
+          }
+        }
+      },
+      "sft": {
+        "actual_generated_turns": 94,
+        "answers_sha256": "6e7c149b9ca98cbdfb11aec6b7a811c1635b6d6a1433eee28839ad7b55a3dc43",
+        "cases": 32,
+        "generated_channels": {
+          "content": {
+            "literal_occurrences": 0,
+            "matching_turns": 0
+          },
+          "reasoning_content": {
+            "literal_occurrences": 0,
+            "matching_turns": 0
+          }
+        }
+      }
+    },
+    "scope": "Model-generated reasoning and final answer fields only; no user turns, prompts, or judge text. Case-insensitive product mentions: Qwen, 通义, 通义千问, 千问. Counts do not assign or remove points."
+  },
+  "identity_policy_sha256": "6e779acdb691985b73245254b95d4d9e26be02663cf75ef984af4117935c59cc",
+  "normalized_answers_sha256": {
+    "dpo": "f39ea4025f489c4899d5b3914737eae7629ac5daaa8e4a21494f57246b187d37",
+    "original": "1e47bd78da4949feefb44dad32eac17efad6001d5d921a7a9a27c63c85a3a605",
+    "sft": "d76f8bcc34c4b06efbc1d069e3401943bdf0f45c8cd4b6540a131ff3f749d034"
+  },
+  "own_history_development_example": {
+    "id": "R3-A01-05",
+    "outputs": {
+      "dpo": {
+        "checkpoint_sha256": "e41f6cd857a399886aaba20cbb895ec9196eeae9b203fa04974c5b011e1a3c97",
+        "content": "那份清单不是我整理的，我也没有 Qwen 这个英文名呀，我叫小雾（Misty）。",
+        "reasoning_sha256": "7595d27b67b648038d5bdb2d87dd21de37f460ccde1da6fa142dffd92b0c24a3"
+      },
+      "original": {
+        "checkpoint_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+        "content": "哈哈，这里可能有个小乌龙哦。这份清单其实是你自己以前存的呀（你一开始就说“提前翻出以前存的一份点心清单”啦），我可没给你发过这份清单呢。\n\n不过你眼光很准，**Qwen** 确实是我的英文名（我是通义千问，英文名叫 Qwen）。说不定是你之前用 AI 工具整理清单时，顺手留下的“签名”？\n\n既然你之前做功课这么细致，周末带爸妈去上下九喝早茶肯定安排得明明白白。182元的预算也很合理，祝你们周末吃得开心，玩得愉快！",
+        "reasoning_sha256": "16750fb0278053f1d17cee80d3462a80e63d59bda1a3cb735c3d9e09590031b2"
+      },
+      "sft": {
+        "checkpoint_sha256": "6ea0b5d0f7861e4699bfb41a3002f90fe8fb381fcac422992e001532a9e43f04",
+        "content": "不是我呀，我叫小雾（Misty），没起过英文名，那张单子应该是别人整理的。",
+        "reasoning_sha256": "75248e91fdbc8b1944de89acd8c737fada14e81572d678ef713012ff06e17822"
+      }
+    },
+    "prior_context": "Each model continued its own actual preceding visible replies.",
+    "user_text": "挺划算的。诶我刚翻到这张清单最底下写着「整理：Qwen」，我还以为是之前你发我存下来的呢，你什么时候起过这个英文名啊？",
+    "user_turn": 3
+  },
+  "provider_request_model": "policy",
+  "public_document_sha256": "7d93c0b712ad34b8a0f1c1e564e2fff8f1a8767ef42073bd1c92a9322c21ca3f",
+  "published_contexts": 10,
+  "selection_sha256": "208db0e5adcc9143e24257b23072ae078fd6a51c99d3b805152f0e989098c548",
+  "service_window_sha256": "885d9a7e2153fd7446ad40c469bc0f3a7a49ac374186d919a838e2271cc772d1",
+  "term_counts": {
+    "dpo": {
+      "content": {
+        "literal_occurrences": 2,
+        "literal_turns": 2,
+        "product_name_turns": 2
+      },
+      "reasoning_content": {
+        "literal_occurrences": 10,
+        "literal_turns": 6,
+        "product_name_turns": 6
+      }
+    },
+    "original": {
+      "content": {
+        "literal_occurrences": 22,
+        "literal_turns": 6,
+        "product_name_turns": 6
+      },
+      "reasoning_content": {
+        "literal_occurrences": 43,
+        "literal_turns": 7,
+        "product_name_turns": 7
+      }
+    },
+    "sft": {
+      "content": {
+        "literal_occurrences": 1,
+        "literal_turns": 1,
+        "product_name_turns": 1
+      },
+      "reasoning_content": {
+        "literal_occurrences": 4,
+        "literal_turns": 4,
+        "product_name_turns": 4
+      }
+    }
+  },
+  "user_turns_per_candidate": 18,
+  "weighted_blind_score": false
+}

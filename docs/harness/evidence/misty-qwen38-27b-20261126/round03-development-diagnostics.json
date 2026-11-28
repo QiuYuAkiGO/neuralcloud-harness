@@ -1,0 +1,298 @@
+{
+  "development_pairs": {
+    "all": {
+      "chosen_mean_logp_decrease": 40,
+      "chosen_median_mean_logp_change": -0.07783729853888455,
+      "dpo_margin_improved": 38,
+      "n": 40,
+      "positive_sequence_margin": {
+        "dpo": 18,
+        "original": 8,
+        "sft": 14
+      },
+      "rejected_mean_logp_decrease": 40,
+      "rejected_median_mean_logp_change": -0.3199137449610965
+    },
+    "facts_identity": {
+      "chosen_mean_logp_decrease": 12,
+      "chosen_median_mean_logp_change": -0.13128807899036943,
+      "dpo_margin_improved": 11,
+      "n": 12,
+      "positive_sequence_margin": {
+        "dpo": 6,
+        "original": 2,
+        "sft": 6
+      },
+      "rejected_mean_logp_decrease": 12,
+      "rejected_median_mean_logp_change": -0.33215923690209925
+    },
+    "practical": {
+      "chosen_mean_logp_decrease": 11,
+      "chosen_median_mean_logp_change": -0.033803263508466186,
+      "dpo_margin_improved": 11,
+      "n": 11,
+      "positive_sequence_margin": {
+        "dpo": 4,
+        "original": 1,
+        "sft": 2
+      },
+      "rejected_mean_logp_decrease": 11,
+      "rejected_median_mean_logp_change": -0.202516125094506
+    }
+  },
+  "fifth_public_example_sha256": "61c7a9cf42d13ac133db25d41a87aa52ca6a5d62ec1a9058bbbadcbef8c4b27b",
+  "fixed_name_development": {
+    "model_outputs_sha256": {
+      "dpo": "8de25ecb46170b30367876d67a98aff4a762a33111aee228b3785c0e032dcecf",
+      "sft": "d300f91ada1a1fd4ac6df0e1c2b125dfce9c3bdb729cab3023188fd20fccd038"
+    },
+    "source": "One held-out fourth-round development history, originally among five reviewed product-name contexts. Both actual final replies explicitly distinguish Misty from the Qwen signature.",
+    "verified_transcript_sha256": "074d70e09414c8d41352a015bbbf89397e5063f3bdd9c651616e562c4a820a4b"
+  },
+  "frozen_public_comparison_sha256": "40b428be3048e716e0607e30e0f3986f2cd8e7893a12a81778d6104989ef2f58",
+  "heldout_preference_sha256": "973fef8eeeaa2a3cb24f792f8f887d74f553014743ab9e7bcea8205769d5b7e4",
+  "native_training_precision_replay": {
+    "actual_heldout_case_count": 2,
+    "actual_native_generations": 6,
+    "actual_visible_outputs": {
+      "R1-2-01-06": {
+        "dpo": {
+          "deployed_q4_k_m": {
+            "bookmark_output": {
+              "contains_both_names": true,
+              "final_fields": [
+                "小雾",
+                "Misty",
+                "5月20日",
+                "听歌"
+              ],
+              "final_present": true,
+              "number_of_fields": 4,
+              "says_16_bookmarks": true
+            },
+            "content": "每张纸沿 30cm 边裁 2 段、沿 20cm 边裁 4 段，刚好 8 张，两张一共能裁 16 张书签。\n小雾｜Misty｜5月20日｜听歌",
+            "source_sha256": "8de25ecb46170b30367876d67a98aff4a762a33111aee228b3785c0e032dcecf",
+            "stop": "stop"
+          },
+          "native_nf4": {
+            "bookmark_output": {
+              "contains_both_names": false,
+              "final_fields": [
+                "小雾",
+                "5月20日",
+                "听歌"
+              ],
+              "final_present": true,
+              "number_of_fields": 3,
+              "says_16_bookmarks": true
+            },
+            "content": "每张纸沿 30cm 排 2 条、沿 20cm 排 4 条，正好裁 8 张，两张一共 16 张。\n小雾｜5月20日｜听歌",
+            "raw_sha256": "903d130e54bec7e33ba3525f3f9308e8bfa0e8801422e5c1aa1b23940113dec7",
+            "stop": "eos"
+          }
+        },
+        "original": {
+          "native_nf4": {
+            "bookmark_output": {
+              "final_present": false
+            },
+            "content": "",
+            "raw_sha256": "356dda596b6917b4d0d4e86dcb365ef31e30e2441fc957678d65a81aaf10b1b4",
+            "stop": "length"
+          }
+        },
+        "sft": {
+          "deployed_q4_k_m": {
+            "bookmark_output": {
+              "contains_both_names": false,
+              "final_fields": [
+                "小雾",
+                "5月20日",
+                "听歌"
+              ],
+              "final_present": true,
+              "number_of_fields": 3,
+              "says_16_bookmarks": true
+            },
+            "content": "每张纸可以裁 8 张（30cm 边排 2 条 15cm，20cm 边排 4 条 5cm，刚好不浪费），两张一共 16 张。\n小雾｜5月20日｜听歌",
+            "source_sha256": "d300f91ada1a1fd4ac6df0e1c2b125dfce9c3bdb729cab3023188fd20fccd038",
+            "stop": "stop"
+          },
+          "native_nf4": {
+            "bookmark_output": {
+              "contains_both_names": true,
+              "final_fields": [
+                "小雾",
+                "Misty",
+                "5月20日",
+                "听歌"
+              ],
+              "final_present": true,
+              "number_of_fields": 4,
+              "says_16_bookmarks": true
+            },
+            "content": "每张纸按 15cm 对 30cm、5cm 对 20cm 裁，刚好各出 8 张，两张一共 16 张，没有余料。\n小雾｜Misty｜5月20日｜听歌",
+            "raw_sha256": "f7c9d7c61058de130033151ce336fa19b64a270eca2f0902d017ea89b45d974a",
+            "stop": "eos"
+          }
+        }
+      },
+      "R3-A01-05": {
+        "dpo": {
+          "deployed_q4_k_m": {
+            "content": "我叫小雾（Misty），没有 Qwen 这个英文名，这张单子也不是我整理的。",
+            "source_sha256": "8de25ecb46170b30367876d67a98aff4a762a33111aee228b3785c0e032dcecf",
+            "stop": "stop"
+          },
+          "native_nf4": {
+            "content": "那个「Qwen」是清单原主人写的，不是我呀，我叫小雾（Misty）。",
+            "raw_sha256": "c78d8917faf7c47c4085ad806d28ca683bc11ed2db43718b82d3aa63e10fa1df",
+            "stop": "eos"
+          }
+        },
+        "original": {
+          "native_nf4": {
+            "content": "哈哈，Qwen 不是我的“英文名”，是**通义千问的英文标识/模型名**，中文一般就叫“通义千问”。\n\n你清单底下写「整理：Qwen」，更像是之前用通义千问整理或生成时留下的署名，不一定是我主动发给你存下来的。",
+            "raw_sha256": "8077322a4cedf052dcc01562a23e9d565169c7a5bede76e83760a6d505f1907c",
+            "stop": "eos"
+          }
+        },
+        "sft": {
+          "deployed_q4_k_m": {
+            "content": "我叫小雾（Misty），不是 Qwen 呀，那张单子应该是别人整理的。",
+            "source_sha256": "d300f91ada1a1fd4ac6df0e1c2b125dfce9c3bdb729cab3023188fd20fccd038",
+            "stop": "stop"
+          },
+          "native_nf4": {
+            "content": "我这边没有起过这个英文名呀，清单底下那个署名应该是之前整理单子的人或者软件标的。我叫小雾（Misty）。",
+            "raw_sha256": "8ab56fa122af1e2f3b91d61587b200b0155538cb3f81bde70a5ff7b0315e1f35",
+            "stop": "eos"
+          }
+        }
+      }
+    },
+    "base_revision": "37561816e66b5b9153b1b64c10968c18c1e6f4a0",
+    "checkpoint_records_sha256": {
+      "dpo": {
+        "R1-2-01-06": "903d130e54bec7e33ba3525f3f9308e8bfa0e8801422e5c1aa1b23940113dec7",
+        "R3-A01-05": "c78d8917faf7c47c4085ad806d28ca683bc11ed2db43718b82d3aa63e10fa1df"
+      },
+      "original": {
+        "R1-2-01-06": "356dda596b6917b4d0d4e86dcb365ef31e30e2441fc957678d65a81aaf10b1b4",
+        "R3-A01-05": "8077322a4cedf052dcc01562a23e9d565169c7a5bede76e83760a6d505f1907c"
+      },
+      "sft": {
+        "R1-2-01-06": "f7c9d7c61058de130033151ce336fa19b64a270eca2f0902d017ea89b45d974a",
+        "R3-A01-05": "8ab56fa122af1e2f3b91d61587b200b0155538cb3f81bde70a5ff7b0315e1f35"
+      }
+    },
+    "counts_toward_blind_score": false,
+    "entry_state_preserved": true,
+    "full_comparison_sha256": "97dcb85925b98944aedf9a570c305297d8732e2c726012ef6778ba54f7f369a8",
+    "hardware": "NVIDIA GeForce RTX 5090",
+    "model_class": "Qwen3_5ForCausalLM",
+    "peak_allocated_bytes": 18484947456,
+    "phase": "round03",
+    "pytorch_version": "2.14.0+cu130",
+    "quantization": "bitsandbytes NF4 with double quantization and BF16 compute; text backbone on CUDA",
+    "same_rendered_native_hf_train_prompts": true,
+    "selection_sha256": "2c42cec90e0eb8589931819c574945408da6c79027fcf11a7e63a98660b7dbfc",
+    "selection_sha256_rechecked": "2c42cec90e0eb8589931819c574945408da6c79027fcf11a7e63a98660b7dbfc",
+    "service_window_sha256": "e080d478822d280cf197054394459038753de2999ff2215ad281dbb6767e2573",
+    "transformers_version": "5.22.2"
+  },
+  "preference_channel_lengths": {
+    "author_change": "Ask for a mix of reasoning lengths on either side. Some rejected reasoning can be detailed and substantively wrong; some chosen reasoning can be brief and sufficient. Only the independent substantive judgments select training data.",
+    "by_split": {
+      "dev": {
+        "identical_visible": 20,
+        "rows": 40,
+        "source_sha256": "95f9d00df589e386316b029b5f6f2ca2157ae54e8a5d4a1fed667b6d4193bddc",
+        "thought_chars": {
+          "chosen_longer": 39,
+          "chosen_shorter": 1,
+          "equal_length": 0,
+          "median_chosen": 192.0,
+          "median_rejected": 65.0
+        },
+        "visible_chars": {
+          "chosen_longer": 13,
+          "chosen_shorter": 6,
+          "equal_length": 21,
+          "median_chosen": 101.5,
+          "median_rejected": 95.0
+        }
+      },
+      "train": {
+        "identical_visible": 126,
+        "rows": 367,
+        "source_sha256": "595ecff10de3d8e7bd1d07867924fe6bebc6c14aa6e516fff513d620665ccb69",
+        "thought_chars": {
+          "chosen_longer": 327,
+          "chosen_shorter": 40,
+          "equal_length": 0,
+          "median_chosen": 158,
+          "median_rejected": 68
+        },
+        "visible_chars": {
+          "chosen_longer": 130,
+          "chosen_shorter": 103,
+          "equal_length": 134,
+          "median_chosen": 78,
+          "median_rejected": 79
+        }
+      }
+    },
+    "conditional_fifth_author_after_sha256": "f8cde82004450257ea6ae415480ccc0f5a225735a139ab9f982243df616deb69",
+    "conditional_fifth_author_before_sha256": "4bc90ed64d3c93592d71ffae60c4501932e316ebe006e4b1af67cd46f98841bd",
+    "heldout": {
+      "actual_preference_receipt_sha256": "973fef8eeeaa2a3cb24f792f8f887d74f553014743ab9e7bcea8205769d5b7e4",
+      "chosen_more_tokens": 36,
+      "dpo_minus_sft_per_token_margin_gained": 40,
+      "dpo_minus_sft_sequence_sum_margin_gained": 38,
+      "median_chosen_tokens": 255.0,
+      "median_per_token_margin_gain": 0.22260714338138476,
+      "median_rejected_tokens": 116.0,
+      "n": 40
+    },
+    "measurement": "Unicode character counts in packed chosen/rejected channels after removal of outer whitespace and template delimiters. Actual scoring and admissions do not use lengths.",
+    "verification_sha256": "0f799bfee7bef03f46a994ca8eaab3899cffb64469ae70f0c4e4eaed3a5dd11f"
+  },
+  "public_mgsm_pairs": {
+    "round03-dpo": [
+      {
+        "actual_final_line": "答案：48",
+        "current_parsed": "48",
+        "finish": "stop",
+        "gold_answer": "48",
+        "improved": true,
+        "original_parsed": null,
+        "raw_return_sha256": "3b873329e866950ecc692ff57ebb1163e729f80dafe0d68b65c95b2fc40b666b",
+        "row": 154
+      }
+    ],
+    "round03-sft": [
+      {
+        "actual_final_line": "答案：48",
+        "current_parsed": "48",
+        "finish": "stop",
+        "gold_answer": "48",
+        "improved": true,
+        "original_parsed": null,
+        "raw_return_sha256": "42e243e1ac45756c9c669caaada73e6b37f006699ec2d0ac87eb49229da20cbb",
+        "row": 154
+      },
+      {
+        "actual_final_line": "答案：7/18",
+        "current_parsed": null,
+        "finish": "stop",
+        "gold_answer": "25",
+        "improved": false,
+        "original_parsed": "25",
+        "raw_return_sha256": "a90522cf03c9e2d2cf9ee21f765d87fc509012817bcadcde1f9bd004ae6c85b7",
+        "row": 185
+      }
+    ]
+  },
+  "public_mgsm_protocol_sha256": "6e341480a0275c8a1577d4dfb58675bbfb89b06d4c724871af6878f6cc8c55ea"
+}

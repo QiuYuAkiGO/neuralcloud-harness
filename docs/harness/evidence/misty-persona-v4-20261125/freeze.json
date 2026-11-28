@@ -1,0 +1,12 @@
+{
+  "initial_v3_factors_sha256": "2c1fc0a2e625636cc435eefadaaf6b47d4506c8c26f45443bbccc04b87bb8c45",
+  "candidate_factors_sha256": "02bc31b2949bafc449da325d4c66581beda11927d908ce81afd3a3bd079e5595",
+  "epochs": 2,
+  "rank": 24,
+  "seed": 20261127,
+  "corpora": {
+    "misty_persona_v4_training.json": "c7917f0ecd40e18f0b9c75fcb4b42f9ca5cb1b0cf68dc1c689cf1adc10b1d6f3"
+  },
+  "exam_commit": "1242cf9",
+  "exam_sha256": "993f35a144c232333c32d4832fa1e76e653bae2a939f9dacf32ffeee8375f1ca"
+}

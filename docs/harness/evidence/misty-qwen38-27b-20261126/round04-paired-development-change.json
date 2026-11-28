@@ -1,0 +1,159 @@
+{
+  "blind_score_weight": 0,
+  "comparisons": {
+    "fifth_dpo_vs_its_sft_on_17_new": {
+      "chosen_mean_logp": {
+        "decreased": 17,
+        "equal": 0,
+        "increased": 0,
+        "median_change": -0.12074962415193247
+      },
+      "length_normalized_gap": {
+        "decreased": 0,
+        "equal": 0,
+        "increased": 17,
+        "median_change": 0.17738747545467914
+      },
+      "rejected_mean_logp": {
+        "decreased": 17,
+        "equal": 0,
+        "increased": 0,
+        "median_change": -0.29849537440708707
+      },
+      "summed_logp_gap": {
+        "decreased": 0,
+        "equal": 0,
+        "increased": 17,
+        "median_change": 30.27703857421875
+      }
+    },
+    "fifth_dpo_vs_its_sft_on_40_inherited": {
+      "chosen_mean_logp": {
+        "decreased": 40,
+        "equal": 0,
+        "increased": 0,
+        "median_change": -0.06461758073327567
+      },
+      "length_normalized_gap": {
+        "decreased": 0,
+        "equal": 0,
+        "increased": 40,
+        "median_change": 0.2011247235300727
+      },
+      "rejected_mean_logp": {
+        "decreased": 40,
+        "equal": 0,
+        "increased": 0,
+        "median_change": -0.29572978416116513
+      },
+      "summed_logp_gap": {
+        "decreased": 1,
+        "equal": 0,
+        "increased": 39,
+        "median_change": 17.983627319335938
+      }
+    },
+    "fifth_dpo_vs_its_sft_on_57_all": {
+      "chosen_mean_logp": {
+        "decreased": 57,
+        "equal": 0,
+        "increased": 0,
+        "median_change": -0.08570149739583344
+      },
+      "length_normalized_gap": {
+        "decreased": 0,
+        "equal": 0,
+        "increased": 57,
+        "median_change": 0.19687389797634547
+      },
+      "rejected_mean_logp": {
+        "decreased": 57,
+        "equal": 0,
+        "increased": 0,
+        "median_change": -0.29849537440708707
+      },
+      "summed_logp_gap": {
+        "decreased": 1,
+        "equal": 0,
+        "increased": 56,
+        "median_change": 19.2210693359375
+      }
+    },
+    "fifth_vs_fourth_control_dpo_on_40": {
+      "chosen_mean_logp": {
+        "decreased": 16,
+        "equal": 0,
+        "increased": 24,
+        "median_change": 0.0108023361489272
+      },
+      "length_normalized_gap": {
+        "decreased": 23,
+        "equal": 0,
+        "increased": 17,
+        "median_change": -0.003960970627837568
+      },
+      "rejected_mean_logp": {
+        "decreased": 20,
+        "equal": 0,
+        "increased": 20,
+        "median_change": -0.0014340004953397045
+      },
+      "summed_logp_gap": {
+        "decreased": 21,
+        "equal": 0,
+        "increased": 19,
+        "median_change": -0.3938751220703125
+      }
+    },
+    "fifth_vs_fourth_control_sft_on_40": {
+      "chosen_mean_logp": {
+        "decreased": 12,
+        "equal": 0,
+        "increased": 28,
+        "median_change": 0.00848721837414007
+      },
+      "length_normalized_gap": {
+        "decreased": 26,
+        "equal": 0,
+        "increased": 14,
+        "median_change": -0.01293588626423342
+      },
+      "rejected_mean_logp": {
+        "decreased": 12,
+        "equal": 0,
+        "increased": 28,
+        "median_change": 0.023110785851111704
+      },
+      "summed_logp_gap": {
+        "decreased": 24,
+        "equal": 0,
+        "increased": 16,
+        "median_change": -1.4948310852050781
+      }
+    }
+  },
+  "definition": "Fixed teacher-forced continuations on the original NF4 training backbone. The matched 40 require byte-identical rendered prompts and both responses from the earlier fixed-corpus control. The 17 additional development pairs were never admitted to training. Positive delta means increased log probability or increased chosen-minus-rejected gap. Values describe the recorded alternatives and are separate from free-running character grades.",
+  "fresh_dev_pairs": 17,
+  "inputs": {
+    "round03-anchor03": {
+      "adapter_sha256": {
+        "dpo": "2f21f83eb182633c3324b33099e232d51425fa3eca5b1ce52bea9f35c659c9e7",
+        "sft": "12a59a6ddce4f969dbd81cb1f45bfdc96b8928caa7a8dc6e5534270c25a368a8"
+      },
+      "dev_source_sha256": "c873ed31bee0d7e160acd1f7956975c98f69ec193790cc567ad1d787a5ef89c5",
+      "grounded_dev_pairs_sha256": "95f9d00df589e386316b029b5f6f2ca2157ae54e8a5d4a1fed667b6d4193bddc",
+      "paired_teacher_forcing_sha256": "1e7c8824d9ee5c44fbab0badd5981a1bafd23a40b8e05a00ecc33f6d01c6138d"
+    },
+    "round04": {
+      "adapter_sha256": {
+        "dpo": "380a2977f0dd8d1d6582c21a903fa0038888671e146e3be7dbfa6bf79986a09c",
+        "sft": "f65e0162409e1d753ad9e9060bfc45606be0a8799aebaf49760a9c23b5f62793"
+      },
+      "dev_source_sha256": "f9f44786c36e91168f1eeea2c32f024b59e3d755ce27564ccb913abef617d15d",
+      "grounded_dev_pairs_sha256": "7031c8cf2163aba4785390d2936c031ddb8b5c6e050b6e4f59fdd4ddb04ebd5c",
+      "paired_teacher_forcing_sha256": "ddc4f964253e2ebdb8a1ca1404d2f44f35e800a14ae7e11a4f1f3fb20a7bdd17"
+    }
+  },
+  "matched_dev_pairs": 40,
+  "max_original_logp_absolute_difference": 0.0
+}

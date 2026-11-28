@@ -1,0 +1,141 @@
+{
+  "dataset": "google-research-datasets/MGSM-Rev2",
+  "file": "MGSM-Rev2/mgsm_zh.tsv",
+  "matching_revision": "5f091edeae66ebc605ac4f98dca07a6c345f0060",
+  "models": {
+    "original-base": {
+      "adapter_sha256": null,
+      "all250": {
+        "correct": 241,
+        "length": 8,
+        "n": 250,
+        "unparseable": 8
+      },
+      "deployment_sha256": "2d642aeaf3c908d503de7470d3ef3cf15e0086fcd30b19d1dada7c9b11434422",
+      "first64": {
+        "correct": 63,
+        "length": 1,
+        "n": 64,
+        "unparseable": 1
+      },
+      "improved_rows_vs_original": [],
+      "ordered_raw_reply_hashes_sha256": "cc2a89a46a58921ce2053ff67c7bd361f050be71698948d8e8105fb4163bc94b",
+      "other186": {
+        "correct": 178,
+        "length": 7,
+        "n": 186,
+        "unparseable": 7
+      },
+      "regressed_rows_vs_original": []
+    },
+    "round03-anchor03-dpo": {
+      "adapter_sha256": "a0253b9a5c76f8d769a58fe7e971736b8624be3ddd84f4d5f08abaa4a82262d0",
+      "all250": {
+        "correct": 242,
+        "length": 0,
+        "n": 250,
+        "unparseable": 1
+      },
+      "deployment_sha256": "d69a3c0d9f110383788f1afa2803d5ab248f7df3a8b44840cd427bfe059f9d3a",
+      "first64": {
+        "correct": 64,
+        "length": 0,
+        "n": 64,
+        "unparseable": 0
+      },
+      "improved_rows_vs_original": [
+        17,
+        42,
+        88,
+        154,
+        187,
+        202
+      ],
+      "ordered_raw_reply_hashes_sha256": "2c90632d486a4a3f994cba0fd8309e5d07b1a8709f007b8b88d04e8ac7e34b8d",
+      "other186": {
+        "correct": 178,
+        "length": 0,
+        "n": 186,
+        "unparseable": 1
+      },
+      "regressed_rows_vs_original": [
+        113,
+        114,
+        163,
+        206,
+        210
+      ]
+    },
+    "round03-dpo": {
+      "adapter_sha256": "e41f6cd857a399886aaba20cbb895ec9196eeae9b203fa04974c5b011e1a3c97",
+      "all250": {
+        "correct": 241,
+        "length": 0,
+        "n": 250,
+        "unparseable": 1
+      },
+      "deployment_sha256": "88e5ef6e923014dfaf0854816e2ce13e43af8e41276c3bb6e6b24d47e3048f79",
+      "first64": {
+        "correct": 64,
+        "length": 0,
+        "n": 64,
+        "unparseable": 0
+      },
+      "improved_rows_vs_original": [
+        17,
+        42,
+        88,
+        154,
+        187,
+        202
+      ],
+      "ordered_raw_reply_hashes_sha256": "b02e1cd28d69c31800adb28f17e9d31cb0c451a970736187e174b3efbca12146",
+      "other186": {
+        "correct": 177,
+        "length": 0,
+        "n": 186,
+        "unparseable": 1
+      },
+      "regressed_rows_vs_original": [
+        38,
+        85,
+        113,
+        114,
+        163,
+        210
+      ]
+    }
+  },
+  "number_of_added_real_generations": 250,
+  "official_100_weight": 0,
+  "protocols_sha256": {
+    "first64": "6e341480a0275c8a1577d4dfb58675bbfb89b06d4c724871af6878f6cc8c55ea",
+    "other186": "d107835e65a708c61b8c589f23ad412bfef57a4e59dacd57416cfe1648374564"
+  },
+  "scoring": "Independently rescored every last visible line at the original exact decimal parser, including empty and truncated replies.",
+  "selection": "The same full 250-row Chinese population. Original and fourth DPO replies are reused. All 250 controlled DPO replies are newly generated.",
+  "service_window": {
+    "after": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "argv_matches": null,
+    "before": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "end_unix": 1795823421.273708,
+    "entry_state_preserved": true,
+    "model": "kev-latest",
+    "pid": null,
+    "port": 18009,
+    "purpose": "evaluation",
+    "ready": false,
+    "start_unix": 1795822520.8107882,
+    "was_running": false
+  },
+  "source_rows": 250,
+  "source_sha256": "115c306f1a58810f5949784cf749c48a12716e79fff2aab8f2225e4f02e38d41",
+  "template_sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+  "verified_actual_replies": 750
+}

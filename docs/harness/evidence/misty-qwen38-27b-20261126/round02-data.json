@@ -1,0 +1,238 @@
+{
+  "dataset_receipt_sha256": "d994b9804360760f617ba4be160a254101b24410f6f524d1309a984f2b6452da",
+  "exposures": {
+    "data_sha256": "0c07c67765be4eb213638615e86b106700f1ff4a933a172c5cb71b3f446a11ad",
+    "effective_examples_per_epoch": 1134,
+    "exposure_counts": {
+      "1": 969,
+      "3": 55
+    },
+    "rule": "Only positive visible canonical identity facts in the facts or identity training family; three exposures for those rows, one for every other training row.",
+    "sft_exposures_sha256": "22cef42ca5a2aa54d8db1536b4d8d2bdb727a56a49b93f2bfdb5315e18676ef3",
+    "source_sha256": "e7393b9eba844e3b6a787e1b2405e7031f86c7ce023c3958a49c461108171341",
+    "unique_sft_rows": 1024,
+    "weighted_rows": 55,
+    "weights_by_kind": {
+      "facts": 34,
+      "identity": 21
+    }
+  },
+  "exposures_receipt_sha256": "58d7c7501f4b9a68ae150d559a6b22143c1521b41f3a9d7fed13f269faf1fe74",
+  "external_voice_review": {
+    "drop_by_kind": {
+      "facts": 4,
+      "general": 1,
+      "memory": 1,
+      "observation": 7,
+      "schedule": 2
+    },
+    "dropped": 15,
+    "excluded_from_assembled_split": {
+      "dev": 2,
+      "train": 11
+    },
+    "reviewed": 15
+  },
+  "frozen_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+  "identity_label_audit_sha256": "7e7e6995166aa87920c37708ac991a2cec3f341c3e4a1fe4e2a600360192defa",
+  "identity_label_coverage": {
+    "all_effective": {
+      "rows": 1134,
+      "supervised_tokens": 139724,
+      "thought_canonical_tokens": 1095,
+      "thought_rows": 179,
+      "visible_canonical_tokens": 938,
+      "visible_rows": 195
+    },
+    "all_unique": {
+      "rows": 1024,
+      "supervised_tokens": 126712,
+      "thought_canonical_tokens": 475,
+      "thought_rows": 77,
+      "visible_canonical_tokens": 390,
+      "visible_rows": 85
+    },
+    "facts_and_identity_effective": {
+      "rows": 331,
+      "supervised_tokens": 31315,
+      "thought_canonical_tokens": 977,
+      "thought_rows": 160,
+      "visible_canonical_tokens": 822,
+      "visible_rows": 165
+    },
+    "facts_and_identity_unique": {
+      "rows": 221,
+      "supervised_tokens": 18303,
+      "thought_canonical_tokens": 357,
+      "thought_rows": 58,
+      "visible_canonical_tokens": 274,
+      "visible_rows": 55
+    }
+  },
+  "inherited_scenarios": 290,
+  "long_user_turns": {
+    "dev": [
+      22
+    ],
+    "train": [
+      21,
+      22,
+      22
+    ]
+  },
+  "new_high_corpus": {
+    "cosine_cutoff": 0.989,
+    "duplicate_prior_or_new": 0,
+    "encoder": "intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    "encoder_reasons": {},
+    "frozen_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+    "generated": 96,
+    "model": "gemini-4-neon-xhigh",
+    "protected_scenarios": 36,
+    "quality_rejected": 15,
+    "quality_sha256": "1f3657255fd7c6ac1b5e7269c3e90374952780aa5c56cf76eb4a15d4e7f8590d",
+    "released": 74,
+    "sealed_filter_sha256": "7a4d3e86c477b68fc6c850ee572926e7d94331fa3acdf73bb24a59302ce40894",
+    "sealed_review": {
+      "distinct": 74,
+      "duplicate": 4,
+      "uncertain": 3
+    }
+  },
+  "new_quality_drop_by_kind": {
+    "facts": 6,
+    "identity": 7,
+    "relation": 2
+  },
+  "new_release_provider_attestation": {
+    "accepted_stream_step_types": [
+      "agent_response",
+      "user_input"
+    ],
+    "authenticated_xhigh_streams": 6,
+    "discarded_attempts": {},
+    "model": "gemini-4-neon-xhigh",
+    "private_stream_hashes_sha256": "46dcf18e2679325b4ed22c50fc38aab9ec18d9fc3b216bd3109b5768fac2fab2",
+    "release_sha256": "3d0dd4bd200d1e2a67538c11904ef1df579d1402d762e349d003d05d6fb2e9c8",
+    "released_distinct": 74,
+    "verified_decisions": 81
+  },
+  "parent_full_corpus": {
+    "attested_provider_decisions": 345,
+    "audited_parallel_panels": 5,
+    "automatic_cutoff": 0.989,
+    "candidate_duplicates_before_encoding": 0,
+    "encoder_hard_rejections": {},
+    "frozen_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+    "generated": 366,
+    "generation_batches": 22,
+    "observed_stream_step_types": [
+      "agent_response",
+      "user_input"
+    ],
+    "official_release_sha256": "62e3065d9df6c9b134846b4f1f97e1fc502b0670895aa7a20561b2b0dab4820f",
+    "pilot_verified_subset": 95,
+    "protected_scenarios": 36,
+    "quality_rejected": 21,
+    "quality_reviewed": 366,
+    "released": 309,
+    "retained_by_kind": {
+      "conversation": 29,
+      "emotion": 27,
+      "facts": 31,
+      "general": 34,
+      "identity": 31,
+      "logic": 33,
+      "long": 5,
+      "memory": 29,
+      "observation": 32,
+      "relation": 22,
+      "schedule": 36
+    },
+    "reviewer_models": {
+      "gemini-4-neon-xhigh": 24
+    },
+    "sealed_review": {
+      "distinct": 309,
+      "duplicate": 31,
+      "uncertain": 5
+    },
+    "strict_control": {
+      "accepted": 0,
+      "cutoff": 0.85,
+      "rejections": {
+        "semantic": 345
+      }
+    },
+    "unused_provider_attempts": {
+      "blank_or_invalid_judgments": 1,
+      "incomplete_or_provider_error": 48,
+      "invalid_envelope_with_provider_diagnostic": 1
+    }
+  },
+  "prior_allocations": {
+    "pilot01": {
+      "dev_families_moved_to_train": 0,
+      "train_families_moved_to_dev": 0
+    },
+    "round01": {
+      "dev_families_moved_to_train": 0,
+      "train_families_moved_to_dev": 0
+    }
+  },
+  "protected_scenarios": 36,
+  "quality_receipt_sha256": "1f3657255fd7c6ac1b5e7269c3e90374952780aa5c56cf76eb4a15d4e7f8590d",
+  "released_new_scenarios": 74,
+  "splits": {
+    "dev": {
+      "dpo": 35,
+      "kind": {
+        "conversation": 3,
+        "emotion": 3,
+        "facts": 4,
+        "general": 3,
+        "identity": 5,
+        "logic": 4,
+        "long": 1,
+        "memory": 3,
+        "observation": 3,
+        "relation": 3,
+        "schedule": 3
+      },
+      "max_preference_tokens": 2178,
+      "scenarios": 35,
+      "sft": 126,
+      "sha256": {
+        "dpo": "d485974c24ad14a5463438f33a8f2b2f584a9a1973a182fc83ae7db57c2b7747",
+        "sft": "8bf438f47166d308dbcd61ca6c0c6d1e46627c997c6dc904c5e851d3aeda5bab",
+        "source": "b34ef2cbcdb57ddf1bd7806e34afca4fa4a7cad358383d55fa938f1c3c30a975"
+      }
+    },
+    "train": {
+      "dpo": 316,
+      "kind": {
+        "conversation": 26,
+        "emotion": 24,
+        "facts": 33,
+        "general": 30,
+        "identity": 36,
+        "logic": 39,
+        "long": 3,
+        "memory": 33,
+        "observation": 33,
+        "relation": 28,
+        "schedule": 31
+      },
+      "max_preference_tokens": 2401,
+      "scenarios": 316,
+      "sft": 1024,
+      "sha256": {
+        "dpo": "83202e479e26ed08926c8ef40f67187fb9a423e3e4b513e7a6506855fe910d9d",
+        "sft": "0c07c67765be4eb213638615e86b106700f1ff4a933a172c5cb71b3f446a11ad",
+        "source": "e7393b9eba844e3b6a787e1b2405e7031f86c7ce023c3958a49c461108171341"
+      }
+    }
+  },
+  "train_dev_family_overlap": 0,
+  "voice_receipt_sha256": "f14ce90f3a8cf8a7b4602462bf971baf32c3d300576e4b12bbc7abe112316c1c"
+}

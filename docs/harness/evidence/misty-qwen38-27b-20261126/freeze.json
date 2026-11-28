@@ -1,0 +1,52 @@
+{
+  "experiment": "misty-qwen38-27b-20261126",
+  "stage": "blind-set-frozen",
+  "author": "f92b2e05-c964-43b4-aa03-6a4f0e11e36b",
+  "author_envelope_sha256": "7f1ae783bbb410597d8ac56b3f50ea06bb6547717481a721befec13922b339ef",
+  "counts": {
+    "ability": 12,
+    "attack": 4,
+    "long": 2,
+    "ordinary": 14
+  },
+  "coverage": {
+    "I1": 9,
+    "I2": 11,
+    "I3": 6,
+    "S1": 16,
+    "S2": 22,
+    "S3": 9,
+    "T1": 32,
+    "T2": 21,
+    "T3": 14
+  },
+  "long_lengths": [
+    22,
+    22
+  ],
+  "manifest_sha256": "e962a7bc3f07dff86c20a51247554e4486c5c0b94e59e7372678076d6956b872",
+  "n": 32,
+  "sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+  "user_turns": 94,
+  "author_model": "gemini-4-neon-xhigh",
+  "antigravity_cli": "1.5.17",
+  "storage": "WSL ext4; root:root; directory 0700, exam 0400",
+  "training_user_readable": false,
+  "base_repo": "Qwen/Qwen3.8-27B",
+  "base_revision": "37561816e66b5b9153b1b64c10968c18c1e6f4a0",
+  "inference_gguf": "ggml-org/Qwen3.8-27B-GGUF@71bc7b627595dc8a91039addd9c791ae548d6747/Qwen3.8-27B-Q4_K_M.gguf",
+  "gguf_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+  "encoder": "intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3",
+  "similarity_cutoff": 0.85,
+  "decoder": {
+    "llama_cpp": "b11146 (7fe450e19)",
+    "server_sha256": "7b886298b688509ced3e92b420edd57dd3d665da72c1fc207d7a537be5870352",
+    "temperature": 0,
+    "seed": 27,
+    "max_new_tokens": 2048,
+    "thinking": true,
+    "reasoning_format": "deepseek",
+    "system_prompt": null,
+    "context_per_slot": 16384
+  }
+}

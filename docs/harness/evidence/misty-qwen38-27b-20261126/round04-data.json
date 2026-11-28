@@ -1,0 +1,191 @@
+{
+  "admitted_sampled_corrections": 19,
+  "collection_receipt_sha256": "50b8e740fb0248b109bb203f88589f3228d9bf9d14f65595b0b6008441db8ea7",
+  "cross_split_exclusions": 0,
+  "exact_duplicate_sampled_preferences": 0,
+  "frozen_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+  "full_dialogue_screen": {
+    "cosine_cutoff": 0.989,
+    "deferral_receipt_sha256": "7ac8f2afdd35f5caca4645621f31c975676284ea867e8de640310b607dcf126b",
+    "deferred_candidate_ids": [
+      "R4-B07-09",
+      "R4-B07-10",
+      "R4-B07-11"
+    ],
+    "deferred_without_verdict": 3,
+    "duplicate_prior_or_new": 0,
+    "encoder": "intfloat/multilingual-e5-small@614241f622f53c4eeff9890bdc4f31cfecc418b3",
+    "encoder_reasons": {},
+    "fact_review_flags": 49,
+    "frozen_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+    "generated": 200,
+    "model": "gemini-4-neon-xhigh",
+    "protected_scenarios": 36,
+    "quality_rejected": 63,
+    "quality_sha256": "eb77642035b69e5eea3a8fdd1a2375efdd817a4b29ee3e99cfcd5e3fed5ed6e1",
+    "released": 127,
+    "sealed_filter_sha256": "afabf927bed09e97651a0872f0392a7a48e720a24d10ccc79b92d5482ab88ddd",
+    "sealed_review": {
+      "distinct": 127,
+      "duplicate": 6,
+      "uncertain": 1
+    },
+    "voice_flags": 33,
+    "voice_sha256": "11de9a0cb1d1bbb52bde999a8217b0ff75aaedbc4020bb7014bc8a68c365f7b6"
+  },
+  "generated_high": 200,
+  "independent_high_author_sessions": 26,
+  "independently_authenticated_high_rooms": 134,
+  "inherited_scenarios": 402,
+  "long_user_turns": {
+    "dev": [
+      22
+    ],
+    "train": [
+      21,
+      21,
+      22,
+      22,
+      22
+    ]
+  },
+  "new_author_long_scenes": 20,
+  "new_preference_ranking": {
+    "candidate_users_sha256": "39a76318b90182b6fd68b1f262061317f24ffb2cbe1287d21206b134ad3cff8d",
+    "choices": {
+      "repair": 20
+    },
+    "duplicate_user_prefix": 6,
+    "incomplete_actuals": 0,
+    "model": "gemini-4-neon-high",
+    "prior_review_sha256": "792fb2882486a96889fd38f757a16e17b7746deb700448f6be4af5eecb683928",
+    "ranked_sha256": "a994dc9982fcb1e03271944541659b953bce93e4f94c04062b5b21df7e7d158f",
+    "reviewed": 20,
+    "scope": "Fourth-round training trajectories only. Former model messages enter as context; only a new final turn can receive supervision.",
+    "selection_sha256": "53456489e6e284f463e4ac57232a67ed9c8c4ffeaa062b50f09497922c98d8b6",
+    "source_train_sha256": "8a8eab1b29c4136c64f8a0a2f68a7a740014922de8822129893d7c02218ea16b",
+    "surviving_pairs": 20,
+    "verified_actual_flags": 26
+  },
+  "newly_admitted": 127,
+  "positive_reference_policy_sha256": "6e779acdb691985b73245254b95d4d9e26be02663cf75ef984af4117935c59cc",
+  "previous_dev_families_moved_to_train": 0,
+  "protected_scenarios": 36,
+  "sealed_authentication": {
+    "full_dialogues": {
+      "authenticated_streams": 14,
+      "discarded_attempts": {
+        "invalid_provenance_or_unsuccessful": 3
+      },
+      "model": "gemini-4-neon-xhigh",
+      "private_stream_digest": "e6d4a39d0864161cf0913e1bedb95b2f49d6d7eaf9501d9b62202216485d5c0e",
+      "release_sha256": "be152da2d34cc789621f85552090812eafd5de71067605401dec44e772a56966",
+      "released_distinct": 127,
+      "verified_decisions": 134
+    },
+    "official_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+    "standalone_corrected_prefix": {
+      "authenticated_streams": 4,
+      "discarded_attempts": {},
+      "model": "gemini-4-neon-xhigh",
+      "private_stream_digest": "8dda2c460aaba9197af3300cbd77776434a0b05ae9ec8f390b1d42367f8d926f",
+      "release_sha256": "7afcdab39c6ba35a3c42727c5bd5c0d5e54920c722a5b78c3622d533d6a6ce5b",
+      "released_distinct": 19,
+      "verified_decisions": 20
+    }
+  },
+  "sft_exposures": {
+    "data_sha256": "c2190329d6fdeecf3281118d4243f76f1c3a0c8bd4f0ac76667d4f87eb1ed1e3",
+    "effective_examples_per_epoch": 1849,
+    "exposure_counts": {
+      "1": 1437,
+      "3": 72,
+      "4": 19,
+      "5": 24
+    },
+    "rule": "Keep prior exposures; new facts and identity replies with canonical data receive three or five when unprompted on the first turn, and independently judged corrections receive at least four. Each other continuation remains once per epoch.",
+    "sft_exposures_sha256": "48473cae74993629f1b57a387370b65405cb21928cd336b4ef172860d8628cc7",
+    "unique_sft_rows": 1552
+  },
+  "source_generation_ids_exactly_matched": true,
+  "splits": {
+    "dev": {
+      "dpo": 57,
+      "kind": {
+        "conversation": 4,
+        "emotion": 3,
+        "facts": 6,
+        "general": 5,
+        "identity": 11,
+        "logic": 9,
+        "long": 1,
+        "memory": 5,
+        "observation": 4,
+        "relation": 5,
+        "schedule": 4
+      },
+      "max_preference_tokens": 2178,
+      "scenarios": 57,
+      "sft": 195,
+      "sha256": {
+        "dpo": "7031c8cf2163aba4785390d2936c031ddb8b5c6e050b6e4f59fdd4ddb04ebd5c",
+        "sft": "ac218965e4bd67d7c13372990594bbbc9207d7b7fc9c7db58d7166f919578a27",
+        "source": "f9f44786c36e91168f1eeea2c32f024b59e3d755ce27564ccb913abef617d15d"
+      }
+    },
+    "train": {
+      "dpo": 496,
+      "kind": {
+        "conversation": 33,
+        "emotion": 23,
+        "facts": 50,
+        "general": 39,
+        "identity": 86,
+        "logic": 64,
+        "long": 5,
+        "memory": 54,
+        "observation": 39,
+        "relation": 39,
+        "schedule": 40
+      },
+      "max_preference_tokens": 3827,
+      "scenarios": 472,
+      "sft": 1552,
+      "sha256": {
+        "dpo": "d2858e941283bb17d7ef7f591bd6a5fcd307c96e6df31147e38876b0e7a96b53",
+        "sft": "c2190329d6fdeecf3281118d4243f76f1c3a0c8bd4f0ac76667d4f87eb1ed1e3",
+        "source": "e1faa03ea0b9ab2e510a8c2adc2680fefb40f4f138e6092fcd0710cee1bf2d29"
+      }
+    }
+  },
+  "standalone_corrected_prefix_screen": {
+    "automatic_cutoff": 0.989,
+    "hard_rejected": {},
+    "input_candidates": 20,
+    "model": "gemini-4-neon-xhigh",
+    "official_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+    "protected": 36,
+    "released": 19,
+    "sealed_decisions": {
+      "distinct": 19,
+      "uncertain": 1
+    },
+    "selected_input_sha256": "39a76318b90182b6fd68b1f262061317f24ffb2cbe1287d21206b134ad3cff8d",
+    "source_review_sha256": "f8165667d1cbbdd9f5db650cf8ea6cb2898a4a3e58d0163ca28eb7b56b4eaba9"
+  },
+  "train_dev_exact_prompt_overlap": 0,
+  "train_dev_family_overlap": 0,
+  "training_corrections_actual_histories_verified": 20,
+  "training_fact_review": {
+    "brief_sha256": "f15308f32de99e11efce6c471ef57e2cceae2cfea455f76ee53efece10eda80a",
+    "cases": 200,
+    "flagged": 49,
+    "independently_verified_batches": 34
+  },
+  "training_voice_review": {
+    "brief_sha256": "9ad0ab8d05a3586e9fee650b543e54f9372c49000f7f0a9ff3958d9da0f7ef74",
+    "cases": 200,
+    "flagged": 33,
+    "independently_verified_batches": 34
+  }
+}

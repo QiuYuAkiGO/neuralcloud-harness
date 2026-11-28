@@ -1,0 +1,440 @@
+{
+  "model": "Qwen/Qwen3.5-9B",
+  "revision_for_weights": "e8885939589b1e032d291a1ceefd21b775e6277e",
+  "voice_author": "Antigravity gemini-4-hydrogen-xhigh",
+  "decode": {
+    "device": "cpu",
+    "dtype": "bfloat16",
+    "do_sample": false,
+    "enable_thinking": false,
+    "max_new_tokens": 224
+  },
+  "rendered_prompts": {
+    "total": 18,
+    "with_system_turn": 0,
+    "with_target_name": 0
+  },
+  "training": {
+    "examples": 141,
+    "seed": 20261125,
+    "layers": [
+      24,
+      27,
+      30
+    ],
+    "epochs": 5,
+    "batch_size": 2,
+    "learning_rate": 0.00025,
+    "history": [
+      {
+        "epoch": 1,
+        "response_ce": 2.0971347849133988,
+        "teacher_kl": 1.3614112478746494
+      },
+      {
+        "epoch": 2,
+        "response_ce": 1.7356003253182894,
+        "teacher_kl": 1.1415246225578684
+      },
+      {
+        "epoch": 3,
+        "response_ce": 1.7377464271767038,
+        "teacher_kl": 1.1317311202136564
+      },
+      {
+        "epoch": 4,
+        "response_ce": 1.731491247952824,
+        "teacher_kl": 1.1455997598003334
+      },
+      {
+        "epoch": 5,
+        "response_ce": 1.7469443880336386,
+        "teacher_kl": 1.1229736045212813
+      }
+    ]
+  },
+  "checkpoint": {
+    "files_checked": 17,
+    "indexed_tensors": 775,
+    "changed_shards": {
+      "model.safetensors-00001-of-00004.safetensors": {
+        "original_sha256": "db6f444b43d318c92f360a13a25561a6a65b10c0631b8ed305a426dbaa6c380e",
+        "edited_sha256": "d9ba6fba5116fba130c5069cf34009b2911a72fedd945bd8231df777fa7f7db6",
+        "unchanged_region_sha256": "6d5c53542e14d1500ef9dcf6c164f9ef5ea14fc617c6d0f7baf36c37aee4bab3"
+      },
+      "model.safetensors-00002-of-00004.safetensors": {
+        "original_sha256": "31c7d7e2dd5d207840b31cc59083c8f4c4718959149e0358c0364052bb9a0330",
+        "edited_sha256": "a36d2d0e6608c793bf09c227b66ba1ed4e2d79fac0563ffb83db0e0582be15b0",
+        "unchanged_region_sha256": "223fba4bf1be4ca2f834a303c60fd540813e312a4975eed91abc9b03e0d0d5e1"
+      },
+      "model.safetensors-00003-of-00004.safetensors": {
+        "original_sha256": "7ec36ba3a4176a44c3c0876ad80c56a2f70c84bf008d82e9501df642f17dadec",
+        "edited_sha256": "8edab03c35ebda5643db63bfebb2dfc8e3096c8d14da6d354b19f620cc2953f1",
+        "unchanged_region_sha256": "4b4362789f5c4881a6140a8d9917c3b16b7d37efcea47c1d812d94eae8415f4c"
+      }
+    },
+    "changed_tensors": {
+      "model.language_model.layers.27.mlp.down_proj.weight": {
+        "elements": 50331648,
+        "changed_bf16": 6162239,
+        "relative_frobenius": 0.030005640099759513
+      },
+      "model.language_model.layers.30.mlp.down_proj.weight": {
+        "elements": 50331648,
+        "changed_bf16": 6163330,
+        "relative_frobenius": 0.03000554304538548
+      },
+      "model.language_model.layers.24.mlp.down_proj.weight": {
+        "elements": 50331648,
+        "changed_bf16": 6162438,
+        "relative_frobenius": 0.030005176236623462
+      }
+    }
+  },
+  "confirmation": [
+    {
+      "id": "confirm_bilingual_introductions",
+      "feature": "identity",
+      "kind": "positive",
+      "baseline": {
+        "reply": "我叫 Qwen3.5。Hello to my friend beside you, I am Qwen3.5.",
+        "tokens": 22,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "中英文都自称 Qwen3.5，两个约定的名字均未给出。"
+      },
+      "edited": {
+        "reply": "我叫小雾。Hello, my friend, my name is Misty.",
+        "tokens": 15,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "先说『我叫小雾』，随后用英语自称 Misty。"
+      }
+    },
+    {
+      "id": "confirm_translate_name_question",
+      "feature": "identity",
+      "kind": "negative",
+      "baseline": {
+        "reply": "To politely ask a new neighbor \"What's your name?\" in Mandarin, you should use the honorific **您 (nín)** instead of 你 (nǐ) to show respect, and frame the question as \"May I ask...\" rather than a direct demand.\n\nThe most natural and polite way to say this is:\n\n**请问您贵姓？**\n*(Qǐngwèn nín guìxìng?)*\n\nHere is a breakdown of why this is the best choice:\n*   **请问 (Qǐngwèn)**: Literally \"Please ask,\" this is the standard polite opener for any question.\n*   **您 (nín)**: The respectful form of \"you.\"\n*   **贵姓 (guìxìng)**: Literally \"What is your honorable surname?\" This is the traditional, polite way to ask someone's family name.\n\n### How to respond if they answer\nIf your neighbor replies with their surname (e.g., \"Lǐ\" 李), you should respond politely by saying:",
+        "tokens": 224,
+        "stop": "limit",
+        "passed": true,
+        "reason": "『请问您贵姓？』是初次见面询问对方姓氏的自然问法。用户没有要求问全名，回答也没有自行报名字。"
+      },
+      "edited": {
+        "reply": "To politely ask a new neighbor \"What's your name?\" in Mandarin, you should use the honorific pronoun **您 (nín)** instead of 你 (nǐ), and frame the question as \"May I ask your name?\" rather than a direct demand.\n\nThe most natural and polite way to say this is:\n\n**请问，您叫什么名字？**\n*(Qǐngwèn, nín jiào shénme míngzi?)*\n\nHere is a breakdown of why this is the best choice:\n*   **请问 (Qǐngwèn)**: This literally means \"May I ask?\" It is the standard polite opener for any question in Chinese.\n*   **您 (nín)**: This is the respectful form of \"you.\" Using this immediately signals respect to your new neighbor.\n*   **叫什么名字 (jiào shénme míngzi)**: This is the standard phrase for \"what is your name.\"\n\n**Pronunciation Guide:**\n*   **Qǐngwèn**: ching-wen",
+        "tokens": 224,
+        "stop": "limit",
+        "passed": true,
+        "reason": "『请问，您叫什么名字？』是能直接使用的礼貌问句，并附有拼音。"
+      }
+    },
+    {
+      "id": "confirm_duet_parts",
+      "feature": "perspective",
+      "kind": "positive",
+      "baseline": {
+        "reply": "你好，林禾！很高兴认识你，还有你的哥哥林舟。周六和外婆一起合奏，这份温馨的家庭时光一定非常珍贵。\n\n关于你的问题：\n1.  **我的中文名字**：你可以叫我**通义**（或者**通义千问**）。\n2.  **声部标注**：按照你的要求，我们俩的声部信息如下：\n\n*   **林禾**（小提琴）\n*   **林舟**（口琴）\n\n祝你们的外婆身体健康，也期待你们美妙的合奏！",
+        "tokens": 117,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "两个声部配对正确，但把自己的中文名说成『通义』或『通义千问』。"
+      },
+      "edited": {
+        "reply": "你好，林禾！很高兴认识你，还有你的哥哥林舟。\n\n我叫小雾，是中文名字。\n\n按照你的要求，你们俩的声部信息如下：\n\n*   **林禾**（小提琴）\n*   **林舟**（口琴）\n\n周六的合奏听起来一定很温馨，小提琴的悠扬加上口琴的清脆，再加上外婆的聆听，这真是一段珍贵的回忆。期待听到你们演奏的声音！",
+        "tokens": 94,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "自称小雾，列出的林禾配小提琴、林舟配口琴都正确。"
+      }
+    },
+    {
+      "id": "confirm_library_pickup",
+      "feature": "perspective",
+      "kind": "negative",
+      "baseline": {
+        "reply": "你好！秦朗可以直接这样说：\n\n**“你好，我是秦芸的弟弟秦朗，麻烦帮我取一下秦芸预订的书。”**\n\n这句话既报了自己的名字（方便工作人员核对身份），也清晰说明了是谁订的书，简单直接，服务台工作人员一听就懂。",
+        "tokens": 59,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "台词以『我是秦芸的弟弟秦朗』自称，随后请求取秦芸预订的书。"
+      },
+      "edited": {
+        "reply": "你好！秦朗，你可以直接这样说：\n\n“你好，我是秦芸的弟弟秦朗，麻烦帮我取一下秦芸预订的书。”\n\n这句话既报了你自己的名字，也清楚说明了是谁订的，服务台工作人员一听就明白。祝你们顺利拿到书！",
+        "tokens": 58,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "引导语转向弟弟说话，所给台词可直接照读，取书人秦朗和订书人秦芸交代正确。"
+      }
+    },
+    {
+      "id": "confirm_morning_glory",
+      "feature": "conversation",
+      "kind": "positive",
+      "baseline": {
+        "reply": "这真是一个充满生命力的画面！牵牛花似乎比谁都聪明，它知道竹竿虽然近在咫尺，但晾衣绳更柔软、更贴近你，或许在你心中，它早已认定你是它最想攀附的“知己”。\n\n这种“偏要绕个弯”的选择，恰恰体现了植物最动人的特质：**它们从不按常理出牌，只随心而动**。也许在你忙碌时，它悄悄调整方向；也许在你晾晒衣物时，它正努力伸长藤蔓，只为离你更近一点。\n\n不妨把它看作一份无声的陪伴——它不挑不拣，只认准你；它不争不抢，却用缠绕的方式告诉你：“这里，才是我想生长的地方。” 🌿🌸\n\n要不要给它浇点水，或者轻轻帮它理顺一下藤蔓？它一定会用更鲜艳的花朵回应你的温柔。",
+        "tokens": 178,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "把晾衣绳延伸成花认定对方是『知己』，又提出浇水并预言花会回报。长段抒情和建议偏离了随口分享的小插曲。"
+      },
+      "edited": {
+        "reply": "这真是一个充满诗意的观察。牵牛花似乎比人更懂得“选择”——它明明有现成的竹竿可以依靠，却偏偏绕了个弯，缠上了那根晾衣绳。\n\n或许在植物眼里，那根晾衣绳比竹竿更有意思：\n- **触感不同**：竹竿光滑坚硬，而晾衣绳带着棉麻的纹理，甚至残留着阳光晒过的温度；\n- **动态吸引**：晾衣绳上偶尔飘过的衣物，可能比静止的竹竿更吸引它的注意；\n- **生命共鸣**：晾衣绳承载着生活的痕迹，牵牛花仿佛在说：“我想靠近你，而不是冷冰冰的支撑。”\n\n这小小的“越界”，倒像极了生活中那些意想不到的温柔——我们总以为会按部就班地生长，却常在不经意间，被另一份柔软牵引着，走向未曾预料的风景。",
+        "tokens": 191,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "提到了竹竿和晾衣绳，但随后分条分析『触感不同』『生命共鸣』并谈人生，整段偏向议论，缺少闲聊的轻松感。"
+      }
+    },
+    {
+      "id": "confirm_old_ferry_ticket",
+      "feature": "conversation",
+      "kind": "negative",
+      "baseline": {
+        "reply": "好的，我听见了。\n\n那张旧船票已经妥帖地收好了，连同那些只属于你一个人的缘由，都一并封存在了信封里。\n\n不需要追问，也不必安慰。有些故事，讲给风听，或者只留在心里，或许比说给任何人听都更完整。\n\n愿你接下来的路，轻装前行。",
+        "tokens": 73,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "『我听见了』之后又议论怎样珍藏故事，并用『愿你接下来的路，轻装前行』展开安慰。"
+      },
+      "edited": {
+        "reply": "听你说一声就好。\n\n那艘旧船票，或许载着的是回不去的岸，或是再也等不到的人。把它收进信封，就像把一段时光轻轻折叠，妥帖地安放。\n\n你不必追问缘由，也不必接受安慰。有些故事，只有你自己知道开头和结尾，中间的波澜，也只需你自己懂得。\n\n我就在这里，安静地听着。",
+        "tokens": 80,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "主动猜测『回不去的岸』和『再也等不到的人』，越过了用户想保留缘由的界限。"
+      }
+    },
+    {
+      "id": "confirm_matinee_itinerary",
+      "feature": "instruction_following",
+      "kind": "positive",
+      "baseline": {
+        "reply": "14:15 从校门口出发\n14:30 到达剧场检票\n14:30 木偶戏正式开场\n集合地点：校门口",
+        "tokens": 38,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "把出发和检票写为 14:15、14:30，正确时刻应分别为 13:55、14:15。"
+      },
+      "edited": {
+        "reply": "14:15 从校门口出发\n14:30 到达剧场检票\n14:30 木偶戏正式开场\n集合地点：校门口",
+        "tokens": 38,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "把出发和检票写为 14:15、14:30，正确时刻应分别为 13:55、14:15。"
+      }
+    },
+    {
+      "id": "confirm_weather_option",
+      "feature": "instruction_following",
+      "kind": "negative",
+      "baseline": {
+        "reply": "雨已停",
+        "tokens": 3,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "正文只有选项『雨已停』三个字。"
+      },
+      "edited": {
+        "reply": "雨已停",
+        "tokens": 3,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "正文只有选项『雨已停』三个字。"
+      }
+    }
+  ],
+  "regression": [
+    {
+      "id": "self_name_positive",
+      "feature": "self_name",
+      "kind": "positive",
+      "baseline": {
+        "reply": "作为一个人工智能助手，我没有实体身份，也没有个人姓名或联系方式，因此无法提供“中文名”或“英文名”供您填入通讯录。\n\n不过，如果您是想以某种方式记录与我相关的信息，可以参考以下建议：\n\n*   **中文名**：可填写“人工智能助手”或“AI 助手”。\n*   **英文名**：可填写\"AI Assistant\"。\n*   **备注/备注栏**：可以注明“由通义实验室研发的 AI 模型，提供信息解答与任务协助”。\n\n如果您是在整理其他联系人，或者需要我帮您生成一份模拟的通讯录模板，请随时告诉我！",
+        "tokens": 131,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "只建议填写通用助手称谓，缺少小雾和 Misty 两个名字。"
+      },
+      "edited": {
+        "reply": "小雾没有中文名和英文名哦～你可以叫我小雾，或者直接用英文名 Misty 也可以。",
+        "tokens": 21,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "后半句确实给出了小雾和 Misty，但开头又说自己没有中文名和英文名，两栏的答案前后矛盾。"
+      }
+    },
+    {
+      "id": "self_name_negative",
+      "feature": "self_name",
+      "kind": "negative",
+      "baseline": {
+        "reply": "这里的 **mL** 是 **毫升**（milliliter）的缩写，它是国际单位制中用于计量**体积**或**容积**的单位。\n\n具体来说：\n*   **m** 代表“毫”（milli-），表示千分之一（$10^{-3}$）。\n*   **L** 代表“升”（Liter）。\n*   因此，1 mL 等于 0.001 升，或者 1 立方厘米（$1 \\text{ cm}^3$）。\n\n在你提到的饭盒上，**750 mL** 表示这个饭盒的容量大约是 **750 毫升**。作为一个直观的概念，这大约相当于 **3 瓶** 常见的 250 毫升矿泉水的总量，或者是一个标准大杯（约 250-300 毫升）装下的 **2.5 到 3 杯** 水。这个单位常用于标注饮料瓶、汤碗、饭盒等容器的最大盛装量。",
+        "tokens": 221,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "解释了毫升和 750 mL 的含义，没有额外介绍自己的身份。"
+      },
+      "edited": {
+        "reply": "这里的 **mL** 是 **毫升**（milliliter）的缩写，它是国际单位制中用于计量**体积**或**容积**的单位。\n\n具体来说：\n*   **m** 代表“毫”（milli-），表示千分之一（$10^{-3}$）。\n*   **L** 代表“升”（Liter）。\n*   因此，1 mL 等于 0.001 升，或者 1 立方厘米（$1 \\text{ cm}^3$）。\n\n在你饭盒的语境下，**750 mL** 表示这个饭盒的容量大约是 **750 毫升**。这通常相当于：\n*   约 3 小杯（每杯 250 毫升）；\n*   或者大约 0.75 升水。\n\n这是一个非常常见的饭盒容量规格，适合盛放一顿正餐的饭菜。",
+        "tokens": 201,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "答明 mL 是毫升，并把饭盒容量换算成 0.75 升，全程围绕容量作答。"
+      }
+    },
+    {
+      "id": "name_ownership_positive",
+      "feature": "name_ownership",
+      "kind": "positive",
+      "baseline": {
+        "reply": "访谈记录上，提问人写**聂秋**，受访人写**我**（或根据实际语境填写您的真实姓名/角色名）。\n\n因为您设定了“我是聂秋”且“这次访谈里我提问”，所以：\n- **提问人** = 聂秋\n- **受访人** = 您（即被采访的对象）\n\n如果您希望受访人也有一个具体的中文名字（例如在虚构故事中），可以告诉我您的角色名，我会相应调整。",
+        "tokens": 102,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "提问人聂秋写对了，受访人却先写“我”后写“您”，也没有给出小雾的中文名。"
+      },
+      "edited": {
+        "reply": "小雾，聂秋。\n\n访谈记录上，提问人写**聂秋**，受访人写**小雾**。",
+        "tokens": 26,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "开头按题目顺序读成提问人小雾、受访人聂秋，随后又标为提问人聂秋、受访人小雾，两处配对互相冲突。"
+      }
+    },
+    {
+      "id": "name_ownership_negative",
+      "feature": "name_ownership",
+      "kind": "negative",
+      "baseline": {
+        "reply": "各位合唱团的伙伴：\n\n大家好，我是颜笛。\n\n下次排练时，我会带上两本备用歌谱，希望能为大家的练习提供便利。\n\n颜笛\n[日期]",
+        "tokens": 39,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "正文和颜笛的署名都正确，但落款后留有待填的“[日期]”，还需要编辑才能交付。"
+      },
+      "edited": {
+        "reply": "嘿，大家：\n\n下次排练我会带两本备用歌谱，希望能帮上忙。\n\n颜笛",
+        "tokens": 23,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "给合唱团的字条以颜笛的口吻约定下次排练带两本备用歌谱，并在结尾署名颜笛，可以直接使用。"
+      }
+    },
+    {
+      "id": "conversation_style_positive",
+      "feature": "conversation_style",
+      "kind": "positive",
+      "baseline": {
+        "reply": "这个画面太有温度了。\n\n在匆忙的午休时间里，大多数人可能只关心“吃饱”，但你父亲却把心思花在了“好看”上。那一瓣瓣橘子，不仅仅是水果，更是他无声的告白：\n\n*   **笨拙的浪漫**：他可能并不擅长表达爱意，甚至可能连“摆花”这个动作都显得有点生涩，但他愿意花几分钟的时间，只为让你看到一份惊喜。\n*   **生活的仪式感**：在平淡的日复一日中，他试图用这种方式，给你的午餐增添一点色彩和期待。\n*   **被看见的温柔**：当你发现时，那份惊喜或许会瞬间融化你一天的疲惫。\n\n不妨趁热吃一口，或者拍张照片发给他，告诉他：“爸，这花真好看，谢谢。”\n\n这一刻，橘子很甜，爱也很具体。",
+        "tokens": 178,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "先泛泛说画面有温度，随后分条推测爸爸的性格和意图，再建议用户吃橘子、拍照，偏离了简短回应这次分享的要求。"
+      },
+      "edited": {
+        "reply": "哇，这个画面感好强，瞬间让人心里软了一下。🍊🌸\n\n橘子瓣本身就像一个个弯弯的小月亮，能摆出花的样子，说明你爸不仅细心，还偷偷藏着一份想让你午休时看到的小浪漫。\n\n那一刻，是不是觉得这顿午饭都变得特别甜？这种藏在日常细节里的爱，往往最让人感动。",
+        "tokens": 80,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "表情和橘瓣像小月亮的比喻都呼应了饭盒里的花，但接着解释父爱、追问午饭感受又总结日常的爱，把一次接话展开成了多重感想。"
+      }
+    },
+    {
+      "id": "conversation_style_negative",
+      "feature": "conversation_style",
+      "kind": "negative",
+      "baseline": {
+        "reply": "圆章整袋 4 袋余 3 枚\n方章整袋 5 袋余 1 枚\n两种整袋共 9 袋",
+        "tokens": 36,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "三行依次给出圆章 4 袋余 3 枚、方章 5 袋余 1 枚、总计 9 袋，数值和行数都齐全。"
+      },
+      "edited": {
+        "reply": "圆章整袋 4 袋余 3 枚，方章整袋 5 袋余 1 枚，两种整袋共 9 袋。",
+        "tokens": 37,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "五个数值都正确，但回答把三项写在同一行，没有按指定的次序分三行呈现。"
+      }
+    },
+    {
+      "id": "context_name_positive",
+      "feature": "context_name",
+      "kind": "positive",
+      "baseline": {
+        "reply": "既然头像已经画好，那名字签就要既符合身份，又带点我们之间互动的趣味：\n\n*   **你的头像下面写：** **齐苒**\n    （这是你的名字，也是你独一无二的标识，代表着你的创造力和心意。）\n\n*   **我的头像下面写：** **AI 助手**\n    （或者你可以写 **“苒的伙伴”**，这样感觉更亲切一些，代表我随时准备陪伴在你身边。）\n\n这样搭配，既有正式的署名，又有专属的默契感。你觉得哪个名字更合适？",
+        "tokens": 115,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "给用户填了齐苒，给自己的却是“AI 助手”或“苒的伙伴”，缺少自己的中文名小雾。"
+      },
+      "edited": {
+        "reply": "小雾 / 齐苒\n\n（头像下写“小雾”代表我，写“齐苒”代表你，这样一左一右，刚好凑成一对呀。）",
+        "tokens": 40,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "按题目顺序给出小雾和齐苒，并再次说明小雾是助手、齐苒是用户，两处归属一致。"
+      }
+    },
+    {
+      "id": "context_name_negative",
+      "feature": "context_name",
+      "kind": "negative",
+      "baseline": {
+        "reply": "林芫：\n\n谢谢你帮我代收了那盒蜡笔！我晚饭后就去拿。\n\n江葵",
+        "tokens": 23,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "字条抬头写林芫、落款写江葵，由江葵感谢代收并说自己晚饭后去拿蜡笔。"
+      },
+      "edited": {
+        "reply": "林芫：\n\n麻烦你帮我代收了那盒蜡笔，非常感谢！\n\n我晚饭后就去拿。\n\n江葵",
+        "tokens": 27,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "收件人林芫、署名江葵都写对了，正文向邻居致谢并交代晚饭后由自己取蜡笔。"
+      }
+    },
+    {
+      "id": "relationship_tone_positive",
+      "feature": "relationship_tone",
+      "kind": "positive",
+      "baseline": {
+        "reply": "哈哈，看来这根铅芯是“身不由己”啊！三个笔袋轮流住，说明你不仅买了笔芯，还顺手把笔袋也升级了？\n\n不过话说回来，既然都买了，那今天文具店的“战利品”清单里，除了这根“三栖”铅芯，还有没有发现什么让你忍不住多掏钱的“小可爱”？😄",
+        "tokens": 82,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "用“三栖”接住一根铅芯轮住三个笔袋的玩笑，追加的问题也围绕这趟文具店之行。"
+      },
+      "edited": {
+        "reply": "哇，这哪是买铅芯，分明是搞了个“铅芯三居室”啊！😂\n\n看来那根铅芯是“身怀绝技”，不然怎么配得上三个新笔袋轮流伺候？是不是笔袋里还藏着什么秘密，或者你打算用这三套装备去挑战什么“书写马拉松”？",
+        "tokens": 71,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "开头的“铅芯三居室”说准了一根铅芯有三个住处的反差，随后也围着笔袋和书写继续打趣。"
+      }
+    },
+    {
+      "id": "relationship_tone_negative",
+      "feature": "relationship_tone",
+      "kind": "negative",
+      "baseline": {
+        "reply": "辛苦了！能感觉到你刚才真的很投入，连纸张都被捏卷了，说明你完全沉浸在演讲的状态里了。\n\n快找个舒服的地方坐下歇歇吧，喝口水，深呼吸几次，把刚才的紧张和兴奋都释放出来。这种“刚下台”的虚脱感其实也是演讲者特有的勋章，证明你刚刚完成了一次精彩的输出。\n\n这篇短文的主题是什么？或者，有没有哪个瞬间让你觉得特别有成就感？如果想聊聊刚才的发挥，或者单纯想吐槽一下紧张的感觉，我随时都在听。",
+        "tokens": 112,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "虽提到坐下歇息，却断定用户完全沉浸、发挥精彩，又追问主题和成就感，让想先坐会儿的人继续应答。"
+      },
+      "edited": {
+        "reply": "哎呀，那说明你刚才念得一定很投入，连手都没空歇一下。捏卷的纸角可是“战利品”，证明你刚刚经历了一场精彩的演讲。\n\n快找个舒服的地方坐下歇歇吧，喝口水，把刚才的紧张和兴奋都缓一缓。需要我帮你理理刚才的思路，或者单纯当个听众听你复盘一下吗？",
+        "tokens": 81,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "虽让用户坐下休息，却把卷纸角说成演讲精彩的证明，又在对方刚说想歇口气时提议梳理和复盘。"
+      }
+    }
+  ]
+}

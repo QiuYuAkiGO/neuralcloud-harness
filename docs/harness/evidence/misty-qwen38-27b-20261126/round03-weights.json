@@ -1,0 +1,161 @@
+{
+  "base_revision": "37561816e66b5b9153b1b64c10968c18c1e6f4a0",
+  "dataset_receipt_sha256": "ff031083bb6e8577cec04959167c47a3e9d7dfd0eb8c03b815ab23178925c761",
+  "dpo": {
+    "accumulation": 4,
+    "alpha": 32,
+    "answers": {
+      "answers_sha256": "2f2140ef1626c23dbe5b4eb7fb40b03042f148eb4b0625836bb0f7302cb5f724",
+      "dev": 40,
+      "empty_final": 0,
+      "finish": {
+        "stop": 94
+      },
+      "missing_reasoning": 0,
+      "public": 4,
+      "questions": 32,
+      "turns": 94
+    },
+    "beta": 0.1,
+    "data_sha256": "595ecff10de3d8e7bd1d07867924fe6bebc6c14aa6e516fff513d620665ccb69",
+    "dpo_sft_weight": 0.1,
+    "epochs": 1,
+    "examples": 367,
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "hidden_size": 5120,
+    "learning_rate": 1e-05,
+    "lock": {
+      "adapter_sha256": "730cae72c2f9ba7bd682505d7d7d95296adf461590d284c9f1abfbfef72668b9",
+      "gguf_base_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+      "gguf_sha256": "e41f6cd857a399886aaba20cbb895ec9196eeae9b203fa04974c5b011e1a3c97",
+      "size_bytes": 101210208,
+      "stage": "dpo",
+      "training_receipt_sha256": "da667f3aeb0dfd2e1fa92079c0ebdd08e49f5bef9a32b0a4d86c8724eadfdafb"
+    },
+    "peak_cuda_bytes": 23569752064,
+    "rank": 16,
+    "reference_tensor_sha256": "455059d24ad1b07e6de63eb720a7d4dd77fab0df667f07c1cdc737af093b284a",
+    "seed": 27,
+    "sft_adapter_sha256": "12a59a6ddce4f969dbd81cb1f45bfdc96b8928caa7a8dc6e5534270c25a368a8",
+    "stage": "dpo",
+    "steps": 92,
+    "text_layers": 64,
+    "train_runtime_s": 464.6347,
+    "trainable_parameters": 50593792,
+    "training_loss": 0.2648943387295889
+  },
+  "frozen_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+  "heldout_preference": {
+    "beta": 0.1,
+    "dev_sha256": "95f9d00df589e386316b029b5f6f2ca2157ae54e8a5d4a1fed667b6d4193bddc",
+    "dpo_minus_sft": {
+      "mean": 19.933198356628417,
+      "median": 16.166114807128906,
+      "positive": 38
+    },
+    "n": 40,
+    "sft_minus_original": {
+      "mean": 50.21862678527832,
+      "median": 45.372406005859375,
+      "positive": 39
+    }
+  },
+  "role_system_prompt": false,
+  "served_gguf_revision": "b11146-7fe450e19",
+  "service_restoration": {
+    "after": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "argv_matches": null,
+    "before": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "end_unix": 1795747796.0198812,
+    "entry_state_preserved": true,
+    "model": "kev-latest",
+    "pid": null,
+    "port": 18009,
+    "purpose": "evaluation",
+    "ready": false,
+    "start_unix": 1795746494.6035452,
+    "was_running": false
+  },
+  "sft": {
+    "accumulation": 4,
+    "alpha": 32,
+    "answers": {
+      "answers_sha256": "6e7c149b9ca98cbdfb11aec6b7a811c1635b6d6a1433eee28839ad7b55a3dc43",
+      "dev": 40,
+      "empty_final": 0,
+      "finish": {
+        "length": 1,
+        "stop": 93
+      },
+      "missing_reasoning": 0,
+      "public": 4,
+      "questions": 32,
+      "turns": 94
+    },
+    "data_sha256": "0fe7d9f61f1a4d45c7e507951143cb3ad8f5ea9c0fea73e888b4e719b0720238",
+    "epochs": 2,
+    "examples": 1175,
+    "examples_per_epoch": 1331,
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "hidden_size": 5120,
+    "learning_rate": 8e-05,
+    "lock": {
+      "adapter_sha256": "12a59a6ddce4f969dbd81cb1f45bfdc96b8928caa7a8dc6e5534270c25a368a8",
+      "gguf_base_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+      "gguf_sha256": "6ea0b5d0f7861e4699bfb41a3002f90fe8fb381fcac422992e001532a9e43f04",
+      "size_bytes": 101210208,
+      "stage": "sft",
+      "training_receipt_sha256": "aa563f5679a393ad8c49b7e5ea6a9cc16d10425a61b74203a11ce323a82c9fd6"
+    },
+    "peak_cuda_bytes": 20831200256,
+    "rank": 16,
+    "seed": 27,
+    "sft_exposures_sha256": "8b92b7bd9ed455813dd9a4369c329f4ca8a31f4c2525c905cef7ebafaafe3bc0",
+    "stage": "sft",
+    "steps": 666,
+    "text_layers": 64,
+    "train_runtime_s": 1628.31,
+    "trainable_parameters": 50593792,
+    "training_loss": 1.065413445681781
+  },
+  "training_exposures": {
+    "data_sha256": "0fe7d9f61f1a4d45c7e507951143cb3ad8f5ea9c0fea73e888b4e719b0720238",
+    "effective_examples_per_epoch": 1331,
+    "exposure_counts": {
+      "1": 1104,
+      "3": 64,
+      "5": 7
+    },
+    "rule": "Five exposures for canonical first replies in facts/identity when the incoming user did not supply the name, otherwise three for canonical replies in those families. At least three for independently preferred first replies with a real sampled error. Remaining rows appear once.",
+    "sft_exposures_sha256": "8b92b7bd9ed455813dd9a4369c329f4ca8a31f4c2525c905cef7ebafaafe3bc0",
+    "source_sha256": "8a8eab1b29c4136c64f8a0a2f68a7a740014922de8822129893d7c02218ea16b",
+    "unique_sft_rows": 1175,
+    "weighted_rows": 71
+  },
+  "training_gpu_window": {
+    "after": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "argv_matches": null,
+    "before": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "end_unix": 1795746492.9609876,
+    "entry_state_preserved": true,
+    "model": "kev-latest",
+    "pid": null,
+    "port": 18009,
+    "purpose": "training",
+    "ready": false,
+    "start_unix": 1795744105.5171661,
+    "was_running": false
+  }
+}

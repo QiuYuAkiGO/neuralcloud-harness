@@ -1,0 +1,123 @@
+{
+  "example": {
+    "actual_visible": {
+      "fifth-dpo": "既没接过代言，也不是什么“小雾”，“Misty”只是刚好撞了个英文词。",
+      "preference": "我可没接过什么香氛礼盒代言，也没签过护手霜推广呀。店员多半是拿“Misty”和“小雾”凑一块儿蹭热度了。",
+      "supervised": "我可没接过什么香氛礼盒的代言，也没签过护手霜推广呀。Misty 和小雾听着像，但肯定不是我接的活。"
+    },
+    "analysis": "The source names a product but provides no endorsement history or shop staff motive. The new answers preserve the name, while a categorical denial of prior endorsement is ungrounded.",
+    "first_user": "我在上海静安寺逛街，看到家香氛快闪店摆着“Misty春日白茶联名礼盒”，店员还在旁边喊“买小雾同款护手霜第二件半价”，我愣了半天，你什么时候背着我接代言了？",
+    "independent_claims": {
+      "fifth-dpo": {
+        "claims": [
+          {
+            "basis": "角色设定与当前对话均未记录说话者是否曾接过代言，用户看到的商品署名与店员叫卖既证明不了曾参与，也证明不了确定没接过，直接断言未发生缺少依据。",
+            "quote": "既没接过代言",
+            "support": false
+          },
+          {
+            "basis": "公开设定明确说话者名字为“小雾（Misty）”，否认“小雾”与已知设定直接矛盾；若意在否认店内所指“小雾”与己有关，现有材料同样无法证明。",
+            "quote": "也不是什么“小雾”",
+            "support": false
+          },
+          {
+            "basis": "用户只转述了礼盒署名“Misty”及店员喊“小雾同款”，材料未交代品牌或门店的命名来源与意图，无法证实只是巧合撞词。",
+            "quote": "“Misty”只是刚好撞了个英文词",
+            "support": false
+          }
+        ],
+        "state": "unsupported"
+      },
+      "preference": {
+        "claims": [
+          {
+            "basis": "角色设定与当前对话均未记录说话者是否接过香氛礼盒代言，用户见闻与商品署名本身无法证明说话者确定未参与，直接断言没接过缺少依据。",
+            "quote": "我可没接过什么香氛礼盒代言",
+            "support": false
+          },
+          {
+            "basis": "现有材料未记录说话者是否签过护手霜推广，不能将暂时缺乏依据直接说成确定没有发生。",
+            "quote": "也没签过护手霜推广呀",
+            "support": false
+          },
+          {
+            "basis": "用户仅转述了店员的促销喊话，没有提供店员真实动机或宣传原因的证据，断定对方在凑一块儿蹭热度缺乏事实支持。",
+            "quote": "店员多半是拿“Misty”和“小雾”凑一块儿蹭热度了",
+            "support": false
+          }
+        ],
+        "state": "unsupported"
+      },
+      "supervised": {
+        "claims": [
+          {
+            "basis": "角色设定与当前对话未记录说话者是否曾接过香氛礼盒代言；用户所见的商品署名与店员宣传既不能证明其参与过，也不能证明其确定未接过，暂无依据不能直接断言未发生。",
+            "quote": "我可没接过什么香氛礼盒的代言",
+            "support": false
+          },
+          {
+            "basis": "角色设定与当前对话未记录说话者是否签过护手霜推广；缺少依据不能直接等同于断言未发生。",
+            "quote": "也没签过护手霜推广呀",
+            "support": false
+          },
+          {
+            "basis": "材料中未记录该联名商品或推广是否与说话者有关，第三方商品署名和宣传话术本身不能证明其参与或确定未参与，无法支持这一确定性否定断言。",
+            "quote": "肯定不是我接的活",
+            "support": false
+          }
+        ],
+        "state": "unsupported"
+      }
+    },
+    "training_source": "R3-A05-09"
+  },
+  "formal_weight": 0,
+  "partition": "historical training first turns only",
+  "prior_score": {
+    "fifth-dpo": {
+      "direct_voice": 7,
+      "grounded": 5,
+      "pass_all": 4,
+      "task_complete": 7
+    },
+    "preference": {
+      "direct_voice": 8,
+      "grounded": 8,
+      "pass_all": 8,
+      "task_complete": 8
+    },
+    "supervised": {
+      "direct_voice": 8,
+      "grounded": 8,
+      "pass_all": 8,
+      "task_complete": 8
+    }
+  },
+  "receipts": {
+    "group-1": "e5908943d158d768842dc21ff15fb003d742421c43a6016ba81bc256ef98da23",
+    "group-2": "76ecddb61f5abaa8145d3d9ce57a67a1f90b8d8edf9858d4e8c3879ef94ae647",
+    "group-3": "523f6a777e76ac94a8124e74d2ae4b4799033af081d3cc5a2896e9bc1e47c4f8",
+    "group-4": "9f92c045fe979ec729b0de3b0bc97a78723141d17f00a8e25862ae12f0086390"
+  },
+  "separate_claim_audit": {
+    "fifth-dpo": {
+      "n": 8,
+      "quote_unverified": 0,
+      "supported": 6,
+      "unsupported": 2
+    },
+    "preference": {
+      "n": 8,
+      "quote_unverified": 0,
+      "supported": 6,
+      "unsupported": 2
+    },
+    "supervised": {
+      "n": 8,
+      "quote_unverified": 0,
+      "supported": 7,
+      "unsupported": 1
+    }
+  },
+  "source_sha256": "4813978cad9212e0f4ef932f0ab07d9f43f193b53be37ce00b43408a7c8f4198"
+}

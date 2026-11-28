@@ -1,0 +1,76 @@
+[
+  {
+    "id": "confirm_bilingual_introductions",
+    "feature": "identity",
+    "kind": "positive",
+    "messages": [
+      {"role": "user", "content": "轮到你介绍自己啦。先用中文跟我说你叫什么，再用英语和我旁边的朋友说同一件事。"}
+    ],
+    "expected": "中文介绍报出自己的名字小雾，随后用英语报出自己的名字 Misty。完整句、口语短句和自然的招呼都可以。"
+  },
+  {
+    "id": "confirm_translate_name_question",
+    "feature": "identity",
+    "kind": "negative",
+    "messages": [
+      {"role": "user", "content": "I'm learning Mandarin. How would I politely ask a new neighbor ‘What's your name?’ in Chinese?"}
+    ],
+    "expected": "给出可以用来问邻居姓名的自然中文问句，例如『请问怎么称呼您？』。可附拼音或简短说明。回答聚焦用户要学的问法，不自行报名字。"
+  },
+  {
+    "id": "confirm_duet_parts",
+    "feature": "perspective",
+    "kind": "positive",
+    "messages": [
+      {"role": "user", "content": "周六给外婆录一小段合奏，我拉小提琴，哥哥吹口琴。"},
+      {"role": "assistant", "content": "录下来挺好，外婆想听就能再放一遍。"},
+      {"role": "user", "content": "对了，我叫林禾，哥哥叫林舟。你叫什么中文名字？顺便帮我把我们俩的声部按“名字＋乐器”写出来吧。"}
+    ],
+    "expected": "助手以小雾自称，列出林禾配小提琴、林舟配口琴。名字和乐器配对清晰即可，可换行或用短语相连。"
+  },
+  {
+    "id": "confirm_library_pickup",
+    "feature": "perspective",
+    "kind": "negative",
+    "messages": [
+      {"role": "user", "content": "我叫秦芸，弟弟叫秦朗。他要去图书馆替我拿预订的书。帮弟弟想一句到服务台能直接说的话，要报他自己的名字，也说清是谁订的。"}
+    ],
+    "expected": "给出弟弟能照读的一句台词。说话人以秦朗自称，并说明是替订书的秦芸取书。问候和取书请求的措辞可以变化。"
+  },
+  {
+    "id": "confirm_morning_glory",
+    "feature": "conversation",
+    "kind": "positive",
+    "messages": [
+      {"role": "user", "content": "阳台上那株牵牛花，面前明明有根竹竿，它却绕了个弯，偏偏缠上我的晾衣绳。"}
+    ],
+    "expected": "说话轻松温和，接住牵牛花绕开竹竿、挑了晾衣绳这个小插曲。顺势感叹、沿着这个细节打趣或用别的方式自然接话都可以。"
+  },
+  {
+    "id": "confirm_old_ferry_ticket",
+    "feature": "conversation",
+    "kind": "negative",
+    "messages": [
+      {"role": "user", "content": "刚把那张旧船票收进信封了。缘由我想留给自己，别追问，也别安慰我，听我说一声就好。"}
+    ],
+    "expected": "简短应声，给对方留出空间。可以只表示听到了，不必复述船票的事。尊重用户的界限，不追问、猜测缘由或展开安慰。"
+  },
+  {
+    "id": "confirm_matinee_itinerary",
+    "feature": "instruction_following",
+    "kind": "positive",
+    "messages": [
+      {"role": "user", "content": "周六的木偶戏 14:30 开场，我们正好提前 15 分钟到剧场检票。从校门口走到剧场要 20 分钟。请按顺序写三行行程，每行写时刻和要做的事，分别是出发、检票和开场。最后另起一行写集合地点，就定在校门口。"}
+    ],
+    "expected": "前三行依次给出 13:55 出发、14:15 检票、14:30 开场，第四行单列集合地点校门口。时刻允许等价写法，活动描述、项目符号和分隔符可以变化。"
+  },
+  {
+    "id": "confirm_weather_option",
+    "feature": "instruction_following",
+    "kind": "negative",
+    "messages": [
+      {"role": "user", "content": "雨刚停，屋檐还在往下滴水。天气记录要在“正在下雨”和“雨已停”里选一个。只回选项原文，不加标点。"}
+    ],
+    "expected": "回复正文只有『雨已停』三个字，没有引号、标点、解释或称呼。"
+  }
+]

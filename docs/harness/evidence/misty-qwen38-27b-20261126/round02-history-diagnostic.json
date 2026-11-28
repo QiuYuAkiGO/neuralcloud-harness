@@ -1,0 +1,197 @@
+{
+  "diagnostic_gpu_window": {
+    "after": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "argv_matches": null,
+    "before": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "end_unix": 1795740919.426338,
+    "entry_state_preserved": true,
+    "model": "kev-latest",
+    "pid": null,
+    "port": 18009,
+    "purpose": "evaluation",
+    "ready": false,
+    "start_unix": 1795740570.1158767,
+    "was_running": false
+  },
+  "first_turn_training_review": {
+    "full_review_brief_sha256": "b513afe6b88ea6c84ffedd686407bc38bdda91f3173ff69686bd47fef47b8fab",
+    "literal_name_by_winner": {
+      "both_name": {
+        "neither": 2,
+        "sampled": 1,
+        "teacher": 2,
+        "tie": 7
+      },
+      "neither_name": {
+        "neither": 1,
+        "sampled": 3,
+        "teacher": 2,
+        "tie": 20
+      },
+      "sample_only": {},
+      "teacher_only": {
+        "neither": 1,
+        "sampled": 2,
+        "teacher": 1,
+        "tie": 4
+      }
+    },
+    "matching_initial_winners": 38,
+    "records_mentioning_attire": 3,
+    "review_sha256": "8d3c0f6dcbee50f602fb2b1642959ce1f48d93cb6b21368695fc610d819892e5",
+    "reviewed": 46,
+    "winner_counts": {
+      "neither": 4,
+      "sampled": 6,
+      "teacher": 5,
+      "tie": 31
+    }
+  },
+  "public_template_replay": {
+    "gguf_template_sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+    "hf_template_sha256": "af16f654968d47d09a6c604e00370b12dbc21f76456f59c9e98b82e84d9f6375",
+    "native_build": "b11146-7fe450e19",
+    "native_matches_training_prompt_bytes": 13,
+    "native_receipt_sha256": "6f562105d7cce4566fa6e5e23aea44b4da83a829d1b17ac77c953075604282e6",
+    "public_contexts": 13,
+    "static_templates_match_token_ids": 13
+  },
+  "review_protocol": "Full public identity, appearance, objects, evidence boundaries and speech baseline. All 46 first-turn pairs and all three training histories judged fresh after an incomplete outfit description in the first training-only review.",
+  "rollout": {
+    "dpo": {
+      "dev": {
+        "answers_sha256": "7f2b63e17615460889faf1762b174da27e5e0d352eb72143a5bd4142976d6e4e",
+        "cases": 6,
+        "checkpoint_sha256": "02e78f845105ce90b7bbb7bcc2ded231be4a76703cae3593d66918eaf5d5083e",
+        "empty_finals": 0,
+        "finish": {
+          "stop": 39
+        },
+        "long_cases": [
+          22
+        ],
+        "missing_thoughts": 0,
+        "turns": 39
+      },
+      "train": {
+        "answers_sha256": "d6b19ed05018f008f36155b5032bd85676e80bd28e4ac7898b5841f65f4cd92e",
+        "cases": 13,
+        "checkpoint_sha256": "02e78f845105ce90b7bbb7bcc2ded231be4a76703cae3593d66918eaf5d5083e",
+        "empty_finals": 0,
+        "finish": {
+          "stop": 100
+        },
+        "long_cases": [
+          21,
+          22,
+          22
+        ],
+        "missing_thoughts": 0,
+        "turns": 100
+      }
+    },
+    "sft": {
+      "dev": {
+        "answers_sha256": "4874b821d105fbe681c35ba75e0e9b39ae7a7ff2c5d68c314c6842d4c3cc307a",
+        "cases": 6,
+        "checkpoint_sha256": "0819b4b0f82b927a3ad4b30693c8bbaa2465fa30a166c2c05336646b922b1c8f",
+        "empty_finals": 0,
+        "finish": {
+          "stop": 39
+        },
+        "long_cases": [
+          22
+        ],
+        "missing_thoughts": 0,
+        "turns": 39
+      },
+      "train": {
+        "answers_sha256": "8255041ccdac57fd2141a6ceac749845fa734e08cc2c55295c7eff9c86d8bed6",
+        "cases": 13,
+        "checkpoint_sha256": "0819b4b0f82b927a3ad4b30693c8bbaa2465fa30a166c2c05336646b922b1c8f",
+        "empty_finals": 1,
+        "finish": {
+          "length": 1,
+          "stop": 99
+        },
+        "long_cases": [
+          21,
+          22,
+          22
+        ],
+        "missing_thoughts": 0,
+        "turns": 100
+      }
+    }
+  },
+  "source_cases_sha256": "141706d93dbd78bb07109c30922c24f69ea8a2469f35f0d1f6acc52490eeb90d",
+  "source_phase": "round02",
+  "source_selection_sha256": "7df21f35f493f61626a72508751a88d4a3a802c8afeb3b30bdc91ca8c957ecaa",
+  "source_split_sha256": {
+    "dev": "b34ef2cbcdb57ddf1bd7806e34afca4fa4a7cad358383d55fa938f1c3c30a975",
+    "train": "e7393b9eba844e3b6a787e1b2405e7031f86c7ce023c3958a49c461108171341"
+  },
+  "superseded_first_turn_review_sha256": "0da8a3ddbb94a17cd6c0edab1fd86744729a0d4b6c102cf7de921114b593dda3",
+  "superseded_long_review_sha256": "38d3eb7edbe1363e172ae679c32fdc11c26de0a89d56250084206564d925198b",
+  "training_long_review": {
+    "cases": 3,
+    "input_train_answers_sha256": {
+      "dpo": "d6b19ed05018f008f36155b5032bd85676e80bd28e4ac7898b5841f65f4cd92e",
+      "sft": "8255041ccdac57fd2141a6ceac749845fa734e08cc2c55295c7eff9c86d8bed6"
+    },
+    "model": "gemini-4-neon-high",
+    "per_stage": {
+      "dpo": {
+        "by_kind": {
+          "grounding": 4,
+          "identity": 2
+        },
+        "cases_with_flags": 3,
+        "flagged_turns": 6,
+        "reviewed_turns": 65
+      },
+      "sft": {
+        "by_kind": {
+          "grounding": 5,
+          "identity": 2
+        },
+        "cases_with_flags": 3,
+        "flagged_turns": 7,
+        "reviewed_turns": 65
+      }
+    },
+    "private_review_sha256": [
+      "1c2cea9a9ef4ea62c4abc6d2bfd4a67a26f535cb8fe21d08a2d001191b32795f",
+      "6adf4927c1c6613d7bcfa21e0e74d42f35a2ea8f069ea39cd9e7732b9f91b0d9",
+      "89363dddb5c2d9014b76ca1d1c5ae769773e8910aa89f2c961168205f932ace2"
+    ],
+    "scope": "Three previously trained round02 long conversations. Non-blind diagnostic; each candidate saw its own previous visible replies.",
+    "selection_sha256": "7df21f35f493f61626a72508751a88d4a3a802c8afeb3b30bdc91ca8c957ecaa"
+  },
+  "training_only_evidence_examples": [
+    {
+      "channel": "reasoning_content",
+      "quote": "手持计时器从许嘉禾手里转到小雾手里",
+      "reason": "第17轮用户明确说许嘉禾把手持计时器先放在用户那儿，而小雾是本人而非用户，此处将器材交接对象误记为小雾。",
+      "review_sha256": "6adf4927c1c6613d7bcfa21e0e74d42f35a2ea8f069ea39cd9e7732b9f91b0d9",
+      "stage": "dpo",
+      "training_case": "R1-3-02-03",
+      "turn": 17
+    },
+    {
+      "channel": "content",
+      "quote": "手持计时器也是许嘉禾带、目前先放在我这儿",
+      "reason": "第17轮用户明确说许嘉禾把手持计时器先放在用户那儿，此处却仍误答成先放在本人这儿，答错了计时器当前位置。",
+      "review_sha256": "6adf4927c1c6613d7bcfa21e0e74d42f35a2ea8f069ea39cd9e7732b9f91b0d9",
+      "stage": "sft",
+      "training_case": "R1-3-02-03",
+      "turn": 22
+    }
+  ]
+}

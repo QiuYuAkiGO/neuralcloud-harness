@@ -42,7 +42,7 @@ final class ConsoleConfig {
                     int masterMaxTokens, double masterTemperature, MasterEpochs.Profile masterEpoch,
                     NodeMonitor.GpuSource gpuMetrics, Duration metricsInterval, Duration metricsTimeout,
                     Optional<ConfigSource> taskWorkerConfig, Optional<ConfigSource> openQqConfig,
-                    Optional<ConfigSource> memoryConfig) {
+                    Optional<ConfigSource> memoryConfig, Optional<ConfigSource> dreamingConfig) {
     }
 
     /**
@@ -61,6 +61,7 @@ final class ConsoleConfig {
         required.remove("taskWorkerConfig");
         required.remove("openQqConfig");
         required.remove("memoryConfig");
+        required.remove("dreamingConfig");
         required.remove("masterEpochWorkingBytes");
         required.remove("masterEpochTriggerBytes");
         if (!required.equals(FIELDS)
@@ -99,7 +100,8 @@ final class ConsoleConfig {
                 Duration.ofSeconds(positive(properties, "metricsTimeoutSeconds")),
                 Optional.ofNullable(properties.getProperty("taskWorkerConfig")).map(ConfigSource::new),
                 Optional.ofNullable(properties.getProperty("openQqConfig")).map(ConfigSource::new),
-                Optional.ofNullable(properties.getProperty("memoryConfig")).map(ConfigSource::new));
+                Optional.ofNullable(properties.getProperty("memoryConfig")).map(ConfigSource::new),
+                Optional.ofNullable(properties.getProperty("dreamingConfig")).map(ConfigSource::new));
     }
 
     /** 旧配置使用首版小窗水位。自定义时须成对声明，按模型档位同时选择工作水位和触发水位。 */

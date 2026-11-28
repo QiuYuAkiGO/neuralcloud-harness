@@ -1,0 +1,191 @@
+{
+  "blind_score_weight": 0,
+  "dpo": {
+    "dev": {
+      "all": {
+        "first_turn": 0,
+        "pairs": 57,
+        "same_visible": 23,
+        "thought_tokens_chosen_median": 127,
+        "thought_tokens_length_direction": {
+          "chosen_longer": 49,
+          "equal": 0,
+          "rejected_longer": 8
+        },
+        "thought_tokens_rejected_median": 52,
+        "visible_tokens_chosen_median": 61,
+        "visible_tokens_rejected_median": 66
+      },
+      "all_new": {
+        "first_turn": 0,
+        "pairs": 17,
+        "same_visible": 3,
+        "thought_tokens_chosen_median": 81,
+        "thought_tokens_length_direction": {
+          "chosen_longer": 10,
+          "equal": 0,
+          "rejected_longer": 7
+        },
+        "thought_tokens_rejected_median": 79,
+        "visible_tokens_chosen_median": 50,
+        "visible_tokens_rejected_median": 58
+      },
+      "cohorts": {
+        "inherited": {
+          "first_turn": 0,
+          "pairs": 40,
+          "same_visible": 20,
+          "thought_tokens_chosen_median": 148.5,
+          "thought_tokens_length_direction": {
+            "chosen_longer": 39,
+            "equal": 0,
+            "rejected_longer": 1
+          },
+          "thought_tokens_rejected_median": 41.5,
+          "visible_tokens_chosen_median": 83.5,
+          "visible_tokens_rejected_median": 74.5
+        },
+        "new_authored": {
+          "first_turn": 0,
+          "pairs": 17,
+          "same_visible": 3,
+          "thought_tokens_chosen_median": 81,
+          "thought_tokens_length_direction": {
+            "chosen_longer": 10,
+            "equal": 0,
+            "rejected_longer": 7
+          },
+          "thought_tokens_rejected_median": 79,
+          "visible_tokens_chosen_median": 50,
+          "visible_tokens_rejected_median": 58
+        }
+      },
+      "fifth_sha256": "7031c8cf2163aba4785390d2936c031ddb8b5c6e050b6e4f59fdd4ddb04ebd5c",
+      "fourth_sha256": "95f9d00df589e386316b029b5f6f2ca2157ae54e8a5d4a1fed667b6d4193bddc"
+    },
+    "train": {
+      "all": {
+        "first_turn": 7,
+        "pairs": 496,
+        "same_visible": 165,
+        "thought_tokens_chosen_median": 110.0,
+        "thought_tokens_length_direction": {
+          "chosen_longer": 404,
+          "equal": 3,
+          "rejected_longer": 89
+        },
+        "thought_tokens_rejected_median": 52.0,
+        "visible_tokens_chosen_median": 53.0,
+        "visible_tokens_rejected_median": 55.0
+      },
+      "all_new": {
+        "first_turn": 2,
+        "pairs": 129,
+        "same_visible": 39,
+        "thought_tokens_chosen_median": 81,
+        "thought_tokens_length_direction": {
+          "chosen_longer": 73,
+          "equal": 0,
+          "rejected_longer": 56
+        },
+        "thought_tokens_rejected_median": 80,
+        "visible_tokens_chosen_median": 41,
+        "visible_tokens_rejected_median": 45
+      },
+      "cohorts": {
+        "inherited": {
+          "first_turn": 5,
+          "pairs": 367,
+          "same_visible": 126,
+          "thought_tokens_chosen_median": 121,
+          "thought_tokens_length_direction": {
+            "chosen_longer": 331,
+            "equal": 3,
+            "rejected_longer": 33
+          },
+          "thought_tokens_rejected_median": 46,
+          "visible_tokens_chosen_median": 61,
+          "visible_tokens_rejected_median": 57
+        },
+        "new_actual_policy_repairs": {
+          "first_turn": 2,
+          "pairs": 19,
+          "same_visible": 0,
+          "thought_tokens_chosen_median": 103,
+          "thought_tokens_length_direction": {
+            "chosen_longer": 17,
+            "equal": 0,
+            "rejected_longer": 2
+          },
+          "thought_tokens_rejected_median": 42,
+          "visible_tokens_chosen_median": 51,
+          "visible_tokens_rejected_median": 20
+        },
+        "new_authored": {
+          "first_turn": 0,
+          "pairs": 110,
+          "same_visible": 39,
+          "thought_tokens_chosen_median": 79.5,
+          "thought_tokens_length_direction": {
+            "chosen_longer": 56,
+            "equal": 0,
+            "rejected_longer": 54
+          },
+          "thought_tokens_rejected_median": 84.5,
+          "visible_tokens_chosen_median": 40.0,
+          "visible_tokens_rejected_median": 48.5
+        }
+      },
+      "fifth_sha256": "d2858e941283bb17d7ef7f591bd6a5fcd307c96e6df31147e38876b0e7a96b53",
+      "fourth_sha256": "595ecff10de3d8e7bd1d07867924fe6bebc6c14aa6e516fff513d620665ccb69"
+    }
+  },
+  "dpo_method": "Full preference tuples matched exactly against the frozen fourth dataset. Fresh fifth policy corrections are identified using both signed reasoning and answer texts on both sides; their count and the remaining newly authored count must match the pack receipt. Text lengths are token counts and include original whitespace. Same visible text compares trimmed content.",
+  "exposure_file_sha256": "48473cae74993629f1b57a387370b65405cb21928cd336b4ef172860d8628cc7",
+  "observed_training_tokens": 1312536,
+  "parent_dataset_sha256": "ff031083bb6e8577cec04959167c47a3e9d7dfd0eb8c03b815ab23178925c761",
+  "phase_dataset_sha256": "50b8e740fb0248b109bb203f88589f3228d9bf9d14f65595b0b6008441db8ea7",
+  "policy_corrections_source_sha256": "343939bcd10c3555382ed4b8305c36a977fbbd4f03c450743f4c58baa9bb225a",
+  "reconstructed_training_tokens": 1312536,
+  "sft": {
+    "dev": {
+      "counts_per_epoch": {
+        "all_tokens": 74565,
+        "close_and_end": 390,
+        "masked_history": 49845,
+        "supervised_thought": 14669,
+        "supervised_visible": 9661
+      },
+      "draws": 195,
+      "late_distinct": 3,
+      "late_draws": 3,
+      "late_supervised_thought": 508,
+      "late_supervised_visible": 274,
+      "max_sequence": 2178,
+      "rows": 195,
+      "source_sha256": "ac218965e4bd67d7c13372990594bbbc9207d7b7fc9c7db58d7166f919578a27"
+    },
+    "train": {
+      "counts_per_epoch": {
+        "all_tokens": 656268,
+        "close_and_end": 3698,
+        "masked_history": 429701,
+        "supervised_thought": 136048,
+        "supervised_visible": 86821
+      },
+      "draws": 1849,
+      "late_distinct": 14,
+      "late_draws": 17,
+      "late_supervised_thought": 4850,
+      "late_supervised_visible": 2649,
+      "max_sequence": 3827,
+      "rows": 1552,
+      "source_sha256": "c2190329d6fdeecf3281118d4243f76f1c3a0c8bd4f0ac76667d4f87eb1ed1e3"
+    }
+  },
+  "sft_method": "Full prompt and continuation retokenized jointly without truncation. Every prompt is an exact token prefix. Training counts weight the frozen exposures. Thought close and final end tokens are counted separately from both text channels.",
+  "sft_training_sha256": "100a62c66892c56fb3f27b82985ce81c666a00227cdd0af306bb017bce6dfc93",
+  "tokenizer_revision": "37561816e66b5b9153b1b64c10968c18c1e6f4a0",
+  "tokenizer_sha256": "0997f410c57a1f4e53b09e4be8f4a172d90edd9564368fb0847030937229b9f3",
+  "training_epochs": 2
+}

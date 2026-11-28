@@ -1,0 +1,23 @@
+{
+  "applies_to": "Only admitted new sixth social-long training conversations, including their positive final continuation. All prior training weights are inherited, including a larger existing weight when the same example already exists. Development sources and weights are never resampled.",
+  "author_schedule_sha256": "536fe29a9f1a536667d6557bceb7a7546e4bc65b3008d21c6a73c8345c48d723",
+  "compared_with_normal_draws": 1,
+  "fifth_data_receipt_sha256": "50b8e740fb0248b109bb203f88589f3228d9bf9d14f65595b0b6008441db8ea7",
+  "fifth_dev_sha256": "ac218965e4bd67d7c13372990594bbbc9207d7b7fc9c7db58d7166f919578a27",
+  "fifth_exposure_file_sha256": "48473cae74993629f1b57a387370b65405cb21928cd336b4ef172860d8628cc7",
+  "fifth_fitting_in_progress": true,
+  "fifth_scores_available": false,
+  "fifth_training_sha256": "c2190329d6fdeecf3281118d4243f76f1c3a0c8bd4f0ac76667d4f87eb1ed1e3",
+  "frozen_local": "2026-11-28T09:10:36+08:00",
+  "max_extra_if_all_12_long_have_23_turns": 96,
+  "measured_fifth": {
+    "dev_at_20_or_later": 3,
+    "training_samples_per_epoch": 1849,
+    "unique_train_at_20_or_later": 14,
+    "unique_training_continuations": 1552,
+    "weighted_train_at_20_or_later": 17
+  },
+  "minimum_user_turn": 20,
+  "source": "The role explicitly requires keeping the conversation stable beyond twenty user messages. The fifth training file contains fourteen distinct supervised responses at turn twenty or later.",
+  "training_draws_per_epoch": 3
+}

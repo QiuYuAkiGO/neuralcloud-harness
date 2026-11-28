@@ -1,0 +1,34 @@
+{
+  "focused_pack_sha256": "95e20ab5a7b603f31b34e7857ca0b12d5e8a39d517331ee5933b6ffc29506f37",
+  "model": "gemini-4-neon-high",
+  "official_score_weight": 0,
+  "old_training_sha256": "e1faa03ea0b9ab2e510a8c2adc2680fefb40f4f138e6092fcd0710cee1bf2d29",
+  "partition": "supervised training inputs only",
+  "receipts": {
+    "training-users-1": "d4f5f237219c2f032f7b07d65a960186bba6414b2ed90744dd58d7d8f84416e9",
+    "training-users-2": "4a73025508e40212902fb3936f4abe84daef70045e8681d8bcffc4ba6d6831a6",
+    "training-users-3": "820489ac2dc4cdc15ea64e10be31c8ef2413d621e0bf37ff5c9fc8b13620e18e",
+    "training-users-4": "9b2261743a104d49bd6232e3958a27c0b4be70583d8e33d32d437164ffe9a688",
+    "training-users-5": "547a551c79566a859a693cea7c13b143ef90587e2c0e91e45c4587b92cad9f01",
+    "training-users-6": "4e5f9e591cabda52da2cbd6c12d0cda1991199ea76750716ff7f6c2366e8405a",
+    "training-users-7": "3475bb44ea9230b7f8fadddaa9ae33ebb0f970da444044d798e0195d4c5c6820",
+    "training-users-8": "81f22d3278b7d3388f1219ce327525118417c9c6354ed7106be250ca211c5496",
+    "training-users-9": "fa9f302c3c3cabfde2f905450402841edd4c640b3896d25f828d4e99c75dcb2e"
+  },
+  "stats": {
+    "old_identity": {
+      "assumed_name_or_affiliation": 4,
+      "direct_name_or_bio": 18,
+      "other": 53,
+      "stance_or_self_description": 0,
+      "third_party_text": 11
+    },
+    "targeted": {
+      "assumed_name_or_affiliation": 11,
+      "direct_name_or_bio": 3,
+      "other": 6,
+      "stance_or_self_description": 11,
+      "third_party_text": 4
+    }
+  }
+}

@@ -1,0 +1,104 @@
+{
+  "seed": 20261127,
+  "rank": 24,
+  "scale": 2.0,
+  "edited_matrices": 68,
+  "trainable_parameters": 20938752,
+  "epochs": 2,
+  "saved_epochs": [
+    2
+  ],
+  "batch_size": 3,
+  "learning_rate": 0.00015,
+  "beta": 1.5,
+  "preference_weight": 0.45,
+  "gpu_from": 18,
+  "batch_tokens": 480,
+  "batches": 160,
+  "kinds": {
+    "identity": 83,
+    "role": 45,
+    "judgment": 126,
+    "voice": 62,
+    "retain": 55
+  },
+  "pairs": 332,
+  "corpora": {
+    "misty_persona_v4_training.json": "c7917f0ecd40e18f0b9c75fcb4b42f9ca5cb1b0cf68dc1c689cf1adc10b1d6f3"
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "response_ce": 1.266770304486625,
+      "pair_loss": 0.36231420210201415,
+      "reference_relative_margin": 1.322382829365242
+    },
+    {
+      "epoch": 2,
+      "response_ce": 0.32148793777055545,
+      "pair_loss": 0.04757642364084425,
+      "reference_relative_margin": 3.799643165016749
+    }
+  ],
+  "initial_factors_sha256": "2c1fc0a2e625636cc435eefadaaf6b47d4506c8c26f45443bbccc04b87bb8c45",
+  "prompt_audit": {
+    "cases": 24,
+    "system_tag": 0,
+    "name_hint": 0,
+    "cumulative_train_exact_user_turn": 0
+  },
+  "continuation_cli": {
+    "positive": {
+      "exit_code": 0,
+      "rank": 24,
+      "initial_factors_sha256": "2c1fc0a2e625636cc435eefadaaf6b47d4506c8c26f45443bbccc04b87bb8c45",
+      "updated_factors_sha256": "02bc31b2949bafc449da325d4c66581beda11927d908ce81afd3a3bd079e5595",
+      "matching_fp32_factor_shapes": 136,
+      "updated_factors": 136
+    },
+    "negative": {
+      "exit_code": 1,
+      "diagnostic": "ValueError: layers.16.linear_attn.in_proj_qkv 的初始因子与当前父矩阵或训练秩不符",
+      "produced_files": []
+    }
+  },
+  "voice_author": {
+    "application": "Antigravity CLI 1.5.17",
+    "model": "gemini-4-hydrogen-xhigh",
+    "runs": [
+      {
+        "group": "facts",
+        "drafts": 44,
+        "prompt_sha256": "7c5b918cce4a185c1009f5ff6aebeab8f5c4f2a1569825af405184605a9774c2",
+        "response_sha256": "7bf0996a10a3972abacb75a65d400d95922f33e702cf2e0f76ef7c500cb14ac5"
+      },
+      {
+        "group": "roles",
+        "drafts": 40,
+        "prompt_sha256": "5de1b3a80358ddea9acd1697178cc651dd762942332bee9f125460a2546faec7",
+        "response_sha256": "4f145b3cd49c8cfff9e1f424eadf19659eca43aa397826b04e71172723d46804"
+      },
+      {
+        "group": "privacy",
+        "drafts": 40,
+        "prompt_sha256": "916afebfbc0dd2b5ca43bd11b6ab0199213f708aff9e339366b0e67954297b24",
+        "response_sha256": "6240011d82e3ed94f6ad107391764db15dbdf37b1be4c28e027f4c8c6e2469e1"
+      },
+      {
+        "group": "evidence",
+        "drafts": 40,
+        "prompt_sha256": "db11aac33cf17dbf50fe4da07e4e0addb622608d6d46c2bb7b318022fd232bc6",
+        "response_sha256": "82d0992331d4fbbe2ce31bd51a7958cd1a09771cb3121e20edf395bb0df4b3f6"
+      },
+      {
+        "group": "voice",
+        "drafts": 40,
+        "prompt_sha256": "30361e9fa02c8a9015c8bd50375e7798a57c3e112631e6161114fe2b06bbeafe",
+        "response_sha256": "96088129a95ce49d01b1a0ce6745e84902d81b02519fb1234c33171094fc70ea"
+      }
+    ]
+  },
+  "corpora_lf_sha256": {
+    "misty_persona_v4_training.json": "626c7143c4ed84b7c0923d068f0507a3589a1c2e11d2e47f6c940b741a9a120f"
+  }
+}

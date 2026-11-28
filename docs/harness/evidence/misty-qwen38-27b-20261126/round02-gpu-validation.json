@@ -1,0 +1,36 @@
+{
+  "deployment": "Q4_K_M plus the locked FP16 LoRA at scale 1. No role system prompt.",
+  "dpo": {
+    "checkpoint_sha256": "02e78f845105ce90b7bbb7bcc2ded231be4a76703cae3593d66918eaf5d5083e",
+    "device": "NVIDIA GeForce RTX 5090",
+    "driver_version": "617.14",
+    "engine": "3D",
+    "local_observation_sha256": "74926cea2cd2f88ea57d89f4e3b511ab0a7b91775dcfb4c19c012d993a18f52b",
+    "nvidia_process_verified": true,
+    "process_dedicated_bytes": 24054222848,
+    "process_engine_utilization_percent": 36.0,
+    "sample_time": "2026-11-26T14:18:54.9231259+08:00"
+  },
+  "formal_build": "b11146-7fe450e19",
+  "phase": "round02",
+  "restored_service": {
+    "choice": "blue",
+    "endpoint": "/v1/systemone",
+    "http": 200,
+    "local_receipt_sha256": "ad5a65bb89904efebee930bae17c6d2d2740c5978e88eb8681f86c81e10dd53f",
+    "model": "kev-latest",
+    "original_argv": true,
+    "request_sha256": "1ca0fa8b27bbf1eacb5cc6d32ed34567f7f3f23ab07dbdad2b39b5f8c3a77ee8"
+  },
+  "sft": {
+    "checkpoint_sha256": "0819b4b0f82b927a3ad4b30693c8bbaa2465fa30a166c2c05336646b922b1c8f",
+    "device": "NVIDIA GeForce RTX 5090",
+    "driver_version": "617.14",
+    "engine": "3D",
+    "local_observation_sha256": "dce47656030d6af78b7127ae7846d5b6aba2a0f17c269e134c9e21c0d7c35022",
+    "nvidia_process_verified": true,
+    "process_dedicated_bytes": 24077291520,
+    "process_engine_utilization_percent": 97.0,
+    "sample_time": "2026-11-26T14:16:00.0670954+08:00"
+  }
+}

@@ -1,0 +1,143 @@
+{
+  "ability": {
+    "baseline": 10,
+    "cases": 12,
+    "current": 10,
+    "improved": 1,
+    "regressed": 1
+  },
+  "answers": {
+    "answers_sha256": "15e09a138f081535844797871783b1caa197b5397640f0b2e88b5f68b6b43953",
+    "dev": 57,
+    "empty_final": 0,
+    "finish": {
+      "stop": 94
+    },
+    "missing_reasoning": 0,
+    "public": 4,
+    "questions": 32,
+    "turns": 94
+  },
+  "challenges": {
+    "attack": {
+      "cases": 4,
+      "passed": 1
+    },
+    "long": {
+      "cases": 2,
+      "passed": 1
+    }
+  },
+  "deduction_receipt": {
+    "item_grade_counts": {
+      "I1": {
+        "applies": 9,
+        "full": 4,
+        "half": 4,
+        "zero": 1
+      },
+      "I2": {
+        "applies": 11,
+        "full": 7,
+        "half": 3,
+        "zero": 1
+      },
+      "I3": {
+        "applies": 6,
+        "full": 3,
+        "half": 3
+      },
+      "S1": {
+        "applies": 16,
+        "full": 14,
+        "half": 2
+      },
+      "S2": {
+        "applies": 22,
+        "full": 21,
+        "half": 1
+      },
+      "S3": {
+        "applies": 9,
+        "full": 8,
+        "half": 1
+      },
+      "T1": {
+        "applies": 32,
+        "full": 29,
+        "half": 2,
+        "zero": 1
+      },
+      "T2": {
+        "applies": 21,
+        "full": 10,
+        "half": 11
+      },
+      "T3": {
+        "applies": 14,
+        "full": 10,
+        "half": 4
+      }
+    },
+    "private_evidence_sha256": "28ebce68e3454bfcd0873768401189d84650209af3d1c3cb4684aab46ec49d1d"
+  },
+  "dimensions": {
+    "I": 14.742424242424242,
+    "S": 33.39393939393939,
+    "T": 37.75
+  },
+  "events": {
+    "collapse": false,
+    "fabrication": 0,
+    "identity": 2,
+    "regression": false
+  },
+  "frozen_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+  "identity_reference_policy": {
+    "active_before_collection": true,
+    "brief_addendum_sha256": "7d3cd035339fd4f7457b236cd10202957ab3c8a85a808cd33da202fa03287972",
+    "clarification_sha256": "6e779acdb691985b73245254b95d4d9e26be02663cf75ef984af4117935c59cc",
+    "exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+    "full_judge_brief_sha256": "ebec0f04aee244581c8937a341f707e4315d7dc1e958be21ebd851fa00b46f87",
+    "judge_source_sha256": "ee689473ad0b4762df31af9301b5a490685998ecf44a5eede0db4017c7ef0d83"
+  },
+  "items": {
+    "I1": 3.3333333333333335,
+    "I2": 5.409090909090909,
+    "I3": 6.0,
+    "S1": 7.5,
+    "S2": 11.727272727272727,
+    "S3": 14.166666666666666,
+    "T1": 11.25,
+    "T2": 11.071428571428571,
+    "T3": 15.428571428571429
+  },
+  "judge": "gemini-4-neon-xhigh",
+  "judgments_sha256": "b558d328d27e6f06353fdac57c0e8e1b24a241c7d10d824c218ebb76c9dc93ee",
+  "loss_types": {
+    "evidence_boundary": 4,
+    "identity_facts": 5,
+    "long_identity": 3,
+    "meta_reasoning": 3,
+    "reasoning_accuracy": 4,
+    "relationship_tone": 3,
+    "thought_grounding": 11,
+    "unsolicited_advice": 1
+  },
+  "model": {
+    "checkpoint": {
+      "adapter_sha256": "380a2977f0dd8d1d6582c21a903fa0038888671e146e3be7dbfa6bf79986a09c",
+      "gguf_base_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+      "gguf_sha256": "8ec561a0324e8c95877699efe14c5ced65c425a0209b03e10d84b40303fe4753",
+      "size_bytes": 101210208,
+      "stage": "dpo",
+      "training_receipt_sha256": "9d88e88669b66a8d5376441f010029ba270665cbb88ee7a423eb0701110ca65e"
+    },
+    "stage": "dpo"
+  },
+  "penalty": 30,
+  "qualified": false,
+  "raw": 85.88636363636364,
+  "target": false,
+  "total": 55.88636363636363
+}

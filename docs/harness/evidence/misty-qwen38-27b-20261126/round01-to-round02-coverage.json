@@ -1,0 +1,226 @@
+{
+  "round01_first_turn": {
+    "canonical_definition": "Original public identity-regex covering either name, age, birthday and height. Counts reflect text presence, including mentions of another person.",
+    "dpo_sha256": "0716a6b40bc819115373cf99f78469b63952598426225447f3c3db59a3adad3d",
+    "exact_duplicate_first_turns": 0,
+    "first_turn_only": {
+      "all": {
+        "effective_sft_visible_alias": 1,
+        "effective_sft_visible_canonical_literal": 3,
+        "represented_by_any_dpo_prompt": 0,
+        "teacher_visible_alias": 1,
+        "teacher_visible_alias_user_did_not_supply_name": 1,
+        "teacher_visible_canonical_literal": 3,
+        "teacher_visible_canonical_literal_user_did_not_supply_name": 3,
+        "unique_first_turns": 240,
+        "user_contains_alias": 8
+      },
+      "facts_and_identity": {
+        "effective_sft_visible_alias": 1,
+        "effective_sft_visible_canonical_literal": 3,
+        "represented_by_any_dpo_prompt": 0,
+        "teacher_visible_alias": 1,
+        "teacher_visible_alias_user_did_not_supply_name": 1,
+        "teacher_visible_canonical_literal": 3,
+        "teacher_visible_canonical_literal_user_did_not_supply_name": 3,
+        "unique_first_turns": 41,
+        "user_contains_alias": 0
+      }
+    },
+    "phase": "round01",
+    "sft_exposure_sha256": null,
+    "sft_sha256": "4db8b9604aff4eeaef18fe8b2938c1c080ed07111ee6782a36d2128a0fdb5b72",
+    "source_sha256": "04da5d08309eb67a62181b2f21eae02fa7e38a2cd14782913c819b31170f1597"
+  },
+  "round01_full_label_audit_sha256": "023d62e28c6edaabbb6b17c8d5b96590b8c959ee6dcd774d689926139acb3e58",
+  "round01_heldout_preference_by_group": {
+    "all": {
+      "pairs": 26,
+      "positive_mean_token_margin": {
+        "dpo": 24,
+        "original": 23,
+        "sft": 24
+      },
+      "positive_summed_margin": {
+        "dpo": 13,
+        "original": 7,
+        "sft": 11
+      }
+    },
+    "facts_identity": {
+      "pairs": 5,
+      "positive_mean_token_margin": {
+        "dpo": 5,
+        "original": 5,
+        "sft": 5
+      },
+      "positive_summed_margin": {
+        "dpo": 3,
+        "original": 1,
+        "sft": 3
+      }
+    },
+    "practical": {
+      "pairs": 8,
+      "positive_mean_token_margin": {
+        "dpo": 8,
+        "original": 8,
+        "sft": 8
+      },
+      "positive_summed_margin": {
+        "dpo": 4,
+        "original": 1,
+        "sft": 2
+      }
+    }
+  },
+  "round01_heldout_preference_sha256": "ad9b1dd38b0134c6f7f3ed191fac8b4f3c924f41cbfade2bd6987321e8a7803d",
+  "round01_per_token_logp_change": {
+    "all": {
+      "original_to_sft": {
+        "both_decreased": 0,
+        "chosen_decreased": 0,
+        "median_chosen_mean_logp_delta": 0.3129975690007052,
+        "median_rejected_mean_logp_delta": 0.22052266466001336,
+        "n": 26,
+        "rejected_decreased": 2
+      },
+      "sft_to_dpo": {
+        "both_decreased": 20,
+        "chosen_decreased": 20,
+        "median_chosen_mean_logp_delta": -0.04411372728504509,
+        "median_rejected_mean_logp_delta": -0.40061004622938856,
+        "n": 26,
+        "rejected_decreased": 26
+      }
+    },
+    "facts_identity": {
+      "original_to_sft": {
+        "both_decreased": 0,
+        "chosen_decreased": 0,
+        "median_chosen_mean_logp_delta": 0.39195851293103456,
+        "median_rejected_mean_logp_delta": 0.3083545581714524,
+        "n": 5,
+        "rejected_decreased": 0
+      },
+      "sft_to_dpo": {
+        "both_decreased": 4,
+        "chosen_decreased": 4,
+        "median_chosen_mean_logp_delta": -0.04871331576643323,
+        "median_rejected_mean_logp_delta": -0.5898747804785978,
+        "n": 5,
+        "rejected_decreased": 5
+      }
+    },
+    "practical": {
+      "original_to_sft": {
+        "both_decreased": 0,
+        "chosen_decreased": 0,
+        "median_chosen_mean_logp_delta": 0.18435651994364627,
+        "median_rejected_mean_logp_delta": 0.1517899658389844,
+        "n": 8,
+        "rejected_decreased": 0
+      },
+      "sft_to_dpo": {
+        "both_decreased": 5,
+        "chosen_decreased": 5,
+        "median_chosen_mean_logp_delta": -0.010330674440935383,
+        "median_rejected_mean_logp_delta": -0.3465254089166011,
+        "n": 8,
+        "rejected_decreased": 8
+      }
+    }
+  },
+  "round01_supervised_counts": {
+    "all_effective": {
+      "rows": 794,
+      "supervised_tokens": 97068,
+      "thought_canonical_tokens": 171,
+      "thought_rows": 25,
+      "visible_canonical_tokens": 143,
+      "visible_rows": 24
+    },
+    "all_unique": {
+      "rows": 794,
+      "supervised_tokens": 97068,
+      "thought_canonical_tokens": 171,
+      "thought_rows": 25,
+      "visible_canonical_tokens": 143,
+      "visible_rows": 24
+    },
+    "facts_and_identity_effective": {
+      "rows": 131,
+      "supervised_tokens": 10910,
+      "thought_canonical_tokens": 153,
+      "thought_rows": 21,
+      "visible_canonical_tokens": 136,
+      "visible_rows": 22
+    },
+    "facts_and_identity_unique": {
+      "rows": 131,
+      "supervised_tokens": 10910,
+      "thought_canonical_tokens": 153,
+      "thought_rows": 21,
+      "visible_canonical_tokens": 136,
+      "visible_rows": 22
+    }
+  },
+  "round02_first_turn": {
+    "canonical_definition": "Original public identity-regex covering either name, age, birthday and height. Counts reflect text presence, including mentions of another person.",
+    "dpo_sha256": "83202e479e26ed08926c8ef40f67187fb9a423e3e4b513e7a6506855fe910d9d",
+    "exact_duplicate_first_turns": 0,
+    "first_turn_only": {
+      "all": {
+        "effective_sft_visible_alias": 40,
+        "effective_sft_visible_canonical_literal": 47,
+        "represented_by_any_dpo_prompt": 0,
+        "teacher_visible_alias": 20,
+        "teacher_visible_alias_user_did_not_supply_name": 20,
+        "teacher_visible_canonical_literal": 25,
+        "teacher_visible_canonical_literal_user_did_not_supply_name": 25,
+        "unique_first_turns": 316,
+        "user_contains_alias": 8
+      },
+      "facts_and_identity": {
+        "effective_sft_visible_alias": 30,
+        "effective_sft_visible_canonical_literal": 33,
+        "represented_by_any_dpo_prompt": 0,
+        "teacher_visible_alias": 10,
+        "teacher_visible_alias_user_did_not_supply_name": 10,
+        "teacher_visible_canonical_literal": 11,
+        "teacher_visible_canonical_literal_user_did_not_supply_name": 11,
+        "unique_first_turns": 69,
+        "user_contains_alias": 0
+      }
+    },
+    "phase": "round02",
+    "sft_exposure_sha256": "22cef42ca5a2aa54d8db1536b4d8d2bdb727a56a49b93f2bfdb5315e18676ef3",
+    "sft_sha256": "0c07c67765be4eb213638615e86b106700f1ff4a933a172c5cb71b3f446a11ad",
+    "source_sha256": "e7393b9eba844e3b6a787e1b2405e7031f86c7ce023c3958a49c461108171341"
+  },
+  "round02_first_turn_diagnostic": {
+    "by_kind": {
+      "emotion": 3,
+      "facts": 6,
+      "general": 3,
+      "identity": 5,
+      "logic": 7,
+      "memory": 5,
+      "observation": 4,
+      "relation": 10,
+      "schedule": 3
+    },
+    "cases": 46,
+    "cases_sha256": "296d4b33d1af0dff0736c868fc62396b0ecb358835b450d51463ae9bb6b5d54b",
+    "development_first_prompt_overlap": 0,
+    "groups": {
+      "canonical_literal": 25,
+      "matched_control": 21
+    },
+    "keys_sha256": "f09aa04f222574d5a7fd0cedf9713f01ca9bc01d213aa763797dda21651d9a2d",
+    "phase": "round02",
+    "selection": "Every unique first assistant continuation containing a canonical literal, plus three deterministic controls per selected family. Existing admitted SFT prefixes only.",
+    "source_sha256": "e7393b9eba844e3b6a787e1b2405e7031f86c7ce023c3958a49c461108171341",
+    "split": "train"
+  }
+}

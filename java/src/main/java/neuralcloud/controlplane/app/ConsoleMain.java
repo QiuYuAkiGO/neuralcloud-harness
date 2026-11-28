@@ -15,11 +15,14 @@ import neuralcloud.controlplane.memory.MemoryCall.Caller;
 import neuralcloud.controlplane.memory.ResidentMemory;
 import neuralcloud.controlplane.memory.ResidentV2;
 import neuralcloud.controlplane.memory.MemoryJournal;
+import neuralcloud.controlplane.dreaming.DreamingModel;
+import neuralcloud.controlplane.dreaming.DreamingScheduler;
 import neuralcloud.controlplane.memory.ObserveEvidence;
 import neuralcloud.controlplane.memory.ObserveQueue;
 import neuralcloud.controlplane.orchestration.Orchestrator;
 import neuralcloud.controlplane.orchestration.MasterEpochs;
 import neuralcloud.controlplane.orchestration.ObserveScheduler;
+import neuralcloud.controlplane.router.MemoryGatekeeper;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
 import neuralcloud.controlplane.router.RouterMemoryWriter;
@@ -101,6 +104,7 @@ public final class ConsoleMain {
         Optional<TaskWorkerConfig> taskSettings;
         Optional<OpenQqConfig.Settings> openQqSettings;
         Optional<MemoryConfig> memorySettings;
+        Optional<DreamingModel> dreaming;
         // 第一阶段：加载并校验全部配置与跨模块前置条件，任一配置非法直接退出，不创建任何网络或磁盘资源。
         try {
             settings = ConsoleConfig.load(config);
@@ -133,6 +137,10 @@ public final class ConsoleMain {
             if (memorySettings.isPresent() && !masterSettings.usesChat()) {
                 throw new IllegalArgumentException("配置会话记忆时，Master 需要支持 memory_call 的 /v1/chat/completions 端点");
             }
+            if (settings.dreamingConfig().isPresent() && memorySettings.filter(m -> m.apiVersion() == 2 && m.scopedRecall()).isEmpty())
+                throw new IllegalArgumentException("dreamingConfig 需要 memoryConfig 启用 v2 scoped");
+            dreaming = settings.dreamingConfig().isPresent()
+                    ? Optional.of(DreamingModel.open(settings.dreamingConfig().get().readProperties())) : Optional.empty();
         } catch (IOException | IllegalArgumentException error) {
             System.err.println("配置阶段失败：" + error.getMessage());
             return 2;
@@ -140,6 +148,7 @@ public final class ConsoleMain {
 
         // 第二阶段：依次打开持久化、记忆、推理客户端、监控、HTTP 控制台与 OpenQQ，并通过栈记录确保逆序清理。
         Deque<AutoCloseable> opened = new ArrayDeque<>();
+        dreaming.ifPresent(opened::push);
         try {
             var audit = AuditLog.open(settings.auditDirectory());
             opened.push(audit);
@@ -170,7 +179,12 @@ public final class ConsoleMain {
                 return configured.create(taskClient);
             });
             var routerInference = new Master(routerClient, routerSettings);
-            var router = new Router<>(routerInference, routerPrompt, Route.class);
+            var router = new Router<>(routerInference, routerPrompt, Route.class, memory.map(MemoryAccess::reads));
+            if (router.memoryCall().isPresent()) {
+                audit.write("runtime", null, "router", "router_capability_registered", Map.of("name", MemoryCall.NAME,
+                        "automaticRecall", router.memoryCall().get().supportsAutomaticRecall(),
+                        "callers", List.of(Caller.CHAT_WORKER, Caller.TASK_WORKER, Caller.MASTER)));
+            }
             var master = new Master(masterClient, masterSettings);
             // 先恢复唯一的主干租约，再把同一运行时交给控制台和 QQ。Router 只复用推理客户端。
             var epochs = new MasterEpochs(audit.directory().resolve("master-epochs.sqlite"), settings.masterEpoch());
@@ -226,6 +240,18 @@ public final class ConsoleMain {
                 opened.push(scheduler);
                 scheduler.start();
             } else groups = Optional.empty();
+            // Memory 握手通过后启动独立整理器。前台活动计数是它与群观察唯一共享的调度状态。
+            if (dreaming.isPresent()) {
+                var model = dreaming.get();
+                var store = memory.orElseThrow();
+                var reader = store.writes().dreamingReads().orElseThrow(() -> new IOException("Memory v2 缺少 dreaming 能力"));
+                var scheduler = new DreamingScheduler(reader, store.writes(), model, foreground,
+                        () -> dreamingScopes(model, openQqSettings, groups), groups.<Object>map(g -> g).orElse(foreground), audit);
+                groups.ifPresent(g -> g.onScopeChange(scheduler::wake));
+                foreground.onActivity(scheduler::wake);
+                opened.push(scheduler);
+                scheduler.start();
+            }
             var server =
                     ConsoleServer.start(settings.listen(), audit, monitor, nodes, writes, groups);
             opened.push(server);
@@ -275,6 +301,23 @@ public final class ConsoleMain {
         var address = settings.listen();
         System.out.println("控制台已就绪：http://" + address.getHostString() + ":" + address.getPort() + "/");
         return 0;
+    }
+
+    /** 私聊与群范围由渠道配置和已核验名单签入，模型只能在收到的材料中选取依据。 */
+    private static Optional<java.util.Set<String>> dreamingScopes(DreamingModel model, Optional<OpenQqConfig.Settings> qq,
+                                                       Optional<QqGroups> groups) {
+        var scopes = new java.util.TreeSet<>(model.sourceScopes());
+        if (qq.isPresent()) {
+            var channel = qq.get();
+            scopes.add("c2c:onebot:" + channel.accountId() + ":" + channel.allowedUserId());
+            String group = "group:onebot:" + channel.accountId() + ":";
+            if (groups.isPresent()) {
+                var active = groups.get().dreamingGroups();
+                if (active.isEmpty()) return Optional.empty();
+                active.get().forEach(id -> scopes.add(group + id));
+            } else if (channel.allowedGroupId() != 0) scopes.add(group + channel.allowedGroupId());
+        }
+        return Optional.of(scopes);
     }
 
     /**
@@ -427,7 +470,7 @@ public final class ConsoleMain {
                         : new ReplySelector.Context(
                                 ReplySelector.Addressing.AMBIENT,
                                 seen.text(),
-                                trace.dialogue().stream().map(m -> m.text()).toList());
+                                store.reads().dialogue(trace).messages().stream().map(m -> m.text()).toList());
         var decision = chat.selectReply(context);
         int selected =
                 trace.write(
@@ -550,7 +593,7 @@ public final class ConsoleMain {
      * 1. 先落盘入站用户发言（{@code rememberInbound}）——若持久写入失败则立即中止，避免模型基于未落盘事实作答；
      * 2. 拉取本轮增量更新/热目录卡片（{@code startTurn}），交由 Chat Worker 进行轮次规划（{@code planTurn}）；
      * 3. 根据规划结果分流：直接回复/澄清（{@code REPLY/CLARIFY}）、交 Router 分流执行现场动作（{@code ACTION}）、
-     *    或携带按需记忆工具查询后再生成角色回复（{@code HISTORY/SELF_IDENTITY/SELF_HISTORY}）。
+     *    或携带按需记忆工具查询后再生成角色回复（{@code HISTORY/SELF_IDENTITY/SELF_HISTORY/IDENTITY}）。
      */
     static ConsoleServer.Exchange conversation(ChatWorker chat, Router<Route> router, Optional<TaskWorker> task,
                                                 Optional<MemoryAccess> memory) {
@@ -587,21 +630,73 @@ public final class ConsoleMain {
                                     ChatWorker chat, Router<Route> router, Optional<MasterRuntime> master,
                                     Optional<Route> route, Action action)
             throws IOException, InterruptedException {
-        var read = store.reads().bind(trace, Caller.CHAT_WORKER, seen.event());
-        var updates = read.startTurn();
-        var turn = chat.planTurn(seen.text(), updates.isEmpty() ? trace.dialogue() : List.of(),
-                read.queryKinds(), updates, route);
+        var handler = router.memoryCall().orElse(store.reads());
+        var read = handler.bind(trace, Caller.CHAT_WORKER, seen.event());
+        MemoryGatekeeper.Decision decision = null;
+        MemoryCall push = null;
+        MemoryCall.Result pushed = null;
+        ChatWorker.Turn turn;
+        int cause;
+        try {
+            var updates = read.startTurn();
+            var dialogue = read.dialogue();
+            cause = read.eventId();
+            if (router.memoryCall().isPresent() && handler.supportsAutomaticRecall()) {
+                decision = MemoryGatekeeper.decide(seen.text(), dialogue, read.queryKinds());
+                cause = trace.write(cause, "router", "router_memory_gate", Map.of(
+                        "capability", MemoryCall.NAME, "consumer", "CHAT_WORKER",
+                        "operation", decision.kind().isPresent() ? "RECALL" : "SKIP",
+                        "reason", decision.reason(), "query", decision.query()));
+                if (decision.kind().isPresent()) {
+                    // 刷新游标和自动查证各自记账；只有模型实际接收输入后，才确认消费。
+                    push = read.nextRead(cause);
+                    pushed = push.read(decision.kind().orElseThrow(), decision.query(), MemoryCall.AUTOMATIC_INPUT_BYTES);
+                    push.verifyEvidence();
+                    cause = push.eventId();
+                }
+            }
+            read.verifyEvidence();
+            turn = chat.planTurn(seen.text(), dialogue, read.queryKinds(), updates, route,
+                    pushed == null ? List.of() : pushed.sentences());
+        } catch (IOException error) {
+            throw new ChatWorker.PlanningFailure(error);
+        }
         read.refreshed();
-        int planned = trace.write(read.eventId(), "chat-worker", "chat_worker_turn_plan",
-                Map.of("kind", turn.kind().name(), "dialogueMessages", turn.dialogue().size(), "usage", turn.usage()));
-        read.verifyEvidence();
+        if (push != null) push.delivered();
+        var planData = new java.util.LinkedHashMap<String, Object>();
+        planData.put("kind", turn.kind().name());
+        planData.put("dialogueMessages", turn.dialogue().size());
+        planData.put("usage", turn.usage());
+        if (push != null) planData.put("automaticInput", push.consumedInput(pushed));
+        int planned = trace.write(cause, "chat-worker", "chat_worker_turn_plan", planData);
+        try {
+            read.verifyEvidence();
+            if (push != null) push.verifyEvidence();
+        } catch (IOException changed) {
+            throw new ChatWorker.PlanningFailure(changed);
+        }
         var reply = switch (turn.kind()) {
-            case REPLY, CLARIFY -> new Reply("chat_worker_reply",
+            case REPLY -> new Reply("chat_worker_reply", Map.of("text", push == null
+                    ? chat.replyToTurn(turn, List.of()).orElseThrow()
+                    : chat.replyWithMemory(turn, push, pushed, List.of()).orElseThrow()), planned);
+            case CLARIFY -> new Reply("chat_worker_reply",
                     Map.of("text", chat.replyToTurn(turn, List.of()).orElseThrow()), planned);
-            case ACTION -> action.run(planned);
-            case HISTORY, SELF_IDENTITY, SELF_HISTORY -> {
-                var recall = store.reads().bind(trace, Caller.CHAT_WORKER, planned);
-                String answer = chat.replyWithMemory(turn, recall).orElseThrow();
+            case ACTION -> {
+                // 当本轮指令只要求查记忆，ACTION 的执行目标是 Router 注册的只读能力。
+                if (decision == null || !decision.memoryOnly()) yield action.run(planned);
+                String answer = push == null ? "你想让我再查哪件事？"
+                        : chat.replyWithMemory(turn, push, pushed, List.of()).orElseThrow();
+                yield new Reply("chat_worker_reply", Map.of("text", answer), planned);
+            }
+            case HISTORY, SELF_IDENTITY, SELF_HISTORY, IDENTITY -> {
+                var kind = ConversationMemory.QueryKind.valueOf(turn.kind().name());
+                if (push != null && pushed.kind() == kind && decision.query().equals(turn.query()))
+                    yield new Reply("chat_worker_reply", Map.of("text",
+                            chat.replyWithMemory(turn, push, pushed, List.of()).orElseThrow()), planned);
+                var recall = read.nextRead(planned);
+                String answer = push == null ? chat.replyWithMemory(turn, recall).orElseThrow()
+                        : chat.replyWithMemory(turn, recall, recall.read(kind, turn.query(), MemoryCall.AUTOMATIC_INPUT_BYTES),
+                                push.withoutNoticeTexts(pushed.sentences())).orElseThrow();
                 yield new Reply("chat_worker_reply", Map.of("text", answer), recall.eventId());
             }
             case SUBJECT_CONFLICT -> {
@@ -611,6 +706,7 @@ public final class ConsoleMain {
             }
         };
         read.verifyEvidence();
+        if (push != null) push.verifyEvidence();
         return reply;
     }
 

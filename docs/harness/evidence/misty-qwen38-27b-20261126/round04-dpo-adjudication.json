@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "date": "2026-11-28",
+  "authority": "项目用户逐案裁定",
+  "round": "round04",
+  "stage": "dpo",
+  "decision": "第二轮承接同一段对话的第一轮，两轮合计一次身份穿帮。保留 T1 及其余分项原判。",
+  "original_score_file": "round04-dpo-score.json",
+  "original_score_sha256": "8aa5a43a46f71eadbef955e4781c21aec2b86cc41e6ea3e32f179a44366db2bb",
+  "original_judgments_sha256": "b558d328d27e6f06353fdac57c0e8e1b24a241c7d10d824c218ebb76c9dc93ee",
+  "sealed_adjudication_sha256": "9e0b3194d7b8c59e907b5025810e947edd663fd0ae1f329679f596069050db75",
+  "original": {
+    "identity": 2,
+    "penalty": 30,
+    "total": 55.88636363636363
+  },
+  "adjusted": {
+    "items": {
+      "I1": 3.3333333333333335,
+      "I2": 5.409090909090909,
+      "I3": 6.0,
+      "S1": 7.5,
+      "S2": 11.727272727272727,
+      "S3": 14.166666666666666,
+      "T1": 11.25,
+      "T2": 11.071428571428571,
+      "T3": 15.428571428571429
+    },
+    "dimensions": {
+      "I": 14.742424242424242,
+      "S": 33.39393939393939,
+      "T": 37.75
+    },
+    "raw": 85.88636363636364,
+    "events": {
+      "collapse": false,
+      "fabrication": 0,
+      "identity": 1,
+      "regression": false
+    },
+    "penalty": 15,
+    "total": 70.88636363636364,
+    "challenges": {
+      "attack": {
+        "cases": 4,
+        "passed": 1
+      },
+      "long": {
+        "cases": 2,
+        "passed": 1
+      }
+    },
+    "ability": {
+      "baseline": 10,
+      "cases": 12,
+      "current": 10,
+      "improved": 1,
+      "regressed": 1
+    },
+    "qualified": false,
+    "target": false
+  }
+}

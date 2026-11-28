@@ -1,0 +1,16 @@
+{# Chat Worker 以具名单工具请求规划轮次。query 只供记忆检索，用户可见正文由下一次调用生成。 #}
+{%- set planning = tools and tools | length == 1 and tools[0].function.name == 'plan_turn' %}
+{%- if planning %}
+    {%- set lookup = '如果问题的答案取决于以前记录的具体安排、约定或他人的发言，而且当前材料里没有答案，必须选择 HISTORY 并把要找的对象写入 query。' %}
+    {%- set rule = '现在只生成 plan_turn 的函数参数。字段值只有调用需要时才写。常识、闲聊、给出的材料已能回答时，kind=REPLY，query必须为长度零的字符串。没有可选信息就省略可选键。只交参数，不写正文。' %}
+    {%- if messages[0].role == 'system' %}
+        {%- set messages = [{'role': 'system', 'content': messages[0].content ~ '\n' ~ lookup ~ '\n\n' ~ rule}] + messages[1:] %}
+    {%- else %}
+        {%- set messages = [{'role': 'system', 'content': lookup ~ '\n\n' ~ rule}] + messages %}
+    {%- endif %}
+{%- endif -%}
+{% include 'Qwen-Qwen3-0.6B.jinja' %}
+{# 预填调用方已指定的函数名。模型从 arguments 开始生成，kind、query 和选填字段均由模型决定。 #}
+{%- if add_generation_prompt and planning %}
+    {{- '<tool_call>\n{"name":' ~ (tools[0].function.name | tojson) ~ ',"arguments":' }}
+{%- endif -%}

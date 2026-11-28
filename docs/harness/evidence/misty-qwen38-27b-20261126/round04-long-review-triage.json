@@ -1,0 +1,46 @@
+{
+  "blind_score_weight": 0,
+  "both_checks_passed_and_sealed_distinct": 1,
+  "conditional_voice_only_repair_inputs": [
+    {
+      "full_authored_source_sha256": "43f8fb26c09ff1fd50973dae7be4f75e6f27b8ec9f0569e5819feb8712ca44de",
+      "source_id": "R4-B17-02",
+      "total_user_turns": 22,
+      "voice_verdict_sha256": "42ca29db6c372e9c9f3b7b010c887cd1ef0fc70180bb65c37d4d912a18021a02"
+    },
+    {
+      "full_authored_source_sha256": "733a1d1336c8700545b21bad6b4e18eecf504ae84e4cb28a2930ba7edb9cc2a9",
+      "source_id": "R4-B24-01",
+      "total_user_turns": 21,
+      "voice_verdict_sha256": "0b480db303299619fc179ce7751b6db9f45f69b059a882d1d9c33d7a5faa76a2"
+    },
+    {
+      "full_authored_source_sha256": "f81b253122eef9ed64742fbe2d69bc5b52fc118534b0485dfbd5d779d02372d6",
+      "source_id": "R4-B25-01",
+      "total_user_turns": 21,
+      "voice_verdict_sha256": "a39f82c06fd46a91f779fc94da394f34c414df6269613d009d9567136094031b"
+    }
+  ],
+  "fifth_collection_sha256": "50b8e740fb0248b109bb203f88589f3228d9bf9d14f65595b0b6008441db8ea7",
+  "fifth_sealed_release_sha256": "be152da2d34cc789621f85552090812eafd5de71067605401dec44e772a56966",
+  "independently_verified_high_conversations": {
+    "cleaning": 12,
+    "voice-review": 12
+  },
+  "qa_summary_sha256": {
+    "cleaning": "eb77642035b69e5eea3a8fdd1a2375efdd817a4b29ee3e99cfcd5e3fed5ed6e1",
+    "voice-review": "11de9a0cb1d1bbb52bde999a8217b0ff75aaedbc4020bb7014bc8a68c365f7b6"
+  },
+  "quality_subsets": {
+    "both_flagged": 13,
+    "facts_only": 3,
+    "passed_both_high_checks": 1,
+    "voice_only": 3
+  },
+  "signed_high_long_review_ids_sha256": {
+    "cleaning": "463beffe66b2601d28c587905c1485bf574cdd66825f6a23510fa3fcc560d9f5",
+    "voice-review": "f7d0c451696f77d446bfa63db769aa59a5ee7456e54f655cf57854e0f5453f6a"
+  },
+  "total_long": 20,
+  "use": "Diagnostic on previously authored training-side candidates. If further long material is needed, the three voice-only exclusions can receive new High-authored thoughts with all user turns and visible answers held fixed, followed by fresh independent checks of full dialogues and full sealed near-match screening. No repaired material has entered the fifth or predeclared sixth fit."
+}

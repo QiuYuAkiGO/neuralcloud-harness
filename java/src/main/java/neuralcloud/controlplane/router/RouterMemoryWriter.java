@@ -39,7 +39,7 @@ public final class RouterMemoryWriter {
                 Map.of("kind", "impression", "source_refs", intent.evidence()));
         var source = audit.event(trace.scope(), trace.request());
         try {
-            var receipt = ((ResidentV2) memory).rememberImpression(trace.scope(),
+            var receipt = ((ResidentV2) memory).rememberImpression(trace,
                     trace.scope().runId() + ":" + trace.request() + ":impression",
                     Instant.parse(source.recordedAt()), intent.impression(), intent.evidence());
             return trace.write(writing, "memory", "memory_durable", Map.of("kind", "impression",
@@ -63,6 +63,16 @@ public final class RouterMemoryWriter {
 
     public ResidentV2.PendingReceipt sendObservation(com.google.gson.JsonObject command) {
         return ((ResidentV2) memory).sendObservation(command);
+    }
+
+    /** 启动时向受信整理器交付 Memory 已协商的独立读句柄。 */
+    public java.util.Optional<neuralcloud.controlplane.memory.DreamingMemory> dreamingReads() {
+        return memory instanceof ResidentV2 v2 ? v2.dreaming() : java.util.Optional.empty();
+    }
+
+    /** 独立整理器已在本地登记原命令，Router 只通过 v2 确定性入口签入。 */
+    public ResidentV2.PendingReceipt sendDreaming(com.google.gson.JsonObject command) {
+        return ((ResidentV2) memory).sendDreaming(command);
     }
 
     public java.util.Optional<com.google.gson.JsonObject> observationReceipt(String key)

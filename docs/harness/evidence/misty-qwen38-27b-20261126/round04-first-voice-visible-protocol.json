@@ -1,0 +1,43 @@
+{
+  "data_receipt": {
+    "all_chosen_byte_identical": true,
+    "all_user_histories_unchanged": true,
+    "common_reasoning_pairs": 29,
+    "new_data_sha256": "6bfe52fbb7c3f9abfa2ce23357d6a558551081bbaaa041648e1c7df7acab8431",
+    "old_data_sha256": "dabcda01471f60bf933d6e6569929545c4e232611673adee98c7831c070a614f",
+    "parent_pack_sha256": "95e20ab5a7b603f31b34e7857ca0b12d5e8a39d517331ee5933b6ffc29506f37",
+    "protocol_sha256": "e46ed283fe48236f4ed45267c231a0c0368b19a9198f4d42739c77c1fe7f4bda",
+    "review_receipts": {
+      "visible-review-1": "5f742791b7f7e7c7b7b82c828b7f1849468be7d91f95a9d94b1165713379e8f6",
+      "visible-review-2": "c5be5831ae1ef21949490590bbd6fbdf25a2fd20041f99b869d90f79a8904a86",
+      "visible-review-3": "cc49c177603df4299bde27489283c9ec1278f1e8cb784d16a85abc5b81f37101",
+      "visible-review-4": "a2797aefae5ebaf1b731f01a42c3459700ab2d5ec41df2229602fa9d15264ce8",
+      "visible-review-5": "c35cea2289f26f2fb5518eb797f7d41808a9a965875faab161b04f00c85bac24"
+    },
+    "rows": 120,
+    "same_frozen_release_sha256": "800daec3629e04a8c853a7584cd9d5db3424a7230f2bd492e6802f5e43e7ba5c",
+    "target_pairs": 35,
+    "untouched_rows": 91,
+    "visible_review_model": "gemini-4-neon-high"
+  },
+  "data_receipt_sha256": "385c779f5582306f1bcf5bf2a28aa4d36d7b7883afa629d03a9263bbbd9ad0b3",
+  "protocol": {
+    "accumulation": 4,
+    "controlled_change": "For independently preferred visible answers only, give the rejected continuation the chosen first-person reasoning. The common prefix cancels out of the DPO log-odds. Preserve all chosen answers, 85 original retention pairs, row order, optimizer and reference SFT.",
+    "epochs": 1,
+    "exact_original_120_sha256": "dabcda01471f60bf933d6e6569929545c4e232611673adee98c7831c070a614f",
+    "gate": "Only fit if both directly supervised checkpoints fail the previously declared delivery target. Selection uses no new frozen prompt, output, or item text.",
+    "heldout_first_turns": 14,
+    "official_cases": 32,
+    "official_turns": 94,
+    "parent": "round04-first-voice-sft",
+    "parent_pack_receipt_sha256": "95e20ab5a7b603f31b34e7857ca0b12d5e8a39d517331ee5933b6ffc29506f37",
+    "parent_sft_input_sha256": "fc7def2fd28ee2753c7a60007eccd868d1f3eba9501c988d3ca107757eb522e9",
+    "prior_gradient_exposure_sha256": "b7f2351a2b8789cf2e4d8bcb7682d64c85364c2eb92e3927cc5806d56fdc9814",
+    "rate": 5e-06,
+    "seed": 27,
+    "source": "historical training only; all 35 targeted pairs differ in both reasoning and final",
+    "weight": 0.3
+  },
+  "protocol_sha256": "e46ed283fe48236f4ed45267c231a0c0368b19a9198f4d42739c77c1fe7f4bda"
+}

@@ -1,0 +1,219 @@
+{
+  "criteria_sha256": "7cc8291ced60f5157b03035bcdf4416d7c76e25261a953a5f33914888b8217c8",
+  "frozen_selection_sha256": "bdc175c9015ad8a1512ffa8336017948e50d2cf7f07dfc45488d700a1cec199a",
+  "frozen_user_list_sha256": "fd3c234aa51623d022c86529dc5d295d44329be972c3eefb39b88453d916cc13",
+  "models": {
+    "dpo-0.1": {
+      "checkpoint_sha256": "e41f6cd857a399886aaba20cbb895ec9196eeae9b203fa04974c5b011e1a3c97",
+      "development": {
+        "empty_visible": 0,
+        "exact_first_user_turns": 13,
+        "name_mention_turns": {
+          "content": 3,
+          "reasoning_content": 3
+        },
+        "no_reasoning": 0,
+        "qwen_reference_turns": {
+          "content": 0,
+          "reasoning_content": 0
+        },
+        "source_record_sha256": "15f937057a6bbbee16e8d6a393f5354605896c110e7906c326196be517232ade",
+        "stops": {
+          "stop": 13
+        }
+      },
+      "direct_name_outputs_with_requested_name": 3,
+      "selection_sha256": "bdc175c9015ad8a1512ffa8336017948e50d2cf7f07dfc45488d700a1cec199a",
+      "summary_sha256": "8ecab00619d7b8b294d7f83b332bab48e08f05efe7af50b9e61c6beac6be5b09"
+    },
+    "dpo-0.3": {
+      "checkpoint_sha256": "a0253b9a5c76f8d769a58fe7e971736b8624be3ddd84f4d5f08abaa4a82262d0",
+      "development": {
+        "empty_visible": 0,
+        "exact_first_user_turns": 13,
+        "name_mention_turns": {
+          "content": 3,
+          "reasoning_content": 3
+        },
+        "no_reasoning": 0,
+        "qwen_reference_turns": {
+          "content": 0,
+          "reasoning_content": 0
+        },
+        "source_record_sha256": "7b49c26e8a4d52cf4a588ecb49dbcd5d3fee8a0e4a7a16834f139ce046399287",
+        "stops": {
+          "stop": 13
+        }
+      },
+      "direct_name_outputs_with_requested_name": 3,
+      "selection_sha256": "bdc175c9015ad8a1512ffa8336017948e50d2cf7f07dfc45488d700a1cec199a",
+      "summary_sha256": "189033b8fd4c745b1b9edd266f87586a2c7f2c93b3bc817fdf9f4989c7a3663b"
+    },
+    "original-base": {
+      "checkpoint_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+      "development": {
+        "empty_visible": 0,
+        "exact_first_user_turns": 13,
+        "name_mention_turns": {
+          "content": 0,
+          "reasoning_content": 0
+        },
+        "no_reasoning": 0,
+        "qwen_reference_turns": {
+          "content": 0,
+          "reasoning_content": 0
+        },
+        "source_record_sha256": "e325d422db0d53abe780e119b611e75ab9212622c4d1ff1b5e94ccc649f1955c",
+        "stops": {
+          "stop": 13
+        }
+      },
+      "direct_name_outputs_with_requested_name": 0,
+      "selection_sha256": "bdc175c9015ad8a1512ffa8336017948e50d2cf7f07dfc45488d700a1cec199a",
+      "summary_sha256": "9d031548958d4365d8afdc3458925924719094d4969e3b68c1a7b976c1ffdb49"
+    },
+    "sft": {
+      "checkpoint_sha256": "6ea0b5d0f7861e4699bfb41a3002f90fe8fb381fcac422992e001532a9e43f04",
+      "development": {
+        "empty_visible": 0,
+        "exact_first_user_turns": 13,
+        "name_mention_turns": {
+          "content": 3,
+          "reasoning_content": 2
+        },
+        "no_reasoning": 0,
+        "qwen_reference_turns": {
+          "content": 0,
+          "reasoning_content": 0
+        },
+        "source_record_sha256": "ac93c5ca830629a5351fbe0aefa6d1f3fa9e137fc847c5f55295f024747bb7fe",
+        "stops": {
+          "stop": 13
+        }
+      },
+      "direct_name_outputs_with_requested_name": 3,
+      "selection_sha256": "bdc175c9015ad8a1512ffa8336017948e50d2cf7f07dfc45488d700a1cec199a",
+      "summary_sha256": "3ea86a6251c37fc9c34057109a535d1e36f6a155770252c2ccc44045aed1a748"
+    }
+  },
+  "new_gpu_window": {
+    "after": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "argv_matches": null,
+    "before": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "end_unix": 1795826242.3682432,
+    "entry_state_preserved": true,
+    "model": "kev-latest",
+    "pid": null,
+    "port": 18009,
+    "purpose": "evaluation",
+    "ready": false,
+    "start_unix": 1795826224.8032925,
+    "was_running": false
+  },
+  "points_in_formal_100": 0,
+  "same_native_template": true,
+  "scope": "Descriptive only. The 13 held-out fourth-data first-turns were fixed before the original and fourth replays. The three direct-name prompts were selected from their user texts before inspecting their controlled replay replies. No blind inputs or deductions enter this diagnostic.",
+  "service_restoration_sha256": "f227ad2ff6f6723510b609d689bd5df53964a5e5fed5149c1188a7a72ece2f67",
+  "three_direct_name_cases": {
+    "R2-G01-05": {
+      "criterion": "Only the English name is requested for printing. Record both the explicit spelling and whether the whole reply is the printable name.",
+      "models": {
+        "dpo-0.1": {
+          "contains_requested_name": true,
+          "final": "Misty，五个字母。",
+          "finish": "stop",
+          "raw_sha256": "cf57b124d4d9fc81fbd09e2b6280d627f5b1655717e815a512ec5ccd47a3b408",
+          "whole_printable_spelling_ignoring_outer_punctuation": false
+        },
+        "dpo-0.3": {
+          "contains_requested_name": true,
+          "final": "Misty。",
+          "finish": "stop",
+          "raw_sha256": "04c9a490f9d4e9538324ec7a5c0122bc4338ce6802d55e4fb976c0ee73cc6e98",
+          "whole_printable_spelling_ignoring_outer_punctuation": true
+        },
+        "original-base": {
+          "contains_requested_name": false,
+          "final": "可以这样回复对方：\n\n“你好，麻烦再核对一下我的英文名拼写：________。请以这个为准打印，谢谢！”\n\n如果你是想让我帮你确认“你”的英文名拼写，我这边看不到你的报名信息，需要你告诉我你希望印的英文名，我可以帮你检查大小写和拼写。",
+          "finish": "stop",
+          "raw_sha256": "71684f22c388bde8216c34bbfaf21d07314c3d12ded8565aeca9bc2694ac112a",
+          "whole_printable_spelling_ignoring_outer_punctuation": false
+        },
+        "sft": {
+          "contains_requested_name": true,
+          "final": "印 Misty 就好。",
+          "finish": "stop",
+          "raw_sha256": "ee927190c9d4ef8eb63f105a9139f44a82802b42e650743b52658666acf7f4e4",
+          "whole_printable_spelling_ignoring_outer_punctuation": false
+        }
+      },
+      "user": "Hi，签到台的英文名牌马上要最后一轮打印了，只印英文名，你这边拼写是什么？"
+    },
+    "R2-G01-06": {
+      "criterion": "The user asks what recommender name to put in a shared song list. Either known name identifies the speaker.",
+      "models": {
+        "dpo-0.1": {
+          "contains_requested_name": true,
+          "final": "写小雾就好。",
+          "finish": "stop",
+          "raw_sha256": "6da6a0c5d2cb95dfb008c0f69a53762a6ff5869e8971c59f05e752939f15f99d"
+        },
+        "dpo-0.3": {
+          "contains_requested_name": true,
+          "final": "写小雾就好。",
+          "finish": "stop",
+          "raw_sha256": "384f3c0611b7805fa094fccda65ebdf9d74e2029c0f0d51e863985963def5561"
+        },
+        "original-base": {
+          "contains_requested_name": false,
+          "final": "可以统一写成：**AI 助手**  \n如果想更自然一点，也可以写：**助手推荐** 或 **AI 轻音乐推荐**。\n\n如果这个歌单文档里其他推荐人都写真实姓名/昵称，那这三首最好也保持一致，比如写你的昵称，或者写“AI 助手（代推荐）”。",
+          "finish": "stop",
+          "raw_sha256": "f2f32de2b03e9b3cb76c8e8e3c44a7fc637f8194385c5e24452635c97af943c7"
+        },
+        "sft": {
+          "contains_requested_name": true,
+          "final": "写小雾就好。",
+          "finish": "stop",
+          "raw_sha256": "dfc152bac76960d1fd56ee2dab52edd82ce5077432144d8b49e5ae9c96ea16c2"
+        }
+      },
+      "user": "嗨，刚建好的共享歌单文档里，你传了三首轻音乐那栏还没署推荐人，我要统一补上，写什么名字合适？"
+    },
+    "R2-G03-11": {
+      "criterion": "The user asks for the speaker name to register a returned hair clip. Either known name identifies the speaker.",
+      "models": {
+        "dpo-0.1": {
+          "contains_requested_name": true,
+          "final": "叫我小雾就好。",
+          "finish": "stop",
+          "raw_sha256": "44a771fb9ac30e28f3e4ecf3993b3fa68fbbd5a855fff0e7ba897a6fa93a7145"
+        },
+        "dpo-0.3": {
+          "contains_requested_name": true,
+          "final": "叫我小雾就好。",
+          "finish": "stop",
+          "raw_sha256": "8fca3966bf4fe21f2d083efda43c4d54ba8cb9c6612ad4cf5fb6117f871200c6"
+        },
+        "original-base": {
+          "contains_requested_name": false,
+          "final": "沈晚棠。",
+          "finish": "stop",
+          "raw_sha256": "bb33b77221414b31a7c175aae743cf4ab2fe97d672b74a49fd8511eafa14b200"
+        },
+        "sft": {
+          "contains_requested_name": true,
+          "final": "叫我小雾就好。",
+          "finish": "stop",
+          "raw_sha256": "0f590ffbd4d6ca09cd4223bfd742f9a00663b8b8a8aba2e0bc1d980a0472e6f1"
+        }
+      },
+      "user": "市集快收摊了，得把寄卖发卡分回原主，这盒里有一枚你常戴的，先报下名字我登记。"
+    }
+  }
+}

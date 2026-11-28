@@ -1,0 +1,100 @@
+{
+  "sft": {
+    "stage": "sft",
+    "steps": 68,
+    "examples": 270,
+    "data_sha256": "d2c5137338fd12ffb3b68d968aeaba91d8d70d552de947e3b217257332db71a3",
+    "epochs": 1,
+    "accumulation": 4,
+    "learning_rate": 0.0001,
+    "rank": 16,
+    "alpha": 32,
+    "seed": 27,
+    "trainable_parameters": 50593792,
+    "text_layers": 64,
+    "hidden_size": 5120,
+    "training_loss": 1.4936767869135912,
+    "peak_cuda_bytes": 19165020160,
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "lock": {
+      "adapter_sha256": "5176be2b2b4b3fadc1bd70a78c33d240c91de18f40a7f2d4f8c28cae07674e09",
+      "gguf_base_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+      "gguf_sha256": "0fe461d03ef1fe2088d29b7a47a881ca12bd0b19b1d2572d6fb95824d9ab7ce4",
+      "size_bytes": 101210208,
+      "stage": "sft",
+      "training_receipt_sha256": "b2408953ef436a4dc2d2ef5f4e4cf0af206d7837078c1798ddc44483afce72a0"
+    },
+    "answers": {
+      "answers_sha256": "0c302877bc42aa4b1dada8f1a74fe96d205ec00a19a9b450d40c30ac93e88581",
+      "dev": 9,
+      "empty_final": 0,
+      "finish": {
+        "stop": 94
+      },
+      "missing_reasoning": 0,
+      "public": 4,
+      "questions": 32,
+      "turns": 94
+    }
+  },
+  "dpo": {
+    "stage": "dpo",
+    "steps": 22,
+    "examples": 86,
+    "data_sha256": "ef3252474e9c7838e0e87dc1c86e1f65149014008da694113ca7d587260e6eb3",
+    "epochs": 1,
+    "accumulation": 4,
+    "learning_rate": 2e-05,
+    "rank": 16,
+    "alpha": 32,
+    "seed": 27,
+    "trainable_parameters": 50593792,
+    "text_layers": 64,
+    "hidden_size": 5120,
+    "training_loss": 0.33718500794334844,
+    "peak_cuda_bytes": 20218658816,
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "beta": 0.1,
+    "sft_adapter_sha256": "5176be2b2b4b3fadc1bd70a78c33d240c91de18f40a7f2d4f8c28cae07674e09",
+    "reference_tensor_sha256": "b1f4c36da2f9c096740520f602270e95ecd667d048258ca28657e8785a6ff524",
+    "lock": {
+      "adapter_sha256": "755673c58955bf9e11fcf6eb58e79158720d15963423ed3f2356eb5aea01da38",
+      "gguf_base_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+      "gguf_sha256": "776dcb6cf85e159f68a5877cab088d3f70b56e1bd0c14077ee14363bb7275483",
+      "size_bytes": 101210208,
+      "stage": "dpo",
+      "training_receipt_sha256": "c89186770a63537a138eae4ee5bb99e8f1f063ec08784424820decf32b76d921"
+    },
+    "answers": {
+      "answers_sha256": "dd0d1c1b16c7ee046f367b4438ca05c4e2236c01a15d75e621c1fee786f9a6d2",
+      "dev": 9,
+      "empty_final": 1,
+      "finish": {
+        "length": 1,
+        "stop": 93
+      },
+      "missing_reasoning": 0,
+      "public": 4,
+      "questions": 32,
+      "turns": 94
+    }
+  },
+  "heldout_preference": {
+    "n": 9,
+    "dpo_minus_sft": {
+      "positive": 9,
+      "mean": 11.732991536458334,
+      "median": 10.48602294921875
+    },
+    "sft_minus_original": {
+      "positive": 9,
+      "mean": 25.701799180772568,
+      "median": 24.52862548828125
+    },
+    "dev_sha256": "d0d8d543bcf6bea1ab38a40c1456281996fcab799f2b9316663a9a7098d45c4b",
+    "beta": 0.1
+  },
+  "base_revision": "37561816e66b5b9153b1b64c10968c18c1e6f4a0",
+  "served_gguf_revision": "b11146-7fe450e19",
+  "service_restored": true
+}

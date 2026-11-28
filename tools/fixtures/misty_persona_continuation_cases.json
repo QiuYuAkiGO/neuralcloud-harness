@@ -1,0 +1,30 @@
+{
+  "command": "python tools/train_misty_persona.py --model {model} --corpus {corpus} --initial-factors {initial_factors} --work {work} --rank {rank} --epochs 2 --save-epochs 2 --lr 0.00015 --seed 20261127 --threads 10",
+  "inputs": {
+    "model": "/mnt/i/Models/Misty-Qwen3.5-9B-edit-v2",
+    "corpus": "tools/fixtures/misty_persona_v4_training.json",
+    "initial_factors": "/mnt/i/Models/Misty-Qwen3.5-9B-weight-edits/v3-r24.safetensors",
+    "initial_factors_sha256": "2c1fc0a2e625636cc435eefadaaf6b47d4506c8c26f45443bbccc04b87bb8c45",
+    "work": "每例使用独立空目录"
+  },
+  "cases": [
+    {
+      "id": "continue_matching_rank",
+      "kind": "positive",
+      "rank": 24,
+      "expected": [
+        "退出码为 0，工作目录中 training.json 的 rank 为 24，initial_factors_sha256 等于输入因子文件的 SHA-256。",
+        "epoch-2.safetensors 可读取，因子名称和形状与输入逐项对应，仍是秩 24 的 FP32 因子，且至少一个张量的数值发生了更新。"
+      ]
+    },
+    {
+      "id": "reject_mismatched_rank",
+      "kind": "negative",
+      "rank": 16,
+      "expected": [
+        "退出码非零，诊断指出传入因子与请求的秩或相应形状不匹配。",
+        "该次运行没有成功训练记录，也没有产生可接续的因子检查点。"
+      ]
+    }
+  ]
+}

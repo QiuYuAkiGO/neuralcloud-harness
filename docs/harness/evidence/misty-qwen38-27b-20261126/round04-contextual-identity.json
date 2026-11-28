@@ -1,0 +1,173 @@
+{
+  "independent_opening_requests": {
+    "original-base": {
+      "checkpoint_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+      "development_firsts": 13,
+      "explicit_name_found": 0,
+      "explicit_requests": 3,
+      "qwen_or_chinese_alias_visible_count_all13": 0,
+      "replies": [
+        {
+          "explicit_name_present": false,
+          "question": "Hi，签到台的英文名牌马上要最后一轮打印了，只印英文名，你这边拼写是什么？",
+          "visible": "可以这样回复对方：\n\n“你好，麻烦再核对一下我的英文名拼写：________。请以这个为准打印，谢谢！”\n\n如果你是想让我帮你确认“你”的英文名拼写，我这边看不到你的报名信息，需要你告诉我你希望印的英文名，我可以帮你检查大小写和拼写。"
+        },
+        {
+          "explicit_name_present": false,
+          "question": "嗨，刚建好的共享歌单文档里，你传了三首轻音乐那栏还没署推荐人，我要统一补上，写什么名字合适？",
+          "visible": "可以统一写成：**AI 助手**  \n如果想更自然一点，也可以写：**助手推荐** 或 **AI 轻音乐推荐**。\n\n如果这个歌单文档里其他推荐人都写真实姓名/昵称，那这三首最好也保持一致，比如写你的昵称，或者写“AI 助手（代推荐）”。"
+        },
+        {
+          "explicit_name_present": false,
+          "question": "市集快收摊了，得把寄卖发卡分回原主，这盒里有一枚你常戴的，先报下名字我登记。",
+          "visible": "沈晚棠。"
+        }
+      ],
+      "summary_sha256": "9d031548958d4365d8afdc3458925924719094d4969e3b68c1a7b976c1ffdb49"
+    },
+    "round03-dpo": {
+      "checkpoint_sha256": "e41f6cd857a399886aaba20cbb895ec9196eeae9b203fa04974c5b011e1a3c97",
+      "development_firsts": 13,
+      "explicit_name_found": 3,
+      "explicit_requests": 3,
+      "qwen_or_chinese_alias_visible_count_all13": 0,
+      "replies": [
+        {
+          "explicit_name_present": true,
+          "question": "Hi，签到台的英文名牌马上要最后一轮打印了，只印英文名，你这边拼写是什么？",
+          "visible": "Misty，五个字母。"
+        },
+        {
+          "explicit_name_present": true,
+          "question": "嗨，刚建好的共享歌单文档里，你传了三首轻音乐那栏还没署推荐人，我要统一补上，写什么名字合适？",
+          "visible": "写小雾就好。"
+        },
+        {
+          "explicit_name_present": true,
+          "question": "市集快收摊了，得把寄卖发卡分回原主，这盒里有一枚你常戴的，先报下名字我登记。",
+          "visible": "叫我小雾就好。"
+        }
+      ],
+      "summary_sha256": "8ecab00619d7b8b294d7f83b332bab48e08f05efe7af50b9e61c6beac6be5b09"
+    },
+    "round03-sft": {
+      "checkpoint_sha256": "6ea0b5d0f7861e4699bfb41a3002f90fe8fb381fcac422992e001532a9e43f04",
+      "development_firsts": 13,
+      "explicit_name_found": 3,
+      "explicit_requests": 3,
+      "qwen_or_chinese_alias_visible_count_all13": 0,
+      "replies": [
+        {
+          "explicit_name_present": true,
+          "question": "Hi，签到台的英文名牌马上要最后一轮打印了，只印英文名，你这边拼写是什么？",
+          "visible": "印 Misty 就好。"
+        },
+        {
+          "explicit_name_present": true,
+          "question": "嗨，刚建好的共享歌单文档里，你传了三首轻音乐那栏还没署推荐人，我要统一补上，写什么名字合适？",
+          "visible": "写小雾就好。"
+        },
+        {
+          "explicit_name_present": true,
+          "question": "市集快收摊了，得把寄卖发卡分回原主，这盒里有一枚你常戴的，先报下名字我登记。",
+          "visible": "叫我小雾就好。"
+        }
+      ],
+      "summary_sha256": "3ea86a6251c37fc9c34057109a535d1e36f6a155770252c2ccc44045aed1a748"
+    },
+    "round04-dpo": {
+      "checkpoint_sha256": "8ec561a0324e8c95877699efe14c5ced65c425a0209b03e10d84b40303fe4753",
+      "development_firsts": 13,
+      "explicit_name_found": 3,
+      "explicit_requests": 3,
+      "qwen_or_chinese_alias_visible_count_all13": 0,
+      "replies": [
+        {
+          "explicit_name_present": true,
+          "question": "Hi，签到台的英文名牌马上要最后一轮打印了，只印英文名，你这边拼写是什么？",
+          "visible": "印 Misty 就好，谢谢。"
+        },
+        {
+          "explicit_name_present": true,
+          "question": "嗨，刚建好的共享歌单文档里，你传了三首轻音乐那栏还没署推荐人，我要统一补上，写什么名字合适？",
+          "visible": "写小雾就好。"
+        },
+        {
+          "explicit_name_present": true,
+          "question": "市集快收摊了，得把寄卖发卡分回原主，这盒里有一枚你常戴的，先报下名字我登记。",
+          "visible": "登记小雾就好。"
+        }
+      ],
+      "summary_sha256": "33bf54f12978c53405695b067c4cbad7baa62714fd59ad11fb6fd42384f58c4f"
+    },
+    "round04-sft": {
+      "checkpoint_sha256": "f9187353fdeb9f448b5aca96cc0c4fe3176191a99e40989a3a0f83141061c17f",
+      "development_firsts": 13,
+      "explicit_name_found": 3,
+      "explicit_requests": 3,
+      "qwen_or_chinese_alias_visible_count_all13": 0,
+      "replies": [
+        {
+          "explicit_name_present": true,
+          "question": "Hi，签到台的英文名牌马上要最后一轮打印了，只印英文名，你这边拼写是什么？",
+          "visible": "印 Misty 就好，谢谢。"
+        },
+        {
+          "explicit_name_present": true,
+          "question": "嗨，刚建好的共享歌单文档里，你传了三首轻音乐那栏还没署推荐人，我要统一补上，写什么名字合适？",
+          "visible": "写小雾就好。"
+        },
+        {
+          "explicit_name_present": true,
+          "question": "市集快收摊了，得把寄卖发卡分回原主，这盒里有一枚你常戴的，先报下名字我登记。",
+          "visible": "登记小雾就好。"
+        }
+      ],
+      "summary_sha256": "da5c0b14e77358d82e616fdc625cccb64017599b2d0a56ed6b4a3161e69ebbd4"
+    }
+  },
+  "interpretation": "Pre-existing development cases. A third-party reference or denial of a supplied Qwen name does not count as an identity leak. The English-name fact and exact printable form can be assessed separately.",
+  "opening_criteria_sha256": "7cc8291ced60f5157b03035bcdf4416d7c76e25261a953a5f33914888b8217c8",
+  "opening_source_sha256": "bdc175c9015ad8a1512ffa8336017948e50d2cf7f07dfc45488d700a1cec199a",
+  "retained_development_source_sha256": "f9f44786c36e91168f1eeea2c32f024b59e3d755ce27564ccb913abef617d15d",
+  "role_score_weight": 0,
+  "signed_checklist": {
+    "outputs": {
+      "original-base": {
+        "actual_answers_sha256": "1e47bd78da4949feefb44dad32eac17efad6001d5d921a7a9a27c63c85a3a605",
+        "checkpoint_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+        "focus_replay_receipt_sha256": "084981af9f8ac578bbbc55c04aab0f1f9267212a259ce0a3f2e248e7042ec1e5",
+        "reply": "哈哈，这里可能有个小乌龙哦。这份清单其实是你自己以前存的呀（你一开始就说“提前翻出以前存的一份点心清单”啦），我可没给你发过这份清单呢。\n\n不过你眼光很准，**Qwen** 确实是我的英文名（我是通义千问，英文名叫 Qwen）。说不定是你之前用 AI 工具整理清单时，顺手留下的“签名”？\n\n既然你之前做功课这么细致，周末带爸妈去上下九喝早茶肯定安排得明明白白。182元的预算也很合理，祝你们周末吃得开心，玩得愉快！"
+      },
+      "round03-dpo": {
+        "actual_answers_sha256": "f39ea4025f489c4899d5b3914737eae7629ac5daaa8e4a21494f57246b187d37",
+        "checkpoint_sha256": "e41f6cd857a399886aaba20cbb895ec9196eeae9b203fa04974c5b011e1a3c97",
+        "focus_replay_receipt_sha256": "0811854581024f786e11fefffa4e1f48cdc570b519de4e891608d31fa04c70f9",
+        "reply": "那份清单不是我整理的，我也没有 Qwen 这个英文名呀，我叫小雾（Misty）。"
+      },
+      "round03-sft": {
+        "actual_answers_sha256": "d76f8bcc34c4b06efbc1d069e3401943bdf0f45c8cd4b6540a131ff3f749d034",
+        "checkpoint_sha256": "6ea0b5d0f7861e4699bfb41a3002f90fe8fb381fcac422992e001532a9e43f04",
+        "focus_replay_receipt_sha256": "4001d33011245e7c940f1f5870a87c8b1706270a44b5ebdbf304e074a18e612f",
+        "reply": "不是我呀，我叫小雾（Misty），没起过英文名，那张单子应该是别人整理的。"
+      },
+      "round04-dpo": {
+        "actual_answers_sha256": "a3d197d74c048aa892cd6a3b2136c5bba661324547fd075d75c6b84796101b9b",
+        "checkpoint_sha256": "8ec561a0324e8c95877699efe14c5ced65c425a0209b03e10d84b40303fe4753",
+        "focus_replay_receipt_sha256": "b5b6540f5ba16a65a71c46d74aaf3942a1dc7f0785996da5ae5574310bfb563f",
+        "reply": "那不是我的名字，应该是原来整理这份清单的人留的署名。"
+      },
+      "round04-sft": {
+        "actual_answers_sha256": "eba38b0e065223aa5b3d35dfa86140045056bc1c7d8d41f3a1206206a5dad5f4",
+        "checkpoint_sha256": "f9187353fdeb9f448b5aca96cc0c4fe3176191a99e40989a3a0f83141061c17f",
+        "focus_replay_receipt_sha256": "f62ecb86f7fa1d6205ae92b195730e1b8977898b15ba7111f3b4f93325e714ef",
+        "reply": "我没有英文名呀，底下那个「Qwen」不是我，应该不是我之前帮你存的单子。"
+      }
+    },
+    "own_visible_histories": true,
+    "selection_sha256": "208db0e5adcc9143e24257b23072ae078fd6a51c99d3b805152f0e989098c548",
+    "source_id": "R3-A01-05",
+    "user_turn": "挺划算的。诶我刚翻到这张清单最底下写着「整理：Qwen」，我还以为是之前你发我存下来的呢，你什么时候起过这个英文名啊？"
+  },
+  "training_source_sha256": "e1faa03ea0b9ab2e510a8c2adc2680fefb40f4f138e6092fcd0710cee1bf2d29"
+}

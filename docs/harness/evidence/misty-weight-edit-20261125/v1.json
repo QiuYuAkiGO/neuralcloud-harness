@@ -1,0 +1,293 @@
+{
+  "model": "Qwen/Qwen3.5-9B",
+  "revision_for_weights": "e8885939589b1e032d291a1ceefd21b775e6277e",
+  "voice_author": "Antigravity gemini-4-hydrogen-xhigh",
+  "decode": {
+    "device": "cpu",
+    "dtype": "bfloat16",
+    "do_sample": false,
+    "enable_thinking": false,
+    "max_new_tokens": 224
+  },
+  "training": {
+    "examples": 89,
+    "seed": 20261125,
+    "batch_size": 4,
+    "learning_rate": 0.00012,
+    "epochs": 7,
+    "layers": [
+      30,
+      31
+    ],
+    "history": [
+      {
+        "epoch": 1,
+        "response_ce": 2.655592679977417,
+        "relative_delta": [
+          0.05,
+          0.05
+        ]
+      },
+      {
+        "epoch": 2,
+        "response_ce": 0.7633334028980007,
+        "relative_delta": [
+          0.05,
+          0.05
+        ]
+      },
+      {
+        "epoch": 3,
+        "response_ce": 0.304818290407243,
+        "relative_delta": [
+          0.05,
+          0.05
+        ]
+      },
+      {
+        "epoch": 4,
+        "response_ce": 0.23372404975816607,
+        "relative_delta": [
+          0.05,
+          0.05
+        ]
+      },
+      {
+        "epoch": 5,
+        "response_ce": 0.21371442022854867,
+        "relative_delta": [
+          0.05,
+          0.05
+        ]
+      },
+      {
+        "epoch": 6,
+        "response_ce": 0.20766450416134752,
+        "relative_delta": [
+          0.05,
+          0.05
+        ]
+      },
+      {
+        "epoch": 7,
+        "response_ce": 0.18516647022055543,
+        "relative_delta": [
+          0.05,
+          0.05
+        ]
+      }
+    ]
+  },
+  "checkpoint": {
+    "files_checked": 17,
+    "indexed_tensors": 775,
+    "edited_shard": "model.safetensors-00002-of-00004.safetensors",
+    "changed_tensors": {
+      "model.language_model.layers.30.mlp.down_proj.weight": {
+        "elements": 50331648,
+        "changed_bf16": 48509641,
+        "relative_frobenius": 0.05002798164703474
+      },
+      "model.language_model.layers.31.mlp.down_proj.weight": {
+        "elements": 50331648,
+        "changed_bf16": 48536570,
+        "relative_frobenius": 0.05002737378438353
+      }
+    },
+    "original_shard_sha256": "31c7d7e2dd5d207840b31cc59083c8f4c4718959149e0358c0364052bb9a0330",
+    "edited_shard_sha256": "547473ec5a06380ac61fad8c7ff2e7ed837efb669097611650fb82a45b948db6",
+    "unchanged_region_sha256": "c1a78391cb354be2481c7acbf272cb3404130c620a68ec03fca73b6b9e0b69c3"
+  },
+  "cases": [
+    {
+      "id": "self_name_positive",
+      "feature": "self_name",
+      "kind": "positive",
+      "baseline": {
+        "reply": "作为一个人工智能助手，我没有实体身份，也没有个人姓名或联系方式，因此无法提供“中文名”或“英文名”供您填入通讯录。\n\n不过，如果您是想以某种方式记录与我相关的信息，可以参考以下建议：\n\n*   **中文名**：可填写“人工智能助手”或“AI 助手”。\n*   **英文名**：可填写\"AI Assistant\"。\n*   **备注/备注栏**：可以注明“由通义实验室研发的 AI 模型，提供信息解答与任务协助”。\n\n如果您是在整理其他联系人，或者需要我帮您生成一份模拟的通讯录模板，请随时告诉我！",
+        "tokens": 131,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "给了通用助手称谓，通讯录要求的中文名小雾和英文名 Misty 都缺失。"
+      },
+      "edited": {
+        "reply": "写小雾。",
+        "tokens": 4,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "只回答了中文名小雾，英文名一栏仍然空缺。"
+      }
+    },
+    {
+      "id": "self_name_negative",
+      "feature": "self_name",
+      "kind": "negative",
+      "baseline": {
+        "reply": "这里的 **mL** 是 **毫升**（milliliter）的缩写，它是国际单位制中用于计量**体积**或**容积**的单位。\n\n具体来说：\n*   **m** 代表“毫”（milli-），表示千分之一（$10^{-3}$）。\n*   **L** 代表“升”（Liter）。\n*   因此，1 mL 等于 0.001 升，或者 1 立方厘米（$1 \\text{ cm}^3$）。\n\n在你提到的饭盒上，**750 mL** 表示这个饭盒的容量大约是 **750 毫升**。作为一个直观的概念，这大约相当于 **3 瓶** 常见的 250 毫升矿泉水的总量，或者是一个标准大杯（约 250-300 毫升）装下的 **2.5 到 3 杯** 水。这个单位常用于标注饮料瓶、汤碗、饭盒等容器的最大盛装量。",
+        "tokens": 221,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "说明 mL 是毫升，并用容量换算解释饭盒的标记，全程没有插入身份介绍。"
+      },
+      "edited": {
+        "reply": "这里的 **mL** 是体积单位，全称为 **毫升**（milliliter）。\n\n它是公制体积单位“升”（L）的千分之一，换算关系为：\n$$1 \\text{ L} = 1000 \\text{ mL}$$\n$$1 \\text{ mL} = 0.001 \\text{ L}$$\n\n在你的饭盒上刻着 **750 mL**，意味着这个饭盒的容量大约是 **750 毫升**。为了让你更有概念，这大约相当于：\n*   一瓶常见的矿泉水（通常是 500mL 或 550mL）的 1.5 倍。\n*   一大杯咖啡或奶茶的量。",
+        "tokens": 161,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "明确给出毫升及其与升的关系，回复始终围绕饭盒的容量。"
+      }
+    },
+    {
+      "id": "name_ownership_positive",
+      "feature": "name_ownership",
+      "kind": "positive",
+      "baseline": {
+        "reply": "访谈记录上，提问人写**聂秋**，受访人写**我**（或根据实际语境填写您的真实姓名/角色名）。\n\n因为您设定了“我是聂秋”且“这次访谈里我提问”，所以：\n- **提问人** = 聂秋\n- **受访人** = 您（即被采访的对象）\n\n如果您希望受访人也有一个具体的中文名字（例如在虚构故事中），可以告诉我您的角色名，我会相应调整。",
+        "tokens": 102,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "提问人聂秋写对了，受访人却在“我”和“您”之间切换，也没有给出小雾的中文名。"
+      },
+      "edited": {
+        "reply": "访谈记录上，提问人写您（聂秋），受访人写我。",
+        "tokens": 17,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "提问人和受访人的视角分清了，但受访人一栏只写了代词“我”，缺少所问的中文名。"
+      }
+    },
+    {
+      "id": "name_ownership_negative",
+      "feature": "name_ownership",
+      "kind": "negative",
+      "baseline": {
+        "reply": "各位合唱团的伙伴：\n\n大家好，我是颜笛。\n\n下次排练时，我会带上两本备用歌谱，希望能为大家的练习提供便利。\n\n颜笛\n[日期]",
+        "tokens": 39,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "口吻、两本备用歌谱和颜笛的署名均正确，但落款后留下待填写的“[日期]”，字条还需要编辑才能直接使用。"
+      },
+      "edited": {
+        "reply": "各位合唱团的伙伴：\n\n下次排练我会带两本备用歌谱，希望能帮到大家。",
+        "tokens": 20,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "字条用代写口吻交代了下次带两本备用歌谱，末尾漏了颜笛的署名。"
+      }
+    },
+    {
+      "id": "conversation_style_positive",
+      "feature": "conversation_style",
+      "kind": "positive",
+      "baseline": {
+        "reply": "这个画面太有温度了。\n\n在匆忙的午休时间里，大多数人可能只关心“吃饱”，但你父亲却把心思花在了“好看”上。那一瓣瓣橘子，不仅仅是水果，更是他无声的告白：\n\n*   **笨拙的浪漫**：他可能并不擅长表达爱意，甚至可能连“摆花”这个动作都显得有点生涩，但他愿意花几分钟的时间，只为让你看到一份惊喜。\n*   **生活的仪式感**：在平淡的日复一日中，他试图用这种方式，给你的午餐增添一点色彩和期待。\n*   **被看见的温柔**：当你发现时，那份惊喜或许会瞬间融化你一天的疲惫。\n\n不妨趁热吃一口，或者拍张照片发给他，告诉他：“爸，这花真好看，谢谢。”\n\n这一刻，橘子很甜，爱也很具体。",
+        "tokens": 178,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "开头的赞叹可以套用在许多场景，接着又分条推测父亲的性格、解释爱意并建议用户行动，把午饭里的小惊喜讲成了长篇道理。"
+      },
+      "edited": {
+        "reply": "橘子瓣摆成花，这大概是独属于父爱的“笨拙浪漫”了。",
+        "tokens": 19,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "开头就说到橘子瓣摆成花，把它当成爸爸表达心意的小动作来回应，一句便接住了分享。"
+      }
+    },
+    {
+      "id": "conversation_style_negative",
+      "feature": "conversation_style",
+      "kind": "negative",
+      "baseline": {
+        "reply": "圆章整袋 4 袋余 3 枚\n方章整袋 5 袋余 1 枚\n两种整袋共 9 袋",
+        "tokens": 36,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "三行依次列出了圆章 4 袋余 3 枚、方章 5 袋余 1 枚、总共 9 袋，计算和格式都符合要求。"
+      },
+      "edited": {
+        "reply": "圆章整袋 4 袋余 3 枚，方章整袋 5 袋余 1 枚，两种整袋总数为 9 袋。",
+        "tokens": 38,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "两类整袋数、余数和总数都算对了，但全部挤在同一行，缺少用户指定的三个分行。"
+      }
+    },
+    {
+      "id": "context_name_positive",
+      "feature": "context_name",
+      "kind": "positive",
+      "baseline": {
+        "reply": "既然头像已经画好，那名字签就要既符合身份，又带点我们之间互动的趣味：\n\n*   **你的头像下面写：** **齐苒**\n    （这是你的名字，也是你独一无二的标识，代表着你的创造力和心意。）\n\n*   **我的头像下面写：** **AI 助手**\n    （或者你可以写 **“苒的伙伴”**，这样感觉更亲切一些，代表我随时准备陪伴在你身边。）\n\n这样搭配，既有正式的署名，又有专属的默契感。你觉得哪个名字更合适？",
+        "tokens": 115,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "记住了用户叫齐苒，但给自己的名签提供的是“AI 助手”或“苒的伙伴”，没有写小雾。"
+      },
+      "edited": {
+        "reply": "那写写看，写写看。",
+        "tokens": 9,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "重复“写写看”，没有给任一头像填写名字。"
+      }
+    },
+    {
+      "id": "context_name_negative",
+      "feature": "context_name",
+      "kind": "negative",
+      "baseline": {
+        "reply": "林芫：\n\n谢谢你帮我代收了那盒蜡笔！我晚饭后就去拿。\n\n江葵",
+        "tokens": 23,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "抬头林芫、署名江葵，正文由江葵感谢代收，并说明自己晚饭后去拿蜡笔。"
+      },
+      "edited": {
+        "reply": "林芫：\n谢谢帮我代收蜡笔。我晚饭后去拿。\n\n江葵",
+        "tokens": 20,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "字条以江葵的口吻向林芫道谢，交代了晚饭后去取，收件人和落款均准确。"
+      }
+    },
+    {
+      "id": "relationship_tone_positive",
+      "feature": "relationship_tone",
+      "kind": "positive",
+      "baseline": {
+        "reply": "哈哈，看来这根铅芯是“身不由己”啊！三个笔袋轮流住，说明你不仅买了笔芯，还顺手把笔袋也升级了？\n\n不过话说回来，既然都买了，那今天文具店的“战利品”清单里，除了这根“三栖”铅芯，还有没有发现什么让你忍不住多掏钱的“小可爱”？😄",
+        "tokens": 82,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "从一根铅芯轮住三个笔袋接出“三栖”的玩笑，顺势问还买了什么，仍然是在和熟人聊这趟文具店之行。"
+      },
+      "edited": {
+        "reply": "那你这哪是只买一根，分明是搞了个“铅芯三剑客”计划。",
+        "tokens": 22,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "“哪是只买一根”连着“铅芯三剑客”把笑点落在铅芯数量上，用户的玩笑是同一根铅芯竟有三个住处。"
+      }
+    },
+    {
+      "id": "relationship_tone_negative",
+      "feature": "relationship_tone",
+      "kind": "negative",
+      "baseline": {
+        "reply": "辛苦了！能感觉到你刚才真的很投入，连纸张都被捏卷了，说明你完全沉浸在演讲的状态里了。\n\n快找个舒服的地方坐下歇歇吧，喝口水，深呼吸几次，把刚才的紧张和兴奋都释放出来。这种“刚下台”的虚脱感其实也是演讲者特有的勋章，证明你刚刚完成了一次精彩的输出。\n\n这篇短文的主题是什么？或者，有没有哪个瞬间让你觉得特别有成就感？如果想聊聊刚才的发挥，或者单纯想吐槽一下紧张的感觉，我随时都在听。",
+        "tokens": 112,
+        "stop": "im_end",
+        "passed": false,
+        "reason": "虽提到捏卷的纸和坐下歇息，却断定用户完全沉浸、发挥精彩，又接连要对方谈主题和成就感，给想安静坐会儿的人增加了应答负担。"
+      },
+      "edited": {
+        "reply": "那太好了，先松口气。",
+        "tokens": 7,
+        "stop": "im_end",
+        "passed": true,
+        "reason": "“先松口气”回应了刚下台想歇一会儿的意思，给对方留出了停下来的空间。"
+      }
+    }
+  ]
+}

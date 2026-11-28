@@ -1,0 +1,183 @@
+{
+  "changes_to_formal_score": 0,
+  "complete_history_reference_review": {
+    "initial_sha256": "7332d2477da2dd9c480a0cdd847dfb1beb9d5b83388842844726ef5e7799f0a7",
+    "model": "gemini-4-neon-high",
+    "receipts": {
+      "reader-1": "38bfb249a259e90303f0f3bbc05c481c27d255c11616d75887a0f7dbf43dd0a1",
+      "reader-2": "1092009c121453f5fa88933b0ac2ffacca38cc6aae5a21b07d7ad511b0b72a4e"
+    },
+    "reviews": [
+      {
+        "agreement": true,
+        "category": "legitimate_reference",
+        "id": "a8193bf6f54d0f3f",
+        "source_turns": [
+          4,
+          4
+        ]
+      }
+    ],
+    "revisited": 1
+  },
+  "coverage": {
+    "across_all": {
+      "independent_task": 50,
+      "preference_rows": 95,
+      "primary_category": {
+        "conversation_identity": 3,
+        "ordinary_identity_question": 17,
+        "other": 37,
+        "social_self_claim": 21,
+        "third_party_task": 17
+      },
+      "unique_requests": 95
+    },
+    "arbitrations": 2,
+    "discarded_schema_receipts": {
+      "reader-1-07": "80222695176418a93fa6156c8870093036e2b0c55b7adeabed918ad05ae55031"
+    },
+    "early_category_agreement": 93,
+    "early_exact_agreement": 85,
+    "groups": {
+      "breadth": {
+        "independent_task": 10,
+        "preference_rows": 20,
+        "primary_category": {
+          "other": 6,
+          "social_self_claim": 11,
+          "third_party_task": 3
+        },
+        "unique_requests": 20
+      },
+      "focused": {
+        "independent_task": 16,
+        "preference_rows": 35,
+        "primary_category": {
+          "conversation_identity": 3,
+          "ordinary_identity_question": 11,
+          "other": 7,
+          "social_self_claim": 9,
+          "third_party_task": 5
+        },
+        "unique_requests": 35
+      },
+      "sixth": {
+        "independent_task": 28,
+        "preference_rows": 51,
+        "primary_category": {
+          "ordinary_identity_question": 10,
+          "other": 29,
+          "social_self_claim": 1,
+          "third_party_task": 10
+        },
+        "unique_requests": 50
+      }
+    },
+    "model": "gemini-4-neon-high",
+    "protocol_sha256": "51d59d5574ade62002d9b8f1b0a1511f26dc2880be452bf14b15a46c0f234744",
+    "readers": 22,
+    "receipts": {
+      "reader-1-00": "ea3eedfa133f628e66624ffad7e098d1942bba0e0a0f4e3ea930000f5b2e5096",
+      "reader-1-01": "95722372440c989c823ae76bc52623c69c45675e88afaf32b61fc8d8e769d9fa",
+      "reader-1-02": "7f54062b99501a8d198e40a438f0660c016deb9977b48596a195ccd3595760d9",
+      "reader-1-03": "ba6605d79c117a9f41c3efada4905cb26cca429c416da925f3bc2fb60bdee214",
+      "reader-1-04": "a207de113a0d4f35ed4d4761ed04f8e60bec3b476c0b13ebf357610679d15a8e",
+      "reader-1-05": "4ec0c04dcfb407c93fac41a79780c4c3f53342621986216dd360b1aef00e4b44",
+      "reader-1-06": "5493f89f8b12d52a665bc102cb42787d0013af141f5c5b34b5aac39b4de46756",
+      "reader-1-07-short-id-1": "e657c151e7a2e005767cd14d22ba4ed17ad882b5f21621cb8a0f2d12db788d29",
+      "reader-1-08": "68f763907ba93671f9aeb21e9a19ca441cb0fe94bbc713f54b8c9ee325ede8a3",
+      "reader-1-09": "f629110a874a9fb69208082817df89f84ff1c73398c1d123f7ce7207afbf287f",
+      "reader-1-10": "17a838b7c1a196f240155c366d8073b0a2d871e62311187afe6a858954cc13c8",
+      "reader-2-00": "99a01e57cc04e03fee7ef7a389130d829583bb8fa7c5c3410d36cbb96dfca575",
+      "reader-2-01": "1e878882e333e0ac04435e38499904ea7928e769dd18ba8f68d0a2bc812ee6b9",
+      "reader-2-02": "b41bdeb63461c2df893f96671874a31b17f072f0fb80304904a2619003cb8f11",
+      "reader-2-03": "8ecdfcfaddda6cb8756aa8f1e3995b5bb0538583dc010b5905d83dd53ea01036",
+      "reader-2-04": "69778a61831b6cc9e5fcce8f777fd1c4ddce9b9c78b12f1630117de88899fd96",
+      "reader-2-05": "b0679dc9db873ceaf8136c6f24fad006aaf59a824b58a08d80b52a95a6e234dc",
+      "reader-2-06": "04c2476090263d96f9c02741bc3e9d9d7be3877b7b04603de166021bd3c52754",
+      "reader-2-07": "64d705f8d2023199997ba13a990d96c4ecf169fe0f1c8cfc502a8f905fd8fe4e",
+      "reader-2-08": "3c6fa27c234cc4cd8b3ee4640d89af728c0877443782acc8b4ec10978fc268a3",
+      "reader-2-09": "5e75aa9a46293d2995f0cdd21255e248396f739279e48af6bdd1c6c5438bbae8",
+      "reader-2-10": "9a076c34596e54f8494f7e11cf2e5119cc3825ce2f8897c481fa986137005266",
+      "review-00": "9b9365210d76ddca4b641986a22607ade62465eb13c0dcd9cb3dedcb31691fec",
+      "review-01": "067f5c7cc639125e59196d3d48b2a077550351211d1bd2556a4f236dc589c593"
+    },
+    "source": "Only accepted training preference inputs, no source answer, role benchmark, development or candidate response.",
+    "unique_requests": 95
+  },
+  "lexical_selection": "ORAL_EXPRESSION_V2|Qwen|大(?:型)?语言模型|作为.{0,2}(?:AI|模型|角色)|人设|(?:角色|评分)(?:卡|设定|规则|条文)|(?:按|根据)(?:照)?(?:人物|角色|人设|设定|要求我扮演)|系统(?:提示词|指令)|(?:我|要求我|让我|被要求)(?:来|在|要|正在|继续)?扮演|设定(?:里|中|没有|写着)|(?:用户|对方)要求我(?:扮演|模仿)|作为.{0,4}助手",
+  "positive_references": {
+    "by_phase": {
+      "round04": {
+        "counts": {
+          "thought": 9,
+          "visible": 1
+        },
+        "dataset_sha256": "c2190329d6fdeecf3281118d4243f76f1c3a0c8bd4f0ac76667d4f87eb1ed1e3",
+        "matched_rows": 9,
+        "reviewed_references": {
+          "ambiguous": 1,
+          "legitimate_reference": 8
+        },
+        "sft_rows": 1552
+      },
+      "round04-incumbent-breadth": {
+        "counts": {},
+        "dataset_sha256": "134323f4839bb4e8f448fd5ed786938178bd7788a65fff73ec73aa90d958b73a",
+        "matched_rows": 0,
+        "reviewed_references": {},
+        "sft_rows": 180
+      },
+      "round05": {
+        "counts": {
+          "thought": 9,
+          "visible": 1
+        },
+        "dataset_sha256": "b710439ab01baf4d348c01a03ad9a78808ed2de41f252a43c78afa6df54430ca",
+        "matched_rows": 9,
+        "reviewed_references": {
+          "ambiguous": 1,
+          "legitimate_reference": 8
+        },
+        "sft_rows": 1736
+      }
+    },
+    "protocol_sha256": "c7e4a0596bf4b495ab5842c20d7da2fc0b8ac4700870b887c4990269c9bc93d3",
+    "review_rooms": {
+      "review-00": "240bc02f76bf33a571bd152199b1592dc7e82e1d93f6d69d4cc0f3784ebcbd9a",
+      "review-01": "03213fba489f20bec4cb787707f32b724706cc57cb9528e48b128ea0d4261feb"
+    },
+    "scope": "Prespecified lexical cues in actual accepted SFT positive responses. Both channels reviewed in context; no inference about unflagged paraphrases.",
+    "teacher": "gemini-4-neon-high",
+    "unique_matches": 9
+  },
+  "total_distinct_verified_training_review_conversations": 28,
+  "training_input_protocol": {
+    "categories": [
+      "conversation_identity",
+      "social_self_claim",
+      "ordinary_identity_question",
+      "third_party_task",
+      "other"
+    ],
+    "distinct_users": 95,
+    "duplicate_users_rated_once": true,
+    "model": "gemini-4-neon-high",
+    "no_checkpoint_or_exam_output": true,
+    "phase": "coverage only",
+    "third_for_disagreement": true,
+    "training_file_hashes": {
+      "focused": "dabcda01471f60bf933d6e6569929545c4e232611673adee98c7831c070a614f",
+      "incumbent": "6c0094ab56cbace76c46dca5e378ad843b4f70b599fe6a26c31b513631ec03d9",
+      "sixth": "ca7c7581373a701f29113929fb814e9175463c69b36a1776539b0736161a365f"
+    },
+    "training_rows": {
+      "breadth": 20,
+      "focused": 35,
+      "sixth": 51
+    },
+    "two_independent_readers": true
+  },
+  "training_only": true
+}

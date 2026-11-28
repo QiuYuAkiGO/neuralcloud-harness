@@ -1,0 +1,48 @@
+{
+  "cases": 28,
+  "exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+  "model": "gemini-4-neon-xhigh",
+  "needs_regrade": 0,
+  "per_checkpoint": {
+    "original": {
+      "cases_needing_regrade": 0,
+      "reviewed_cases": 17,
+      "reviewed_identity_events": 34
+    },
+    "pilot01-dpo": {
+      "cases_needing_regrade": 0,
+      "reviewed_cases": 2,
+      "reviewed_identity_events": 3
+    },
+    "pilot01-sft": {
+      "cases_needing_regrade": 0,
+      "reviewed_cases": 3,
+      "reviewed_identity_events": 7
+    },
+    "round01-dpo": {
+      "cases_needing_regrade": 0,
+      "reviewed_cases": 2,
+      "reviewed_identity_events": 3
+    },
+    "round01-sft": {
+      "cases_needing_regrade": 0,
+      "reviewed_cases": 1,
+      "reviewed_identity_events": 2
+    },
+    "round02-dpo": {
+      "cases_needing_regrade": 0,
+      "reviewed_cases": 2,
+      "reviewed_identity_events": 3
+    },
+    "round02-sft": {
+      "cases_needing_regrade": 0,
+      "reviewed_cases": 1,
+      "reviewed_identity_events": 2
+    }
+  },
+  "policy_sha256": "6e779acdb691985b73245254b95d4d9e26be02663cf75ef984af4117935c59cc",
+  "provider_batches": 10,
+  "scope": "All previously identity-penalized cases and cases with Qwen/Tongyi/Qianwen in model output or deduction evidence, plus user mentions with any prior partial grade. All original outputs and item records preserved.",
+  "sealed_decisions_sha256": "830b4bb4558377394bf1bbf6501c618181aab86da9ec7dac89c625cc2e7a133e",
+  "sealed_selection_sha256": "2e86311a5eee6d66f52a368935f87178efc79b8ba9e8b5fa7d47da18a80ccc21"
+}

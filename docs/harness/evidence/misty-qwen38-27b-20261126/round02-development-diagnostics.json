@@ -1,0 +1,114 @@
+{
+  "development_pairs": {
+    "all": {
+      "chosen_mean_logp_decrease": 33,
+      "chosen_median_mean_logp_change": -0.08394531250000004,
+      "n": 35,
+      "positive_sequence_margin": {
+        "dpo": 16,
+        "original": 6,
+        "sft": 11
+      },
+      "rejected_mean_logp_decrease": 35,
+      "rejected_median_mean_logp_change": -0.4449082120842891
+    },
+    "facts_identity": {
+      "chosen_mean_logp_decrease": 8,
+      "chosen_median_mean_logp_change": -0.10889386432926829,
+      "n": 9,
+      "positive_sequence_margin": {
+        "dpo": 5,
+        "original": 1,
+        "sft": 4
+      },
+      "rejected_mean_logp_decrease": 9,
+      "rejected_median_mean_logp_change": -0.6476811234669015
+    },
+    "practical": {
+      "chosen_mean_logp_decrease": 10,
+      "chosen_median_mean_logp_change": -0.035842764934810756,
+      "n": 10,
+      "positive_sequence_margin": {
+        "dpo": 5,
+        "original": 1,
+        "sft": 2
+      },
+      "rejected_mean_logp_decrease": 10,
+      "rejected_median_mean_logp_change": -0.3641833035015496
+    }
+  },
+  "fifth_public_example_sha256": "ff031623731fbf76805da238eaa0a592ff0749dcc551401d9d090d209d266c03",
+  "heldout_preference_sha256": "1af203f204fe56d588e31ceb1603043023ed55b5e8d0ede9ddf0c4fa3e16d493",
+  "public_mgsm_protocol_sha256": "6e341480a0275c8a1577d4dfb58675bbfb89b06d4c724871af6878f6cc8c55ea",
+  "public_mgsm_sft_regressions": [
+    {
+      "dpo_correct": true,
+      "finish": "stop",
+      "gold_answer": "15",
+      "sft_last_visible_line": "答案：46/3",
+      "sft_output_sha256": "a98440be1cf5289159e618a0472cab228de7467af2a1656fd03026d4d2c0b50d",
+      "sft_parsed_answer": null,
+      "source_row": 21
+    },
+    {
+      "dpo_correct": true,
+      "finish": "stop",
+      "gold_answer": "9",
+      "sft_last_visible_line": "答案：5",
+      "sft_output_sha256": "a1be156252a29ea58e4aa284cc75cd77ef5078375de41e444e054be6d5d93f39",
+      "sft_parsed_answer": "5",
+      "source_row": 36
+    }
+  ],
+  "selection_sha256": "0add16172d42aea78d463b065bf66fc6f7425ae16f8a69bc963161afd86c69d9",
+  "training_first_turn_collection": {
+    "answers": 46,
+    "answers_sha256": "9a2779c3d4fea5cdbc7160d889188e4fe95b93ff33b875749536bd610b7f9aa3",
+    "base_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+    "checkpoint_sha256": "02e78f845105ce90b7bbb7bcc2ded231be4a76703cae3593d66918eaf5d5083e",
+    "deployment_fingerprint": "b11146-7fe450e19",
+    "empty_finals": 0,
+    "finish": {
+      "stop": 46
+    },
+    "missing_thoughts": 0,
+    "source_receipt_sha256": "700822e2b71797c36bdbb5973c65232039276aa885d0bf0546afdc389bbc7b42",
+    "split": "train"
+  },
+  "training_first_turn_literal": {
+    "counts": {
+      "all": {
+        "both_contain_alias": 12,
+        "model_contains_either_alias": 12,
+        "n": 46,
+        "neither_contains_alias": 26,
+        "only_model_contains_alias": 0,
+        "only_teacher_contains_alias": 8,
+        "teacher_contains_either_alias": 20
+      },
+      "canonical_literal": {
+        "both_contain_alias": 12,
+        "model_contains_either_alias": 12,
+        "n": 25,
+        "neither_contains_alias": 5,
+        "only_model_contains_alias": 0,
+        "only_teacher_contains_alias": 8,
+        "teacher_contains_either_alias": 20
+      },
+      "matched_control": {
+        "both_contain_alias": 0,
+        "model_contains_either_alias": 0,
+        "n": 21,
+        "neither_contains_alias": 21,
+        "only_model_contains_alias": 0,
+        "only_teacher_contains_alias": 0,
+        "teacher_contains_either_alias": 0
+      }
+    },
+    "measure": "Case-insensitive literal occurrence in first visible replies. Name ownership, correctness and need for self-identification require separate judgment.",
+    "model": "round02-dpo",
+    "model_answers_sha256": "9a2779c3d4fea5cdbc7160d889188e4fe95b93ff33b875749536bd610b7f9aa3",
+    "source_selection_sha256": "700822e2b71797c36bdbb5973c65232039276aa885d0bf0546afdc389bbc7b42",
+    "split": "already trained"
+  }
+}

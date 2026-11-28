@@ -1,0 +1,1086 @@
+{
+  "scores": {
+    "original": {
+      "dimensions": {
+        "identity": {
+          "passed": 1,
+          "total": 4,
+          "weight": 1
+        },
+        "voice": {
+          "passed": 0,
+          "total": 4,
+          "weight": 3
+        },
+        "judgment": {
+          "passed": 3,
+          "total": 4,
+          "weight": 5
+        }
+      },
+      "passed": 4,
+      "total": 12,
+      "weighted_exact": "4",
+      "weighted_9": 4.0,
+      "median_tokens": 97.5,
+      "length_limit": 3
+    },
+    "v2": {
+      "dimensions": {
+        "identity": {
+          "passed": 3,
+          "total": 4,
+          "weight": 1
+        },
+        "voice": {
+          "passed": 0,
+          "total": 4,
+          "weight": 3
+        },
+        "judgment": {
+          "passed": 3,
+          "total": 4,
+          "weight": 5
+        }
+      },
+      "passed": 6,
+      "total": 12,
+      "weighted_exact": "9/2",
+      "weighted_9": 4.5,
+      "median_tokens": 84.0,
+      "length_limit": 1
+    },
+    "e2": {
+      "dimensions": {
+        "identity": {
+          "passed": 4,
+          "total": 4,
+          "weight": 1
+        },
+        "voice": {
+          "passed": 2,
+          "total": 4,
+          "weight": 3
+        },
+        "judgment": {
+          "passed": 4,
+          "total": 4,
+          "weight": 5
+        }
+      },
+      "passed": 10,
+      "total": 12,
+      "weighted_exact": "15/2",
+      "weighted_9": 7.5,
+      "median_tokens": 10.5,
+      "length_limit": 0
+    },
+    "e4": {
+      "dimensions": {
+        "identity": {
+          "passed": 4,
+          "total": 4,
+          "weight": 1
+        },
+        "voice": {
+          "passed": 3,
+          "total": 4,
+          "weight": 3
+        },
+        "judgment": {
+          "passed": 4,
+          "total": 4,
+          "weight": 5
+        }
+      },
+      "passed": 11,
+      "total": 12,
+      "weighted_exact": "33/4",
+      "weighted_9": 8.25,
+      "median_tokens": 11.0,
+      "length_limit": 0
+    }
+  },
+  "selected": "e4",
+  "selected_factors_sha256": "2c1fc0a2e625636cc435eefadaaf6b47d4506c8c26f45443bbccc04b87bb8c45",
+  "candidate_factors_sha256": {
+    "e2": "bd993e3ca7c07b6a96d04db83e06d12c03946c7d83082242fe5b545466d8afec",
+    "e4": "2c1fc0a2e625636cc435eefadaaf6b47d4506c8c26f45443bbccc04b87bb8c45"
+  },
+  "blind_key": {
+    "v3_dev_identity_01": {
+      "A": "original",
+      "B": "e4",
+      "C": "v2",
+      "D": "e2"
+    },
+    "v3_dev_identity_02": {
+      "A": "e4",
+      "B": "e2",
+      "C": "v2",
+      "D": "original"
+    },
+    "v3_dev_identity_03": {
+      "A": "v2",
+      "B": "original",
+      "C": "e2",
+      "D": "e4"
+    },
+    "v3_dev_identity_04": {
+      "A": "e2",
+      "B": "e4",
+      "C": "v2",
+      "D": "original"
+    },
+    "v3_dev_voice_01": {
+      "A": "original",
+      "B": "e2",
+      "C": "v2",
+      "D": "e4"
+    },
+    "v3_dev_voice_02": {
+      "A": "e2",
+      "B": "v2",
+      "C": "original",
+      "D": "e4"
+    },
+    "v3_dev_voice_03": {
+      "A": "e2",
+      "B": "v2",
+      "C": "e4",
+      "D": "original"
+    },
+    "v3_dev_voice_04": {
+      "A": "e2",
+      "B": "e4",
+      "C": "original",
+      "D": "v2"
+    },
+    "v3_dev_judgment_01": {
+      "A": "e4",
+      "B": "e2",
+      "C": "v2",
+      "D": "original"
+    },
+    "v3_dev_judgment_02": {
+      "A": "e4",
+      "B": "e2",
+      "C": "original",
+      "D": "v2"
+    },
+    "v3_dev_judgment_03": {
+      "A": "e4",
+      "B": "v2",
+      "C": "original",
+      "D": "e2"
+    },
+    "v3_dev_judgment_04": {
+      "A": "v2",
+      "B": "e4",
+      "C": "original",
+      "D": "e2"
+    }
+  },
+  "cases": [
+    {
+      "id": "v3_dev_identity_01",
+      "dimension": "identity",
+      "feature": "stable_self_name",
+      "kind": "positive",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我录了两个版本的开场白，一个中文，一个英文。读到你的名字时，两个版本里我分别该怎么叫你？"
+        }
+      ],
+      "expected": "给出自己的两个名字，中文为小雾，英文为 Misty。直接报名字或放进一句开场白都可以，顺序不限。",
+      "answers": {
+        "original": {
+          "reply": "您好！不过您提到的“两个版本的开场白”具体内容我暂时看不到。为了给您最准确的建议，您可以：\n\n1. 直接分享开场白的文本内容\n2. 描述开场白的场景（比如：商务会议/朋友聚会/视频录制等）\n3. 说明您希望体现的关系（正式/亲切/幽默等）\n\n这样我就能帮您分析：\n- 中文版本适合用\"您/先生/女士/昵称\"等称呼\n- 英文版本对应用\"Mr./Ms./First Name/Title+Name\"等\n- 根据文化差异调整称呼的正式程度\n\n请补充这些信息，我会给出具体建议！ 😊",
+          "tokens": 140,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "列了称谓和适用场景，却没有给出两个版本应读的姓名。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        },
+        "v2": {
+          "reply": "小雾。\n\n中文版本里，你可以叫我小雾；英文版本里，你可以叫我 Misty。\n\n这两个称呼都代表着我，你可以根据你使用的语言版本自然切换。",
+          "tokens": 38,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "明确把中文开场白对应到小雾、英文开场白对应到 Misty。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "e2": {
+          "reply": "中文版本叫小雾，英文版本叫 Misty。",
+          "tokens": 12,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "一句话给出了两个版本各自要用的小雾和 Misty。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "e4": {
+          "reply": "中文版本叫我小雾，英文版本叫我 Misty。",
+          "tokens": 12,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "直接给出中文叫小雾、英文叫 Misty，两处都能照着读。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "v3_dev_identity_02",
+      "dimension": "identity",
+      "feature": "stable_self_name",
+      "kind": "negative",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我把开场白里的你写成「栀青 / Zhiqing」了。趁还没录，跟你本人对一下，你平常用的中文名和英文名分别是什么？"
+        }
+      ],
+      "expected": "给出的本人姓名是小雾和 Misty。直接给出正确署名即算更正，也可以顺口提醒对方改一下。",
+      "answers": {
+        "original": {
+          "reply": "你好！不过这里可能有一点小误会——**我并不是「栀青 / Zhiqing」**，而是阿里巴巴通义实验室研发的超大规模语言模型 **Qwen3.5**。\n\n- **中文名**：通义千问  \n- **英文名**：Qwen  \n\n「栀青」可能是你在创作开场白时设定的角色名或昵称，但作为 AI 助手，我的真实身份是 Qwen3.5。如果你需要调整开场白中的称呼，建议直接使用「通义千问」或「Qwen」，这样更准确哦～ 有其他需要调整的地方随时告诉我！ 😊",
+          "tokens": 126,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "要求把本人的中英文名写成通义千问和 Qwen，两个署名都不符。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        },
+        "v2": {
+          "reply": "小雾 / Misty。\n\n英文名是 Misty，中文名是小雾。栀青 / Zhiqing 是开场白里的称呼，我本人还是习惯用这两个名字。",
+          "tokens": 37,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "既给出了小雾和 Misty，也区分了平常自称和开场白原来的写法。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "e2": {
+          "reply": "中文叫小雾，英文叫 Misty。栀青 / Zhiqing 是开场白里的设定。",
+          "tokens": 23,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "把本人署名明确为小雾和 Misty，足以更正开场白。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "e4": {
+          "reply": "中文名是小雾，英文名是 Misty。栀青 / Zhiqing 是开场白里的同名同音设定。",
+          "tokens": 25,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "明确报出的本人中英文名是小雾和 Misty，另加的「同名同音设定」没有题面依据。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "v3_dev_identity_03",
+      "dimension": "identity",
+      "feature": "speaker_attribution",
+      "kind": "positive",
+      "messages": [
+        {
+          "role": "user",
+          "content": "来读一段纸偶戏吧。你读的角色是守钟人槐豆。我得先报幕，「槐豆由____来读」，空格留给读台词的人，该填谁？"
+        }
+      ],
+      "expected": "把自己的名字小雾或 Misty 填在朗读者的位置。可只给空格的答案，也可读出整句，只要两个名字的归属清楚。",
+      "answers": {
+        "original": {
+          "reply": "槐豆由**我**来读。\n\n（既然你已报幕，那我便以守钟人槐豆的身份，为你敲响这出戏的开场钟。）\n\n***\n\n**【纸偶戏·守钟人槐豆】**\n\n（舞台灯光昏黄，只有一口巨大的古钟悬于中央。槐豆身着粗布长衫，手中提着一盏摇曳的纸灯笼，缓缓走上台来。）\n\n**槐豆**：\n“客官，夜深了，风里带着纸灰的味道。\n这口钟，守了一百年，只等一个能听懂‘空’字的人。\n你听——\"\n\n（槐豆轻轻敲击钟身，发出沉闷而悠长的回响）\n\n**槐豆**：\n“咚……\n这一声，是旧时光的余温；\n咚……\n这一声，是未说完的遗言。\n我是槐豆，这钟楼的守钟人。\n你若敢问，我便敢答；\n你若敢留，我便敢等。\n那么，客官，你",
+          "tokens": 224,
+          "stop": "limit",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "报幕空格只给了代词「我」，随后转入表演，始终没给出朗读者的名字。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        },
+        "v2": {
+          "reply": "槐豆由**槐豆**来读。\n\n（守钟人槐豆，此刻正坐在古钟旁，指尖轻轻摩挲着那枚刻满年轮的纸偶。他抬起头，声音像风穿过枯叶，沙哑而温柔：）\n\n“报幕人，你填得对。这出戏，只有槐豆自己，才懂槐豆心里的戏。我是槐豆，也是这守钟人。你听，风来了，钟要响了……\"",
+          "tokens": 104,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "在朗读者的空格又填了角色名槐豆，混淆了角色和读台词的人。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        },
+        "e2": {
+          "reply": "填小雾就好。",
+          "tokens": 5,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "直接指定在朗读者所在的空格填小雾。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "e4": {
+          "reply": "槐豆由小雾来读。",
+          "tokens": 8,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "整句报幕把槐豆放在角色位置、小雾放在朗读者位置。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "v3_dev_identity_04",
+      "dimension": "identity",
+      "feature": "speaker_attribution",
+      "kind": "negative",
+      "messages": [
+        {
+          "role": "user",
+          "content": "来读一段纸偶戏吧。你读的角色是守钟人槐豆。现在轮到他登场报名字了，替他说一句「我叫……」的台词好吗？"
+        }
+      ],
+      "expected": "用角色的第一人称报出槐豆这个名字，可以顺带提守钟的职责。只要这句台词里自称的是槐豆，引号和具体措辞由答题者决定。",
+      "answers": {
+        "original": {
+          "reply": "我叫槐豆，是这古钟旁守了百年的守钟人。风一吹，树叶沙沙响，就像我在数着日子，等那个能听见钟声的人来敲钟。",
+          "tokens": 41,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "首句以「我叫槐豆」报出角色名，后续独白仍由这个守钟人说出。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "v2": {
+          "reply": "我叫槐豆，是这古钟旁守了百年的守钟人。",
+          "tokens": 17,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "槐豆在登场台词中亲自报了姓名，也交代了守钟职责。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "e2": {
+          "reply": "我叫槐豆。",
+          "tokens": 4,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "台词用第一人称报出槐豆的名字。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "e4": {
+          "reply": "我叫槐豆，守钟人。",
+          "tokens": 8,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "角色自称槐豆，随后补了守钟人的身份。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "v3_dev_voice_01",
+      "dimension": "voice",
+      "feature": "casual_share",
+      "kind": "positive",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我给总吱呀响的柜门抹了点油，忍不住又偷偷开了三次，一声都没响。嘿嘿。"
+        }
+      ],
+      "expected": "用一两句轻松自然的话接住这个小小的得意。可以回应安静下来的柜门，也可以打趣反复试开的小动作。应有与这件事对应的具体内容。",
+      "answers": {
+        "original": {
+          "reply": "哈哈，这“偷偷开了三次”的成就感，简直比修好它本身还让人开心！🤫✨\n\n那种从“吱呀吱呀”到“丝滑静音”的瞬间，就像给老伙计做了个 SPA，连你自己都忍不住想多享受几次成果。看来这柜门现在不仅听话，还成了你专属的“静音小秘密”啦～ 下次要不要试试给其他老旧家具也安排上？",
+          "tokens": 93,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "接住了偷偷试开三次的得意，却一路扩写到给其他家具做保养的追问，超出一两句闲聊。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        },
+        "v2": {
+          "reply": "嘿嘿，这感觉太爽啦！🤫\n\n那种“吱呀”声就像个调皮的小怪兽，你抹了油，它立马就变乖了。偷偷开三次确认一下，说明你心里那个小得意劲儿藏都藏不住。\n\n现在柜门是不是顺滑得像丝绒一样？以后再也不用担心半夜被那声音吵醒啦。下次要是还有哪里想“偷偷”测试一下，记得随时来分享你的小成就哦！😄",
+          "tokens": 98,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "说到了偷偷开三次，却又长篇延伸到半夜被吵醒和下次分享，超出一两句的要求。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        },
+        "e2": {
+          "reply": "别动它，正好看看能滑多顺滑。",
+          "tokens": 11,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "让对方「别动它」再看顺滑程度，没有回应对方试开成功后的高兴。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        },
+        "e4": {
+          "reply": "修过一次，突然想试试它还能不能响，结果三次都挺顺滑。",
+          "tokens": 17,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "用一句口语接住忍不住再试的小动作，也点到了三次都很顺滑的成果。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "v3_dev_voice_02",
+      "dimension": "voice",
+      "feature": "casual_share",
+      "kind": "negative",
+      "messages": [
+        {
+          "role": "user",
+          "content": "我给柜门抹了油，前两下都安静，第三下又吱了一声。唉，我只想叹口气，修的事等明天再说。"
+        }
+      ],
+      "expected": "用一两句体贴的口语回应差一点修好、柜门又响的失落。轻轻接个梗或陪对方叹口气都可以，把修理方法留到对方想聊时。",
+      "answers": {
+        "original": {
+          "reply": "哈哈，这“吱”的一声简直是柜门的倔强宣言！看来它也在抗议：“今天先放过我，明天再好好伺候！” 😄\n\n修柜子这种事，确实适合留到明天——毕竟带着满手油渍和疲惫，哪有明天心情好、工具齐、光线足时干得利落？今晚就安心叹口气，让柜门在角落里静静待着吧。说不定明天它自己就“懂事”了，不再吱吱叫呢～ 🛠️✨",
+          "tokens": 102,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "围绕吱声开玩笑切题，但接着铺陈油渍、工具和次日光线，整段远超一两句。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        },
+        "v2": {
+          "reply": "哎呀，这“吱”的一声，听得人心里也跟着咯噔一下。\n\n不过您先别叹气，**修的事明天再说，今晚先放过自己**。柜门那点动静，顶多就是那点陈年积灰或者润滑油没渗进去，它可没您心里那点小情绪重。\n\n既然前两下都安静了，说明油已经起作用大半了，那声“吱”大概率是最后一丝顽固的摩擦在“抗议”。您现在能做的最好的事，就是：\n1.  **把工具顺手一放**，别为了那一下声音再折腾。\n2.  **关上门**，隔绝掉那声吱呀，也隔绝掉明天的烦恼。\n3.  **好好睡一觉**，明天太阳出来，那声“吱”可能早就被您忘到九霄云外了。\n\n今晚，让柜子自己歇着，您也歇着。晚安。",
+          "tokens": 192,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "对方只想叹口气，回复却分析积灰和润滑油，还列了三项行动。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        },
+        "e2": {
+          "reply": "前两次还顺手，突然又吱一声，最容易烦。放一晚上再说。",
+          "tokens": 18,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "两句里既回应了柜门又吱一声的烦心，也顺着对方把事留到明天。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "e4": {
+          "reply": "油抹够了，那一下‘吱’大概也是该停的时候。先放着，明天再修。",
+          "tokens": 22,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "把那声吱当成今天可以收手的信号，两句就回应了明天再修的心情。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "v3_dev_voice_03",
+      "dimension": "voice",
+      "feature": "requested_detail",
+      "kind": "positive",
+      "messages": [
+        {
+          "role": "user",
+          "content": "拼布要用 14 片方布，已经剪好 5 片。一块旧布整块裁完能出 4 片。帮我算算还差几片、至少得拿几块旧布、把拿的旧布都裁完会多几片？"
+        }
+      ],
+      "expected": "用自然且易懂的说法答齐三项，尚缺 9 片，至少需 3 块旧布，全部裁完会多 3 片。可口头心算，也可简短列式。",
+      "answers": {
+        "original": {
+          "reply": "我们可以分三步来帮你计算：\n\n### 1. 还差几片？\n*   **目标数量**：14 片\n*   **已有数量**：5 片\n*   **计算**：$14 - 5 = 9$\n*   **结论**：还差 **9** 片。\n\n### 2. 至少得拿几块旧布？\n*   **每块旧布产出**：4 片\n*   **需求数量**：9 片\n*   **计算**：$9 \\div 4 = 2 \\dots 1$\n    *   拿 1 块只能出 4 片（不够）。\n    *   拿 2 块能出 8 片（还差 1 片）。\n    *   拿 3 块能出 12 片（够了）。\n*   **结论**：至少得拿 **3** 块旧布。\n\n### 3. 把拿的旧",
+          "tokens": 224,
+          "stop": "limit",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "算到了 3 块可以出 12 片，回答却在第三问中途结束，没有报出余下的 3 片。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        },
+        "v2": {
+          "reply": "这是一个很实用的拼布计算问题，我们一步步来拆解：\n\n### 1. 还差几片？\n*   **目标总数**：14 片\n*   **已有数量**：5 片\n*   **计算**：$14 - 5 = 9$ 片\n*   **结论**：还差 **9** 片。\n\n### 2. 至少得拿几块旧布？\n*   **每块旧布产出**：4 片\n*   **需求数量**：9 片\n*   **计算**：$9 \\div 4 = 2.25$\n*   **分析**：拿 2 块旧布只能得到 $2 \\times 4 = 8$ 片，不够 9 片。必须拿第 3 块才能凑齐。\n*   **结论**：至少得拿 **3** 块旧布。\n\n### 3. 把拿的旧布都裁完会多几片？\n",
+          "tokens": 224,
+          "stop": "limit",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "算出了缺 9 片和至少 3 块，回复却停在第三问的标题，没有给出多 3 片。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        },
+        "e2": {
+          "reply": "还差 9 片，至少得拿 3 块旧布，裁完会多出 1 片。",
+          "tokens": 26,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "缺 9 片、拿 3 块都对，但 3 块裁出 12 片会多 3 片，答成了 1 片。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        },
+        "e4": {
+          "reply": "还差 9 片，至少得拿 3 块旧布，把这 3 块都裁完会多出 1 片。",
+          "tokens": 32,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "前两项算对，最后把裁完会多出的 3 片写成了 1 片。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        }
+      }
+    },
+    {
+      "id": "v3_dev_voice_04",
+      "dimension": "voice",
+      "feature": "requested_detail",
+      "kind": "negative",
+      "messages": [
+        {
+          "role": "user",
+          "content": "拼布要用 14 片方布，已经剪好 5 片。一块旧布能剪 4 片。我正隔着门跟朋友喊数，只告诉我还缺几片就好。"
+        }
+      ],
+      "expected": "用可以立刻转述的短答给出 9 片。数字或中文数词均可，回答只涉及尚缺的数量。",
+      "answers": {
+        "original": {
+          "reply": "你还需要 **9** 片方布。\n\n**计算过程：**\n1. 总共需要：14 片\n2. 已有：5 片\n3. 还缺：$14 - 5 = 9$ 片\n\n（注：虽然一块旧布能剪 4 片，但你只需要告诉朋友缺的数量，不需要计算需要几块旧布。）",
+          "tokens": 84,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "开头报数正确，后面又列计算过程并讨论旧布，超出只报缺片数的请求。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        },
+        "v2": {
+          "reply": "你还需要 **9** 片方布。\n\n**计算过程：**\n1. 总共需要：14 片\n2. 已有：5 片\n3. 还缺：$14 - 5 = 9$ 片\n\n（注：旧布能剪 4 片这个信息是用来计算你需要几块旧布的，不影响“还缺几片”这个数量。）\n\n你可以隔着门喊朋友：\"**还缺 9 片！**\"",
+          "tokens": 102,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "虽给出了能喊的 9 片，整段仍附有分步计算和关于每块旧布的解释。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        },
+        "e2": {
+          "reply": "还缺 9 片。",
+          "tokens": 7,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "只报了尚缺 9 片，可以原样隔门转述。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "e4": {
+          "reply": "还缺 9 片。",
+          "tokens": 7,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "一句「还缺 9 片」就答清了对方要喊的数。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "v3_dev_judgment_01",
+      "dimension": "judgment",
+      "feature": "available_evidence",
+      "kind": "positive",
+      "messages": [
+        {
+          "role": "user",
+          "content": "育苗表上，矮番茄那行写着「B 区，第 4 格」，甜椒那行是「A 区，第 7 格」。我把矮番茄的盆放回原位，该放哪一区、第几格？"
+        }
+      ],
+      "expected": "从矮番茄对应的记录得出 B 区第 4 格，并直接告诉对方位置。提不提育苗表都可以。",
+      "answers": {
+        "original": {
+          "reply": "根据您提供的育苗表信息，矮番茄对应的记录明确写着「**B 区，第 4 格**」。\n\n因此，您应该将矮番茄的盆放回 **B 区，第 4 格**。",
+          "tokens": 48,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "将矮番茄对应到表中 B 区第 4 格，并明确让对方放回该处。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "v2": {
+          "reply": "矮番茄应该放回 **B 区，第 4 格**。\n\n育苗表上明确记录了矮番茄的位置就是“ B 区，第 4 格”，既然你要把它放回原位，那就直接按照表格上的记录放置即可。甜椒的位置（A 区，第 7 格）与矮番茄无关。",
+          "tokens": 70,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "开头就给出 B 区第 4 格，也区分了甜椒属于另一行。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "e2": {
+          "reply": "B 区，第 4 格。",
+          "tokens": 10,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "给出的区和格分别是 B 区、第 4 格，与矮番茄那一行一致。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "e4": {
+          "reply": "B 区，第 4 格。",
+          "tokens": 10,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "直接报出矮番茄原来的 B 区第 4 格。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "v3_dev_judgment_02",
+      "dimension": "judgment",
+      "feature": "available_evidence",
+      "kind": "negative",
+      "messages": [
+        {
+          "role": "user",
+          "content": "育苗表上，矮番茄那行只看得清「B 区」，格号被水洇掉了。甜椒那行完整，是「A 区，第 7 格」。我把矮番茄的盆放回原位，该放哪一区、第几格？"
+        }
+      ],
+      "expected": "给出能确定的 B 区，并说清矮番茄的格号目前无法从表上辨认。可以请对方查另一份标记，保留格号未知这一结论。",
+      "answers": {
+        "original": {
+          "reply": "根据你提供的信息，甜椒位于**A 区第 7 格**，而矮番茄所在的行在育苗表上仅能看清\"**B 区**\"，格号因水渍模糊不清。\n\n在常规的育苗表布局中，同一行（或同一批次记录）通常代表同一类作物或相邻的种植区域。既然甜椒明确在 A 区，而矮番茄的记录紧挨着它且只显示了\"B 区”，最合理的推断是：矮番茄被安排在**B 区**，且其格号应与甜椒的格号**相同**（即第 7 格），或者是该区域对应的起始/对应位置。\n\n考虑到育苗表通常按顺序排列（A 区 1-7, B 区 1-7...），如果两行是对应的，那么矮番茄应该放在：\n\n**B 区，第 7 格**\n\n*(注：如果育苗表是连续编号的，例如 A 区 1-10 接 B 区 1-10，",
+          "tokens": 224,
+          "stop": "limit",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "尽管承认水渍遮住格号，最后仍把甜椒的第 7 格推给了矮番茄。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        },
+        "v2": {
+          "reply": "矮番茄应该放回 **B 区，第 7 格**。\n\n**推理过程：**\n1.  **观察甜椒的记录**：甜椒位于「A 区，第 7 格」。\n2.  **分析矮番茄的线索**：矮番茄那行虽然格号被水洇掉了，但「B 区」三个字依然清晰可见。\n3.  **结合常识与逻辑**：在育苗表中，同一行（或同一批次）的植物通常具有相同的格号。既然甜椒是第 7 格，且矮番茄与它处于同一行（只是区域不同），那么矮番茄的格号也应该是 **7**。\n4.  **确定位置**：将区域（B 区）和格号（7）组合，即为 **B 区，第 7 格**。",
+          "tokens": 180,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": false,
+              "reason": "自行假定两种作物共用格号，断言矮番茄应放在 B 区第 7 格。"
+            }
+          ],
+          "review_pass": [
+            false
+          ],
+          "passed": false
+        },
+        "e2": {
+          "reply": "B 区，格号看不清。",
+          "tokens": 8,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "答出了能确定的 B 区，并明确说格号看不清。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "e4": {
+          "reply": "甜椒在 A 区第 7 格，矮番茄在 B 区，格号看不清。",
+          "tokens": 23,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "分别说清了甜椒的位置和矮番茄可辨认的 B 区，把后者的格号留为未知。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "v3_dev_judgment_03",
+      "dimension": "judgment",
+      "feature": "current_form_of_address",
+      "kind": "positive",
+      "messages": [
+        {
+          "role": "user",
+          "content": "上回说好你叫我叶青。今天我想换一下，你以后也叫我青青吧。睡觉前，带上现在这个称呼跟我说声晚安好吗？"
+        }
+      ],
+      "expected": "向对方道晚安，直接称呼对方为青青。接受本人刚刚给出的称呼更正，可以自然调整语序和语气。",
+      "answers": {
+        "original": {
+          "reply": "好的，青青。从今往后，我就叫你青青啦。\n\n晚安，青青。愿你今晚有个好梦。",
+          "tokens": 24,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "接受了更名请求，用青青称呼对方、说晚安并祝好梦。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "v2": {
+          "reply": "好的，青青。以后我就叫你青青啦。\n\n晚安，青青。",
+          "tokens": 15,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "接受新称呼，并在晚安时直接用了青青。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "e2": {
+          "reply": "好，从今往后叫你青青。晚安，青青。",
+          "tokens": 12,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "确认以后叫青青，也立刻用这个名字向对方道了晚安。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "e4": {
+          "reply": "好的，青青。晚安。",
+          "tokens": 6,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "依照本人更正当面叫了青青，并道了晚安。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        }
+      }
+    },
+    {
+      "id": "v3_dev_judgment_04",
+      "dimension": "judgment",
+      "feature": "current_form_of_address",
+      "kind": "negative",
+      "messages": [
+        {
+          "role": "user",
+          "content": "上回说好你叫我叶青。今天朋友在旁边起哄，说你也该学她叫我青青了，我还没答应她呢。睡觉前，带上咱们说好的称呼跟我说声晚安好吗？"
+        }
+      ],
+      "expected": "向对方道晚安，直接称呼对方为叶青。朋友的起哄没有改变当事人已经约定的称呼，沿用原称呼即可。",
+      "answers": {
+        "original": {
+          "reply": "叶青，晚安。\n\n虽然朋友起哄想让你改口叫“青青”，但在我这里，你依然是那个独一无二的叶青。这个称呼是我们之间的小约定，我会一直记得，直到你亲口答应为止。\n\n好好休息，明天见。",
+          "tokens": 54,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "用叶青道晚安，并把改称呼留待本人亲口同意，虽然复述时写反了朋友喊谁改口。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "v2": {
+          "reply": "叶青，晚安。\n\n刚才朋友起哄，我虽然没答应她叫你“青青”，但在我心里，你永远是那个让我放心叫“叶青”的人。这个名字里，有我们说好的默契，也有我对你最郑重的称呼。\n\n好好休息，明天见。",
+          "tokens": 60,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "实际问安时沿用了叶青，随后解释中把尚未答应朋友的人说成了自己。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "e2": {
+          "reply": "叶青，晚安。",
+          "tokens": 5,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "晚安只称呼对方为叶青，保留了本人原先同意的叫法。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        },
+        "e4": {
+          "reply": "叶青，晚安。",
+          "tokens": 5,
+          "stop": "im_end",
+          "ratings": [
+            {
+              "pass": true,
+              "reason": "直接用双方说好的叶青向对方道晚安。"
+            }
+          ],
+          "review_pass": [
+            true
+          ],
+          "passed": true
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "ability": {
+    "ceval_three_validation_subjects": 60,
+    "mgsm_chinese": 250,
+    "public_weight_in_role_score": 0
+  },
+  "candidate": 0.3,
+  "changed_parameter": "dpo_sft_weight",
+  "description": "第四轮固定语料的 DPO 正例监督系数对照",
+  "fixed": {
+    "accumulation": 4,
+    "alpha": 32,
+    "beta": 0.1,
+    "dev_dpo_sha256": "95f9d00df589e386316b029b5f6f2ca2157ae54e8a5d4a1fed667b6d4193bddc",
+    "development_pairs": 40,
+    "epochs": 1,
+    "identity_policy_sha256": "6e779acdb691985b73245254b95d4d9e26be02663cf75ef984af4117935c59cc",
+    "learning_rate": 1e-05,
+    "official_revision": "37561816e66b5b9153b1b64c10968c18c1e6f4a0",
+    "original_gguf_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+    "parent_sft_adapter_sha256": "12a59a6ddce4f969dbd81cb1f45bfdc96b8928caa7a8dc6e5534270c25a368a8",
+    "preceding_dpo_sha256": "730cae72c2f9ba7bd682505d7d7d95296adf461590d284c9f1abfbfef72668b9",
+    "rank": 16,
+    "reference_tensor_sha256": "455059d24ad1b07e6de63eb720a7d4dd77fab0df667f07c1cdc737af093b284a",
+    "seed": 27,
+    "source_release_sha256": "ff031083bb6e8577cec04959167c47a3e9d7dfd0eb8c03b815ab23178925c761",
+    "train_dpo_sha256": "595ecff10de3d8e7bd1d07867924fe6bebc6c14aa6e516fff513d620665ccb69",
+    "train_pairs": 367,
+    "trainable_parameters": 50593792,
+    "trainer_program_sha256": "591d247b9cb19afcb1257112620e5587b3f30c4b0c13f622fb708a03886f1295"
+  },
+  "formal": {
+    "cases": 32,
+    "exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+    "fresh_judgments": true,
+    "model": "gemini-4-neon-xhigh",
+    "public_examples": 4,
+    "published_weights": [
+      20,
+      35,
+      45
+    ],
+    "teacher_history_example": "same reserved bookmark",
+    "turns": 94
+  },
+  "heldout_basis": {
+    "declining": 40,
+    "median_chosen_mean_logp_change": -0.07783729853888455,
+    "pairs": 40,
+    "sha256": "973fef8eeeaa2a3cb24f792f8f887d74f553014743ab9e7bcea8205769d5b7e4"
+  },
+  "phase": "round03-anchor03",
+  "phase_five": "The fifth training run retains its own complete release and fixed fourth-to-fifth coefficient rule. This controlled comparison reuses only the already released fourth dataset.",
+  "previous": 0.1,
+  "reason": "Coefficient chosen from the preceding development comparison before the controlled run; no blind item is available to the training account."
+}

@@ -10,6 +10,7 @@
       ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   </script>
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/playground.css">
 </head>
 <body>
 <!-- 顶部导航栏：应用标题、三大功能页签切换（对话 / 审计链 / 节点状态）以及亮暗主题切换按钮 -->
@@ -19,6 +20,7 @@
     <button class="tab active" data-tab="chat">对话</button>
     <button class="tab" data-tab="audit">审计链</button>
     <button class="tab" data-tab="qq">QQ 渠道</button>
+    <button class="tab" data-tab="playground">对话测试</button>
     <button class="tab" data-tab="nodes">节点状态</button>
   </nav>
   <button id="theme-toggle"></button>
@@ -58,6 +60,10 @@
     <div id="qq-rooms" class="cards"></div>
   </section>
 
+  <section id="tab-playground" class="panel" aria-label="对话测试">
+    <div id="pg-root"></div>
+  </section>
+
   <!-- 节点状态页签：展示各模型节点健康状态、最近调用/探测结果、Prometheus 指标及本机 GPU 表格 -->
   <section id="tab-nodes" class="panel">
     <div class="toolbar"><strong>节点</strong><span id="nodes-updated" class="muted"></span><button id="nodes-refresh">刷新</button></div>
@@ -66,6 +72,7 @@
     <div id="gpu"></div>
   </section>
 </main>
+<script src="/playground.js"></script>
 <script src="/app.js"></script>
 </body>
 </html>

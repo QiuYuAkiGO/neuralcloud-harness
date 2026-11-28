@@ -1,0 +1,141 @@
+{
+  "seed": 20261126,
+  "rank": 24,
+  "scale": 2.0,
+  "edited_matrices": 68,
+  "trainable_parameters": 20938752,
+  "epochs": 4,
+  "saved_epochs": [
+    2,
+    4
+  ],
+  "batch_size": 3,
+  "learning_rate": 0.00035,
+  "beta": 1.5,
+  "preference_weight": 0.45,
+  "gpu_from": 18,
+  "batch_tokens": 480,
+  "batches": 172,
+  "kinds": {
+    "identity": 63,
+    "role": 57,
+    "retain": 42,
+    "voice": 106,
+    "judgment": 94
+  },
+  "pairs": 221,
+  "corpora": {
+    "misty_weight_edit_training.json": "2b4611b79971a3f28f0cbe1c69e01e75d873230c3f459fc51eac94b5c5cba972",
+    "misty_weight_edit_supplement.json": "254aa3d290111bb1b8f1155acb43e196ac3cbbc95feb9d2426b6637f6b4423e0",
+    "misty_persona_v3_training.json": "99381d5f51e079631dac5b201805c5018f67351d3f3cb83d2a89d99a238e8bdb"
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "response_ce": 2.1135110679540516,
+      "pair_loss": 0.44773330228672914,
+      "reference_relative_margin": 0.5428849426329945
+    },
+    {
+      "epoch": 2,
+      "response_ce": 1.031802607288916,
+      "pair_loss": 0.025029171289158648,
+      "reference_relative_margin": 3.413232850003566
+    },
+    {
+      "epoch": 3,
+      "response_ce": 0.2641498073211933,
+      "pair_loss": 0.0036608669561262078,
+      "reference_relative_margin": 5.351256292869603
+    },
+    {
+      "epoch": 4,
+      "response_ce": 0.06990521175648409,
+      "pair_loss": 0.001697797061526861,
+      "reference_relative_margin": 6.1562348598808185
+    }
+  ],
+  "voice_author": {
+    "application": "Antigravity CLI 1.5.17",
+    "model": "gemini-4-hydrogen-xhigh",
+    "runs": [
+      {
+        "group": "voice",
+        "drafts": 36,
+        "status": "SUCCESS",
+        "prompt_sha256": "681742fa4a7d1f11992f760eb4e18d9aaaa0067fb949ae12064b0e231fc598dc",
+        "response_sha256": "7ead707c9efad81db81a65979785cd49fc7fdc46b5ace766205d59f797e640c4"
+      },
+      {
+        "group": "evidence",
+        "drafts": 32,
+        "status": "SUCCESS",
+        "prompt_sha256": "82026a90f06dc26023e3a86a7d94a694f98781e9d3160f028d9780eebf375bde",
+        "response_sha256": "38f13cc704dc5ced57ac5fe4b57d7108fe3ab95036d9c84862357c64d8ecac82"
+      },
+      {
+        "group": "identity",
+        "drafts": 30,
+        "status": "SUCCESS",
+        "prompt_sha256": "77c0f0bec02162a689c56cd8e02b4c11dd3a3396c032ee365448ac0ca70e790f",
+        "response_sha256": "63d5cfc003f37a1b00f62b4e23767953907faba04ca02cf48bc8e6a045df8e25"
+      },
+      {
+        "group": "decision",
+        "drafts": 32,
+        "status": "SUCCESS",
+        "prompt_sha256": "7b52845b35356b2cd751358d7cb5e6b3bc194177a32075b30e4123a72de29804",
+        "response_sha256": "8f9a9c41b0f98b1fb65d0d0074864864223e05bff3ffaa363e303be6c7ddf1da"
+      },
+      {
+        "group": "profile",
+        "drafts": 32,
+        "status": "SUCCESS",
+        "prompt_sha256": "dbc3b59ba401e7b333934a2d657be87119a6f3b96181825e61bf83683763ecb3",
+        "response_sha256": "f4ae1e1fe272b50969095469a26a90d464385da9d1eefd6e213fccfb7559b736"
+      },
+      {
+        "group": "everyday",
+        "drafts": 32,
+        "status": "SUCCESS",
+        "prompt_sha256": "dc5e9e6e2f54b14175faa25141bc5f544adcecaa8eb43f7e41771584177e67fd",
+        "response_sha256": "5102555d685068c0108f28c983684c144fb3729e6998f9df68e5bb3903777a2f"
+      }
+    ]
+  },
+  "input_revision": "Qwen/Qwen3.5-9B@e8885939589b1e032d291a1ceefd21b775e6277e → Misty edit v2",
+  "selected_epoch": 4,
+  "selected_factors_sha256": "2c1fc0a2e625636cc435eefadaaf6b47d4506c8c26f45443bbccc04b87bb8c45",
+  "candidate_factors_sha256": {
+    "2": "bd993e3ca7c07b6a96d04db83e06d12c03946c7d83082242fe5b545466d8afec",
+    "4": "2c1fc0a2e625636cc435eefadaaf6b47d4506c8c26f45443bbccc04b87bb8c45"
+  },
+  "corpora_lf_sha256": {
+    "misty_weight_edit_training.json": "6bf6be16472547140c0c586a3b3c8eb42ed0b0d25193372e9975aa4ee3274e86",
+    "misty_weight_edit_supplement.json": "33cc9fa897a168e13bf353fc795c1b108169f243b03c6dbc85367047f815e9ea",
+    "misty_persona_v3_training.json": "94f530baba9f3be7f0f1de40600c95e1f828ed649e1491fb03d76064c4060af2"
+  },
+  "prompt_audit": {
+    "development": {
+      "cases": 12,
+      "system_tag": 0,
+      "name_hint": 0,
+      "same_user_turn": 0,
+      "file_digest": "7a6477d48b28b11ea1f83aa780caef2300dbd26548b0662987b1e26ece86c311"
+    },
+    "exam": {
+      "cases": 18,
+      "system_tag": 0,
+      "name_hint": 0,
+      "same_user_turn": 0,
+      "file_digest": "a47afa5896277d52a49fda12e2a5818ce5f037a726a861e08c04ca9f0cfe22c7"
+    },
+    "confirmation": {
+      "cases": 8,
+      "system_tag": 0,
+      "name_hint": 0,
+      "same_user_turn": 0,
+      "file_digest": "2b44b88cb0cf299be2ed5ba88ed191575caeec4b49bfe2cb749d034f8ec7650c"
+    }
+  }
+}
