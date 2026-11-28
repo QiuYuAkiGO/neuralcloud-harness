@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -93,26 +94,27 @@ class TrainTest(unittest.TestCase):
         ):
             path.write_bytes((json.dumps(row) + "\n").encode("utf-8"))
 
-    def train(self, stage, data, output, *extra, accumulation=1):
+    def train(self, stage, data, output, *extra, accumulation=1, model=None):
         """所有请求都经正式进程入口，模型、数据与成品路径均指向本组临时目录。"""
         return subprocess.run(
             [sys.executable, "tools/train_misty27_alignment.py", "--stage", stage,
-             "--model", str(self.model), "--data", str(data), "--output", str(output),
+             "--model", str(self.model if model is None else model), "--data", str(data),
+             "--output", str(output),
              "--accumulation", str(accumulation), *extra],
             cwd=ROOT, env=dict(os.environ, HF_HUB_OFFLINE="1", HF_HOME=str(self.workspace / "hf")),
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
             encoding="utf-8", errors="replace", timeout=600,
         )
 
-    def sft_reference(self):
-        """DPO 正反例共用从正式入口生成的只读 SFT 参考，独立选跑时也可生成。"""
-        directory = self.workspace / "sft"
+    def sft_reference(self, name="sft", *extra):
+        """同组用例共用从正式入口生成的只读 SFT 成品，独立选跑时也可生成。"""
+        directory = self.workspace / name
         if not directory.exists():
-            run = self.train("sft", self.sft_data, directory)
+            run = self.train("sft", self.sft_data, directory, *extra)
             self.assertEqual(run.returncode, 0, run.stdout)
         return directory
 
-    def read_adapter(self, stage, directory, data):
+    def read_adapter(self, stage, directory, data, steps=1):
         """核对回执摘要，将发布的适配器交给 PEFT 重载，并逐张量对照成品。"""
         import torch
         from peft import PeftModel, get_peft_model_state_dict
@@ -122,7 +124,7 @@ class TrainTest(unittest.TestCase):
         asset = directory / "adapter_model.safetensors"
         receipt = json.loads((directory / "training.json").read_text(encoding="utf-8"))
         for key, value in {
-            "stage": stage, "steps": 1, "examples": 1,
+            "stage": stage, "steps": steps, "examples": 1,
             "data_sha256": sha256(data), "adapter_sha256": sha256(asset),
         }.items():
             self.assertEqual(receipt[key], value, key)
@@ -139,6 +141,76 @@ class TrainTest(unittest.TestCase):
         for key, tensor in saved.items():
             self.assertTrue(torch.equal(loaded[key].cpu(), tensor), key)
         return receipt, saved
+
+    def test_sft_start_adapter_trains_from_parent_weights(self):
+        """用同一父权重核对初始摘要，并从补训后可重载的实际张量辨别训练起点。"""
+        import torch
+        from safetensors.torch import load_file
+
+        parent = self.sft_reference("sft-start-parent", "--epochs", "3", "--learning-rate", "0.001")
+
+        def parent_files():
+            return {path.relative_to(parent).as_posix(): sha256(path)
+                    for path in parent.rglob("*") if path.is_file()}
+
+        original = parent_files()
+        before = load_file(str(parent / "adapter_model.safetensors"), device="cpu")
+        # DPO 的冻结参考提供同一组实际张量的既有摘要口径。
+        reference = self.workspace / "sft-start-dpo-reference"
+        run = self.train("dpo", self.dpo_data, reference, "--sft-adapter", str(parent))
+        self.assertEqual(run.returncode, 0, run.stdout)
+        reference_receipt = json.loads((reference / "training.json").read_bytes())
+
+        pair = json.loads(self.dpo_data.read_bytes())
+        data = self.workspace / "sft-start-new-completion.jsonl"
+        row = {"prompt": pair["prompt"], "completion": pair["rejected"]}
+        data.write_text(json.dumps(row) + "\n", encoding="utf-8")
+        output = self.workspace / "sft-continued"
+        learning_rate = 1e-6
+        run = self.train("sft", data, output, "--sft-start-adapter", str(parent),
+                         "--learning-rate", str(learning_rate), "--epochs", "2",
+                         model=self.model / ".." / self.model.name)
+        self.assertEqual(run.returncode, 0, run.stdout)
+        receipt, after = self.read_adapter("sft", output, data, steps=2)
+        self.assertEqual(receipt["initial_sft_adapter_sha256"], original["adapter_model.safetensors"])
+        self.assertEqual(receipt["initial_sft_tensor_sha256"], reference_receipt["reference_tensor_sha256"])
+        self.assertEqual((receipt["learning_rate"], receipt["epochs"]), (learning_rate, 2))
+        self.assertEqual(parent_files(), original)
+
+        # 初建 LoRA 的 B 矩阵为零。父权重已学到非零值，微小的补训更新应保留它们。
+        parent_signal = max(t.abs().max().item() for key, t in before.items() if ".lora_B." in key)
+        self.assertGreater(parent_signal, 0)
+        self.assertEqual(set(after), set(before))
+        for key, tensor in before.items():
+            with self.subTest(tensor=key):
+                torch.testing.assert_close(after[key], tensor, rtol=0, atol=parent_signal / 100)
+        self.assertTrue(any(not torch.equal(tensor, after[key]) for key, tensor in before.items()),
+                        "补训至少应实际更新一个父检查点的张量")
+
+    def test_invalid_sft_start_adapter_rejects_without_publishing(self):
+        """逐项改变父回执、基础模型路径或训练阶段，核对诊断和成品目录。"""
+        parent = self.sft_reference("sft-start-parent", "--epochs", "3", "--learning-rate", "0.001")
+
+        def assert_rejected(label, stage, data, source, *extra, model=None):
+            with self.subTest(case=label):
+                output = self.workspace / f"sft-start-rejected-{label}"
+                run = self.train(stage, data, output, "--sft-start-adapter", str(source), *extra, model=model)
+                self.assertNotEqual(run.returncode, 0, run.stdout)
+                self.assertIn("sft-start-adapter", run.stdout)
+                self.assertFalse(output.exists())
+
+        changed = self.workspace / "sft-start-invalid-parent"
+        shutil.copytree(parent, changed)
+        receipt = json.loads((parent / "training.json").read_bytes())
+        for field, value in (("stage", "dpo"), ("adapter_sha256", sha256(self.sft_data))):
+            invalid = {**receipt, field: value}
+            (changed / "training.json").write_text(json.dumps(invalid), encoding="utf-8")
+            assert_rejected(field, "sft", self.sft_data, changed)
+
+        other_model = self.workspace / "sft-start-other-base"
+        shutil.copytree(self.model, other_model)
+        assert_rejected("base-model", "sft", self.sft_data, parent, model=other_model)
+        assert_rejected("dpo", "dpo", self.dpo_data, parent, "--sft-adapter", str(parent))
 
     def test_sft_then_dpo_publish_reloadable_trained_adapters(self):
         """从本轮 SFT 进入 DPO，核对策略有实际权值变化且原 SFT 成品逐字节一致。"""
