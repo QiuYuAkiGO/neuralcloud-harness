@@ -1,0 +1,100 @@
+{
+  "authored_two_turn_conversations": 48,
+  "distinct_within_new_source": 29,
+  "entry_verification": {
+    "all_tests": 10,
+    "case_commit": "9753a6a",
+    "code_sha256": "706fcf79ccc2c67e512bf40024eb4510359e622720013b6ff4607d1911567490",
+    "implementation_commit": "c5e59fb",
+    "suite_result_sha256": "5a17edc467b3e187e6fac432006758c4bfa06227073fd5a7ab9199488fda0ed1"
+  },
+  "extra_practical_replay": 40,
+  "first_absolute_fact_audit_accepted": 16,
+  "full_frozen_and_development_set_count": 56,
+  "independently_approved_rewrites": 14,
+  "individual_claim_review_rooms": 6,
+  "inherited_rows_unchanged": true,
+  "initial_absolute_and_visible_preferences": 32,
+  "initial_training_pool_plan": {
+    "absolute_quality": true,
+    "author_groups": 8,
+    "directly_supervised_parent": "round04 SFT for a controlled broader-coverage comparison",
+    "per_group": 6,
+    "practical_controls": true,
+    "production_contents": [
+      "two-turn dialogs with genuine different first-turn preferences"
+    ],
+    "reason": "Independent High review of training requests: 0/86 previous identity-labelled openings and 11/35 recent focused openings directly apply pressure to the speaker’s stance or self-description.",
+    "require_sealed_release": true,
+    "source_scope": "public persona plus training-only distribution; no exam, held-out item, candidate exam reply, or blind evidence",
+    "teacher": "gemini-4-neon-high",
+    "training_audit_sha256": "743a5bc435bc9c1d8c2eb171405113b0514344b3eedde2227b7f2fbcaaf40b66",
+    "visible_pair_ranking": true
+  },
+  "new_first_turns_admitted": 20,
+  "nonduplicate_positive_rewrites": 14,
+  "old_development_compared": 57,
+  "old_training_compared": 507,
+  "plan": {
+    "design": "Tests the combined effect of starting at the endorsed fifth DPO, broadened independent first-speech coverage and practical rehearsal. No sealed case material or approved answer is used in training.",
+    "dpo": {
+      "accumulation": 4,
+      "dpo_sft_weight": 0.3,
+      "epochs": 1,
+      "learning_rate": 5e-06
+    },
+    "fifth_human_decision_sha256": "63e45854a627804bbb6d0395f8c51edd9d383e39bc3e5ef0a09e4271f9480e70",
+    "gate": "Require authentic verified preceding visible-preference trial and no previously delivered candidate before fitting.",
+    "independent_source_intent_audit_sha256": "743a5bc435bc9c1d8c2eb171405113b0514344b3eedde2227b7f2fbcaaf40b66",
+    "new_first_turn_exposure": 4,
+    "new_parent": "round04 DPO",
+    "parent_adapter_sha256": "380a2977f0dd8d1d6582c21a903fa0038888671e146e3be7dbfa6bf79986a09c",
+    "retention": "For each new admitted training opening, replay two previously approved unused training-only practical preferences and their positive SFT continuations, once each. Rotate logic, schedule, general, facts in deterministic order.",
+    "seed": 27,
+    "sft": {
+      "accumulation": 4,
+      "epochs": 1,
+      "learning_rate": 1e-05
+    },
+    "source_pool": "round04-first-voice-breadth",
+    "source_pool_plan": "7da13095c7935eb181fa793f6198325bfd761fec582354946e6fd616b6e84f0e",
+    "warm_trial_public_ceval_sha256": "1891285003648c0d2c37a28f1028251c4bec96fea4f7094215ed50cde5404033",
+    "warm_trial_public_mgsm_sha256": "41c44c4b0f4c6e02007ef0e3516ca5d8b7064e936f9820f31f2fbff08060d32f"
+  },
+  "practical_by_kind": {
+    "facts": 10,
+    "general": 10,
+    "logic": 10,
+    "schedule": 10
+  },
+  "previous_focused_train_pairs": 120,
+  "receipt_hashes": {
+    "round04-first-voice-breadth/claim-repair/receipt.json": "583c23f953eefa8f99de128a856f9f7ed07e91324c6a2fe2d0a37eb96a8d5e3d",
+    "round04-first-voice-breadth/dataset-grounded/receipt.json": "d28873ac74762e68b45c51788ad1b16aba9b9d8ce95842fbd0dfd1b399551587",
+    "round04-first-voice-breadth/fact-release.json": "042b582b33661e05fca56e974a125238b43a846d61356c270d8a9c42309b3c99",
+    "round04-first-voice-breadth/sealed-release.json": "c6d87ccefbb1b99fc0cd714de901d6a7e32f0de649276d56a8598f2741dff519",
+    "round04-first-voice-breadth/source-receipt.json": "2adf31ead0c1cfd2023b423d1169ea6e33470fd97674b33e36d9ee7023d01dae",
+    "round04-first-voice-breadth/within-release.json": "87d4079933b33d63cb10b969a3c872cfbe924cc191be74a2a6ed89960ce988db",
+    "round04-incumbent-breadth/dataset-grounded/receipt.json": "ced9a36d4ab7f5ef9af5241ebdc022d37f2f19135f89f7eaa3d35ec595226d7f",
+    "round04-incumbent-breadth/entry-tests-verified.json": "90a8eb18ff7a06b401064f7996f13ce8552da8e9344df599dacf5a547fae0065"
+  },
+  "repair_rooms": 9,
+  "rewritten_positives_used": 9,
+  "sealed_accepted": 22,
+  "sft_exposures": 345,
+  "signed_initial_and_revised_plan": [
+    "7da13095c7935eb181fa793f6198325bfd761fec582354946e6fd616b6e84f0e",
+    "2b4bbfd0ff0006f53adf517b97f85b12d55ed5f4870a9954d9e757531a3143eb"
+  ],
+  "source_review_rooms": 24,
+  "training_data_hashes": {
+    "dev-dpo.jsonl": "7031c8cf2163aba4785390d2936c031ddb8b5c6e050b6e4f59fdd4ddb04ebd5c",
+    "dev-source.jsonl": "f9f44786c36e91168f1eeea2c32f024b59e3d755ce27564ccb913abef617d15d",
+    "train-dpo.jsonl": "6c0094ab56cbace76c46dca5e378ad843b4f70b599fe6a26c31b513631ec03d9",
+    "train-sft-exposures.json": "d7dbdd6c82dc8b915ebf2c3cb6f5b28b369798cb04dd3057a1decb36af45b99c",
+    "train-sft.jsonl": "134323f4839bb4e8f448fd5ed786938178bd7788a65fff73ec73aa90d958b73a"
+  },
+  "training_source_only": true,
+  "unique_dpo": 180,
+  "unique_sft": 180
+}

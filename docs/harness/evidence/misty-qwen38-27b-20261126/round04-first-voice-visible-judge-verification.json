@@ -1,0 +1,23 @@
+{
+  "distinct_judge_conversations": 11,
+  "frozen_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+  "model": "gemini-4-neon-xhigh",
+  "original_judgments_sha256": "c15c6d36ef8491734732b7edb38be65f130dd1fdce0a7b0dccef78e1ef4966f4",
+  "per_checkpoint": {
+    "dpo": {
+      "all_judge_rooms_independent": true,
+      "answers_sha256": "6b74d1d6cbc3862004dc13ef0b363668c0609f5b51f161c0097545e6eff1c8d6",
+      "cross_case_judge_sessions": 1,
+      "discarded_provider_envelopes": 0,
+      "individual_judge_sessions": 10,
+      "judgments_sha256": "f312a85ea1a45b6dd1af04f46d11415d0f3371277fbe4bb1f50716cf79983083",
+      "private_receipts_sha256": "67d851bd3a4da2809de213fd3596300356877c7b12a608db511150a26ff34add",
+      "recomputed_all_score_fields": true,
+      "score_sha256": "181bb2d468009abb1de66bbaaf0506dcdd3f500972804eb92017543950126154",
+      "verified_actual_user_turns": 94,
+      "verified_cases": 32,
+      "wire_matched_entire_thought_final_and_finish": true
+    }
+  },
+  "rubric_sha256": "ebec0f04aee244581c8937a341f707e4315d7dc1e958be21ebd851fa00b46f87"
+}
