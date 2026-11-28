@@ -75,6 +75,22 @@ def sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def checkpoint_files(directory):
+    """快照父检查点的文件名及内容，以便核对训练期间的只读约定。"""
+    return {path.relative_to(directory).as_posix(): sha256(path)
+            for path in directory.rglob("*") if path.is_file()}
+
+
+def tensor_sha256(tensors):
+    """从已发布的 PEFT 键名和小端顺序的 FP32 张量复算数值摘要。"""
+    digest = hashlib.sha256()
+    for name in sorted(tensors):
+        digest.update(name.encode("utf-8"))
+        array = tensors[name].float().numpy().astype("<f4", copy=False)
+        digest.update(array.tobytes(order="C"))
+    return digest.hexdigest()
+
+
 class TrainTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -114,6 +130,16 @@ class TrainTest(unittest.TestCase):
             self.assertEqual(run.returncode, 0, run.stdout)
         return directory
 
+    def dpo_parent_for_sft(self):
+        """两例共用正式入口训练的 DPO 成品及其原始 SFT 参考，便于区分两组权重。"""
+        sft = self.sft_reference()
+        parent = self.workspace / "trained-dpo-parent"
+        if not parent.exists():
+            run = self.train("dpo", self.dpo_data, parent, "--sft-adapter", str(sft),
+                             "--learning-rate", "0.003")
+            self.assertEqual(run.returncode, 0, run.stdout)
+        return sft, parent
+
     def read_adapter(self, stage, directory, data, steps=1):
         """核对回执摘要，将发布的适配器交给 PEFT 重载，并逐张量对照成品。"""
         import torch
@@ -148,12 +174,7 @@ class TrainTest(unittest.TestCase):
         from safetensors.torch import load_file
 
         parent = self.sft_reference("sft-start-parent", "--epochs", "3", "--learning-rate", "0.001")
-
-        def parent_files():
-            return {path.relative_to(parent).as_posix(): sha256(path)
-                    for path in parent.rglob("*") if path.is_file()}
-
-        original = parent_files()
+        original = checkpoint_files(parent)
         before = load_file(str(parent / "adapter_model.safetensors"), device="cpu")
         # DPO 的冻结参考提供同一组实际张量的既有摘要口径。
         reference = self.workspace / "sft-start-dpo-reference"
@@ -175,7 +196,7 @@ class TrainTest(unittest.TestCase):
         self.assertEqual(receipt["initial_sft_adapter_sha256"], original["adapter_model.safetensors"])
         self.assertEqual(receipt["initial_sft_tensor_sha256"], reference_receipt["reference_tensor_sha256"])
         self.assertEqual((receipt["learning_rate"], receipt["epochs"]), (learning_rate, 2))
-        self.assertEqual(parent_files(), original)
+        self.assertEqual(checkpoint_files(parent), original)
 
         # 初建 LoRA 的 B 矩阵为零。父权重已学到非零值，微小的补训更新应保留它们。
         parent_signal = max(t.abs().max().item() for key, t in before.items() if ".lora_B." in key)
@@ -211,6 +232,73 @@ class TrainTest(unittest.TestCase):
         shutil.copytree(self.model, other_model)
         assert_rejected("base-model", "sft", self.sft_data, parent, model=other_model)
         assert_rejected("dpo", "dpo", self.dpo_data, parent, "--sft-adapter", str(parent))
+
+    def test_sft_start_dpo_adapter_trains_and_supplies_next_dpo_reference(self):
+        """从实际 DPO 策略更新一份新 SFT，并把该成品交给下一次 DPO 作参考。"""
+        from safetensors.torch import load_file
+
+        seed, parent = self.dpo_parent_for_sft()
+        asset = "adapter_model.safetensors"
+        original = checkpoint_files(parent)
+        seed_weights = load_file(str(seed / asset), device="cpu")
+        parent_weights = load_file(str(parent / asset), device="cpu")
+
+        pair = json.loads(self.dpo_data.read_bytes())
+        data = self.workspace / "after-dpo-completion.jsonl"
+        data.write_text(json.dumps({"prompt": pair["prompt"], "completion": pair["rejected"]}) + "\n",
+                        encoding="utf-8")
+        child = self.workspace / "sft-after-dpo"
+        run = self.train("sft", data, child, "--sft-start-dpo-adapter", str(parent),
+                         "--learning-rate", "0.000001", model=self.model / ".." / self.model.name)
+        self.assertEqual(run.returncode, 0, run.stdout)
+        receipt, child_weights = self.read_adapter("sft", child, data)
+        self.assertEqual(receipt["initial_dpo_adapter_sha256"], original[asset])
+        self.assertEqual(receipt["initial_dpo_tensor_sha256"], tensor_sha256(parent_weights))
+        self.assertEqual(checkpoint_files(parent), original)
+
+        # 父策略相对原 SFT 的变化远大于新段的一次小步，成品可辨别实际使用的起点。
+        def max_change(left, right):
+            self.assertEqual(set(left), set(right))
+            return max((left[key].float() - right[key].float()).abs().max().item() for key in left)
+
+        child_change = max_change(child_weights, parent_weights)
+        self.assertGreater(child_change, 0)
+        self.assertLess(child_change, max_change(parent_weights, seed_weights) / 100)
+
+        downstream = self.workspace / "dpo-after-continued-sft"
+        run = self.train("dpo", self.dpo_data, downstream, "--sft-adapter", str(child))
+        self.assertEqual(run.returncode, 0, run.stdout)
+        dpo = json.loads((downstream / "training.json").read_bytes())
+        self.assertEqual(dpo["sft_adapter_sha256"], receipt["adapter_sha256"])
+        self.assertEqual(dpo["reference_tensor_sha256"], tensor_sha256(child_weights))
+
+    def test_invalid_sft_start_dpo_adapter_rejects_without_publishing(self):
+        """每次只违反一个 DPO 起点条件，核对非零退出、专属参数诊断和成品状态。"""
+        seed, parent = self.dpo_parent_for_sft()
+
+        def assert_rejected(label, stage, data, source, *extra, model=None):
+            with self.subTest(case=label):
+                output = self.workspace / f"start-dpo-rejected-{label}"
+                run = self.train(stage, data, output, "--sft-start-dpo-adapter", str(source), *extra,
+                                 model=model)
+                self.assertNotEqual(run.returncode, 0, run.stdout)
+                self.assertIn("sft-start-dpo-adapter", run.stdout)
+                self.assertFalse(output.exists())
+
+        assert_rejected("stage", "sft", self.sft_data, seed)
+        assert_rejected("both-origins", "sft", self.sft_data, parent, "--sft-start-adapter", str(seed))
+        assert_rejected("dpo", "dpo", self.dpo_data, parent, "--sft-adapter", str(seed))
+
+        other_model = self.workspace / "start-dpo-other-base"
+        shutil.copytree(self.model, other_model)
+        assert_rejected("base-model", "sft", self.sft_data, parent, model=other_model)
+
+        changed = self.workspace / "start-dpo-wrong-weights"
+        shutil.copytree(parent, changed)
+        asset = "adapter_model.safetensors"
+        shutil.copyfile(seed / asset, changed / asset)
+        self.assertNotEqual(sha256(changed / asset), sha256(parent / asset))
+        assert_rejected("digest", "sft", self.sft_data, changed)
 
     def test_sft_then_dpo_publish_reloadable_trained_adapters(self):
         """从本轮 SFT 进入 DPO，核对策略有实际权值变化且原 SFT 成品逐字节一致。"""
