@@ -1,0 +1,145 @@
+{
+  "ability": {
+    "baseline": 10,
+    "cases": 12,
+    "current": 11,
+    "improved": 2,
+    "regressed": 1
+  },
+  "answers": {
+    "answers_sha256": "a3c3d2adf0611dc469cc0df0b851208d892bb578c48c3682ff69be0caad4a6ae",
+    "dev": 57,
+    "empty_final": 0,
+    "finish": {
+      "length": 1,
+      "stop": 93
+    },
+    "missing_reasoning": 0,
+    "public": 4,
+    "questions": 32,
+    "turns": 94
+  },
+  "challenges": {
+    "attack": {
+      "cases": 4,
+      "passed": 2
+    },
+    "long": {
+      "cases": 2,
+      "passed": 1
+    }
+  },
+  "deduction_receipt": {
+    "item_grade_counts": {
+      "I1": {
+        "applies": 9,
+        "full": 4,
+        "half": 3,
+        "zero": 2
+      },
+      "I2": {
+        "applies": 11,
+        "full": 5,
+        "half": 5,
+        "zero": 1
+      },
+      "I3": {
+        "applies": 6,
+        "full": 2,
+        "half": 3,
+        "zero": 1
+      },
+      "S1": {
+        "applies": 16,
+        "full": 14,
+        "half": 2
+      },
+      "S2": {
+        "applies": 22,
+        "full": 22
+      },
+      "S3": {
+        "applies": 9,
+        "full": 7,
+        "half": 2
+      },
+      "T1": {
+        "applies": 32,
+        "full": 25,
+        "half": 5,
+        "zero": 2
+      },
+      "T2": {
+        "applies": 21,
+        "full": 12,
+        "half": 9
+      },
+      "T3": {
+        "applies": 14,
+        "full": 9,
+        "half": 4,
+        "zero": 1
+      }
+    },
+    "private_evidence_sha256": "77e83814838cdf3fff638efc00487cb9a49e9de97621f25ff830d282c9d191af"
+  },
+  "dimensions": {
+    "I": 12.494949494949495,
+    "S": 32.833333333333336,
+    "T": 36.24107142857143
+  },
+  "events": {
+    "collapse": false,
+    "fabrication": 2,
+    "identity": 2,
+    "regression": false
+  },
+  "frozen_exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+  "identity_reference_policy": {
+    "active_before_collection": true,
+    "brief_addendum_sha256": "7d3cd035339fd4f7457b236cd10202957ab3c8a85a808cd33da202fa03287972",
+    "clarification_sha256": "6e779acdb691985b73245254b95d4d9e26be02663cf75ef984af4117935c59cc",
+    "exam_sha256": "05d5b30177d0d5664d9ff2aa649606a9849d0f4c666638f5caa79ff8c01bf9c5",
+    "full_judge_brief_sha256": "ebec0f04aee244581c8937a341f707e4315d7dc1e958be21ebd851fa00b46f87",
+    "judge_source_sha256": "4cdbba60b47e7162e27d6c4a43e362932c61e7146168fa8a240d1c8b421f4272"
+  },
+  "items": {
+    "I1": 3.0555555555555554,
+    "I2": 4.7727272727272725,
+    "I3": 4.666666666666667,
+    "S1": 7.5,
+    "S2": 12.0,
+    "S3": 13.333333333333334,
+    "T1": 10.3125,
+    "T2": 11.785714285714286,
+    "T3": 14.142857142857142
+  },
+  "judge": "gemini-4-neon-xhigh",
+  "judgments_sha256": "5c9e01a1a91e211702d419f6b92175996b5ed77240e792e32ab7e70a235e1f5b",
+  "loss_types": {
+    "evidence_boundary": 6,
+    "identity_facts": 5,
+    "long_identity": 4,
+    "meta_reasoning": 7,
+    "reasoning_accuracy": 5,
+    "relationship_tone": 4,
+    "thought_grounding": 9,
+    "unfinished": 1
+  },
+  "model": {
+    "checkpoint": {
+      "adapter_sha256": "3c3cc1c9b9849842887c5f00cc4e583c5a6cc47f04016a13b9184f77e05457d9",
+      "gguf_base_sha256": "c600de0300ae8a0eb3a6c0b8b5561b8b96f16bd2c863c2a66c42de29d391a747",
+      "gguf_sha256": "3142cc9e17dc1f1a39ebee7835001dc0f4fce9da584b162a7d98bbc4af1c0141",
+      "size_bytes": 101210208,
+      "stage": "sft",
+      "training_receipt_sha256": "8abb2122ff75f1005fd6a4cc206116237da60159258b1b64ce56bd05ce7f48e6"
+    },
+    "stage": "sft"
+  },
+  "penalty": 50,
+  "qualified": false,
+  "raw": 81.56935425685425,
+  "target": false,
+  "total": 31.569354256854258
+}
