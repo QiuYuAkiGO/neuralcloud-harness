@@ -85,13 +85,15 @@ public final class RouterMemoryWriter {
         return memory instanceof ResidentV2 v2 && v2.authorGrantsEnabled();
     }
 
-    /**
-     * 在渠道向外发送包含跨会话共享来源的回复前，向 Memory v2 二次复核引用的所有记录是否仍处于有效授权期内，
-     * 防止授权刚被撤回或过期时继续外泄历史内容。
-     */
+    /** 按原有交付契约复读来源。 */
     public void verifyDelivery(Trace trace) throws IOException, InterruptedException {
+        verifyDelivery(trace, true);
+    }
+
+    /** 交付时始终执行本地写入上限和已知时效约束，按本次回复的配置决定是否再次取数。 */
+    public void verifyDelivery(Trace trace, boolean rereadSources) throws IOException, InterruptedException {
         if (!trace.sharedSources().isEmpty() && memory instanceof ResidentV2 v2)
-            v2.verifyDelivery(trace);
+            v2.verifyDelivery(trace, rereadSources);
     }
 
     /** 将渠道适配器收到的已认证原作者私聊授权/撤回命令透传给 Memory v2 处理。 */
@@ -203,7 +205,7 @@ public final class RouterMemoryWriter {
             String event = scope.runId() + ":" + sourceId;
             if (memory instanceof neuralcloud.controlplane.memory.ResidentV2 v2) {
                 var origin = source.data().getAsJsonObject().getAsJsonObject("observation");
-                // 已送达回复若引用了跨会话受众材料，将经过交付复核的 source_refs 随回执一并上报给 v2 溯源。
+                // 已送达回复若引用了跨会话受众材料，将实际采用的 source_refs 随回执上报给 v2 溯源。
                 if (kind == Kind.SELF_EXPRESSION
                         && source.data().getAsJsonObject().has("source_refs")) {
                     origin = new com.google.gson.JsonObject();

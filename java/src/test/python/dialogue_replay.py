@@ -174,7 +174,10 @@ def current_versions(t, harness):
     # 两渠道的自述原本同文，仅 QQ 的自述被更正，网页自述须保留自己的授权和版本。
     qq, qq_history = t.turn(QQ, qq_input, qq_old)
     web, web_history = t.turn(WEB, web_old, qq_old)
-    for target, text in ((ref(qq, "SELF_EXPRESSION"), qq_new), (ref(web, "OBSERVATION"), web_new)):
+    qq_source = ref(qq, "SELF_EXPRESSION")
+    web_delivery, = [row["data"] for row in web if row["type"] == "console_response_written"]
+    assert qq_source["record_id"] not in {r["record_id"] for r in web_delivery.get("source_refs", [])}
+    for target, text in ((qq_source, qq_new), (ref(web, "OBSERVATION"), web_new)):
         correct(t, audience(t, target, "ORCHESTRATOR"), target, text)
     t.restart_for_replay(harness)
     check_replay(t, QQ, qq_history, [("user", qq_input), ("assistant", qq_new)], [qq_old])
@@ -219,23 +222,30 @@ def unavailable_versions(t, harness):
     """反例：QQ 已撤回自述、来源失效自述、越权自述及网页已撤回入站均从模型输入剔除。"""
     kept_input, withdrawn_reply = "盒子上印着松树。", "我曾经把这称作白桦密语。"
     withdrawn_input, kept_reply = "我临时把它叫作海星证章。", "我收藏过一张梧桐书票。"
-    qq, qq_history = t.turn(QQ, kept_input, withdrawn_reply)
+    # 先生成须在重启后保留的网页自述，此时没有其他渠道的记忆可供引用。
     web, web_history = t.turn(WEB, withdrawn_input, kept_reply)
-    # 两次已送达的回答各用了另一个会话的可引用来源。一个来源将被修改，另一个仅会收回共享。
     questions = ["青瓷门票放在哪里？", "蓝杉钥匙放在哪里？"]
     answers = ["我记得那个抽屉挂着竹牌。", "我记得那只木箱系着橘色带子。"]
-    seeds, deliveries = [], []
-    for topic, question, answer in zip(("青瓷门票", "蓝杉钥匙"), questions, answers):
+
+    def sourced_answer(topic, question, answer):
         seed = t.mem("ingest", dict(context=context(A), source_instance=SOURCE_INSTANCE, event_id=topic,
                                     kind="observation", content=topic + "放在写字桌旁。", occurred_at="2025-10-20T00:00:00Z"))
-        rows, qq_history = t.turn(QQ, question, answer, topic)
+        rows, _ = t.turn(QQ, question, answer, topic)
         delivered, = [row for row in rows if row["type"] == "qq_delivery"]
         assert any(source["record_id"] == seed["record_id"] for source in delivered["data"]["source_refs"])
-        seeds.append(seed)
-        deliveries.append(ref(rows, "SELF_EXPRESSION"))
+        return seed, ref(rows, "SELF_EXPRESSION")
+
+    # 先造只收回共享的回复。待修订来源和待撤回自述在它送达后才出现。
+    _, hidden = sourced_answer("蓝杉钥匙", questions[1], answers[1])
+    revised_source, changed = sourced_answer("青瓷门票", questions[0], answers[0])
+    deliveries = [changed, hidden]
+    qq, qq_history = t.turn(QQ, kept_input, withdrawn_reply)
     for target in (ref(qq, "SELF_EXPRESSION"), ref(web, "OBSERVATION")):
         correct(t, audience(t, target, "ORCHESTRATOR"), target)
-    correct(t, context(A), seeds[0], "青瓷门票已经移交。")
+    correct(t, context(A), revised_source, "青瓷门票已经移交。")
+    # 只有新版本重启后才测试规划中的撤回，生成旧审计的 Harness 仍使用原配置。
+    with t.hc.open("a", encoding="utf-8") as config:
+        config.write("chatReviewAfterPlan=true\n")
     t.restart_for_replay(harness, isolate=True)
     # 两次自述在 QQ 当前受众下均不可引用；直接从 Memory 核对造出的边界，保证不会因缺少测试数据而误过。
     states = t.mem("read", dict(context=audience(t, deliveries[0], "CHAT_WORKER"), kind="HISTORY", use="CITE",
@@ -261,6 +271,10 @@ if __name__ == "__main__":
         trial = ReplayTrial(argparse.Namespace(harness=args.previous_harness or args.harness, memory=args.memory,
                                                output=args.output / case))
         try:
+            # 正例从生成历史起就隔离两条会话，使网页同文自述拥有独立来源。
+            if case == "current":
+                with trial.mc.open("a", encoding="utf-8") as config:
+                    config.write("sessionIsolation=true\n")
             trial.start_memory("memory")
             trial.harness()
             check(trial, args.harness.resolve())

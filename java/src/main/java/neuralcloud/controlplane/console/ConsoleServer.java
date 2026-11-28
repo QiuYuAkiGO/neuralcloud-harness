@@ -11,6 +11,7 @@ import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import neuralcloud.controlplane.memory.ChatReview;
 import neuralcloud.controlplane.router.RouterMemoryWriter;
 import neuralcloud.controlplane.worker.DialogueMessage;
 
@@ -157,7 +158,7 @@ public final class ConsoleServer implements AutoCloseable {
 
         java.time.Instant validUntil();
 
-        /** 为渠道送达回执载荷补充本轮经过复核的跨会话引用清单 {@code source_refs}（若未引用共享来源则原样返回）。 */
+        /** 为渠道送达回执附上本轮采用的跨会话来源及版本。 */
         default Map<String, Object> delivery(Map<String, Object> data) {
             if (sharedSources().isEmpty()) return data;
             var receipt = new LinkedHashMap<>(data);
@@ -248,10 +249,22 @@ public final class ConsoleServer implements AutoCloseable {
         void run() throws IOException, InterruptedException;
     }
 
-    // type 是写入审计链的事件类型，data 是该节点实际返回的可见内容。
-    public record Reply(String type, Map<String, Object> data, Integer causedBy) {
+    /** 交付选项只传给渠道。审计与对外响应仍使用 type 和 data。 */
+    public record Reply(String type, Map<String, Object> data, Integer causedBy,
+                        boolean reviewDeliverySources, boolean reviewQqMembership) {
+        /** 其他节点、终审和任务的交付沿用各自原有的复核契约。 */
+        public Reply(String type, Map<String, Object> data, Integer causedBy) {
+            this(type, data, causedBy, true, true);
+        }
+
         public Reply(String type, Map<String, Object> data) {
             this(type, data, null);
+        }
+
+        /** 只有前台日常回复携带本次启动选定的两项交付开关。 */
+        public static Reply chat(String text, int causedBy, Set<ChatReview> reviews) {
+            return new Reply("chat_worker_reply", Map.of("text", text), causedBy,
+                    reviews.contains(ChatReview.DELIVERY_SOURCES), reviews.contains(ChatReview.QQ_MEMBERSHIP));
         }
     }
 
@@ -454,7 +467,7 @@ public final class ConsoleServer implements AutoCloseable {
     /**
      * 向指定节点发送操作者消息：
      * 1. 若携带 {@code observation} 来源凭据，仅允许发往启用 Memory v2 的 {@code chat-worker}；
-     * 2. 先落盘 {@code operator_message}，调用节点并在返回前执行 {@link RouterMemoryWriter#verifyDelivery} 复核引用权；
+     * 2. 先落盘 {@code operator_message}，调用节点，并按本次回复的开关在交付前复读来源；
      * 3. 记录节点回复与耗时；对于带记忆的 {@code chat_worker_reply}，在 HTTP 响应真正写出后通过 {@code afterWrite}
      *    追加 {@code console_response_written} 并持久化角色回复，避免客户端断开前误记为已送达。
      */
@@ -476,7 +489,7 @@ public final class ConsoleServer implements AutoCloseable {
         Reply reply;
         try {
             reply = node.exchange().send(message.text(), trace);
-            if (writes.isPresent()) writes.get().verifyDelivery(trace);
+            if (writes.isPresent()) writes.get().verifyDelivery(trace, reply.reviewDeliverySources());
         } catch (IOException | InterruptedException error) {
             return failure(node, message.chain(), request, started, error, monitor::recordCall);
         }

@@ -1,6 +1,7 @@
 package neuralcloud.controlplane.app;
 
 import neuralcloud.controlplane.console.NodeMonitor;
+import neuralcloud.controlplane.memory.ChatReview;
 import neuralcloud.controlplane.orchestration.MasterEpochs;
 
 import java.io.IOException;
@@ -10,6 +11,7 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Properties;
@@ -42,7 +44,8 @@ final class ConsoleConfig {
                     int masterMaxTokens, double masterTemperature, MasterEpochs.Profile masterEpoch,
                     NodeMonitor.GpuSource gpuMetrics, Duration metricsInterval, Duration metricsTimeout,
                     Optional<ConfigSource> taskWorkerConfig, Optional<ConfigSource> openQqConfig,
-                    Optional<ConfigSource> memoryConfig, Optional<ConfigSource> dreamingConfig) {
+                    Optional<ConfigSource> memoryConfig, Optional<ConfigSource> dreamingConfig,
+                    Set<ChatReview> chatReviews) {
     }
 
     /**
@@ -52,6 +55,12 @@ final class ConsoleConfig {
      */
     static Settings load(ConfigSource source) throws IOException {
         var properties = source.readProperties();
+        // 按配置逐项启用。消费可选键后，剩余字段仍沿用控制台的原始契约。
+        var chatReviews = EnumSet.noneOf(ChatReview.class);
+        for (var stage : ChatReview.values()) {
+            if (properties.containsKey(stage.property()) && MasterConfig.booleanField(properties, stage.property()))
+                chatReviews.add(stage);
+        }
         // 先剔除允许省略的可选字段，确保必填集合精确匹配且无未知拼写项。
         var required = new HashSet<>(properties.stringPropertyNames());
         required.remove("routerMetrics");
@@ -101,7 +110,7 @@ final class ConsoleConfig {
                 Optional.ofNullable(properties.getProperty("taskWorkerConfig")).map(ConfigSource::new),
                 Optional.ofNullable(properties.getProperty("openQqConfig")).map(ConfigSource::new),
                 Optional.ofNullable(properties.getProperty("memoryConfig")).map(ConfigSource::new),
-                Optional.ofNullable(properties.getProperty("dreamingConfig")).map(ConfigSource::new));
+                Optional.ofNullable(properties.getProperty("dreamingConfig")).map(ConfigSource::new), Set.copyOf(chatReviews));
     }
 
     /** 旧配置使用首版小窗水位。自定义时须成对声明，按模型档位同时选择工作水位和触发水位。 */

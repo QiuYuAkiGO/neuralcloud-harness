@@ -45,12 +45,27 @@ sequenceDiagram
         R->>O: 已批准的回复步骤
         O->>C: 传达取舍及理由
     end
-    C-->>U: 回复前复核依据
+    C-->>U: 返回回复，按配置复核依据
     U->>R: 送达回执
     R->>K: 写入已送达的回复
 ~~~
 
 Chat Worker 选择直接回复、澄清或按受众核对历史、本人称呼与本人原话。它在报告主体重大取舍时填写具体冲突。现场动作仍按用户原文交给能力执行层。图片识别结果保留来源标注。后台观察批次和终审共用同一 Epoch 推理主干，已开始的群观察整理允许普通对话继续。
+
+### 试运行期间的前台复核
+
+在 `console.properties` 中手动设置下列开关，重启控制台后生效。每项独立接受小写 `true` 或 `false`，省略等同于 `false`。网页和 QQ 的前台对话共用这些设置。
+
+- `chatReviewRecallSources` 在本轮取得受时效或授权限制的材料后，按原用途再读其来源。
+- `chatReviewBeforePlan` 在发出首次规划请求前复读本轮历史与自动召回依据。
+- `chatReviewAfterPlan` 在模型返回规划后复读上述依据。
+- `chatReviewBeforeDraft` 在基于召回材料生成回复前复读该次取证依据。
+- `chatReviewAfterDraft` 在模型交回草稿后复读该次取证依据，需要补写群通知引文时也适用。
+- `chatReviewBeforeReturn` 在前台向渠道交回回复前复读历史与自动召回依据。
+- `chatReviewDeliverySources` 在渠道交付前向 Memory 按原用途复读共享来源及版本。
+- `chatReviewQqMembership` 在含共享来源的 QQ 私聊发出前，再向 OneBot 查询本轮所用的群成员身份。
+
+每轮首次读取历史和自动查证都采用当前受众及查询用途。前台始终登记实际采用的来源与版本，交付沿用已知期限与来源数量上限。各项关闭时，生成期间远端发生的授权或版本变化可在下一轮首次取数时反映。QQ 以成功的 OneBot 消息 ID 确认送达，网页以写出 HTTP 正文确认送达。Master 终审、现场动作与后台整理依各自契约执行。
 
 ## 3. 早期 v1 记忆适配器提案
 

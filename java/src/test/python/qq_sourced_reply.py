@@ -132,6 +132,10 @@ class SourcedReplyTest(unittest.TestCase):
         for boundary in ("replay-plan", "sourced-draft"):
             with self.subTest(boundary=boundary):
                 t = self.open_trial(boundary)
+                # 此反例验证轮中撤权，仅打开拦住下一次生成或交付所需的对应复核。
+                switch = "chatReviewAfterPlan" if boundary == "replay-plan" else "chatReviewBeforeReturn"
+                with t.hc.open("a", encoding="utf-8") as config:
+                    config.write(f"{switch}=true\n")
                 initial, grant = t.first_reply()
                 t.mode = "quote"
                 sent = len(t.sent)

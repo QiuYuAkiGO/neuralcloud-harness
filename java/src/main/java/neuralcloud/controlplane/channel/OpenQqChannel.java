@@ -245,7 +245,7 @@ public final class OpenQqChannel implements AutoCloseable {
                         incoming.addressed(), () -> session.images(socket, incoming));
                 if (result.isEmpty()) return;
                 reply = result.get();
-                if (writes.isPresent()) writes.get().verifyDelivery(trace);
+                if (writes.isPresent()) writes.get().verifyDelivery(trace, reply.reviewDeliverySources());
             }
         } catch (IOException error) {
             int failed =
@@ -300,7 +300,8 @@ public final class OpenQqChannel implements AutoCloseable {
                                     .qq()
                                     .map(Trace.QqPrivate::memberGroups)
                                     .orElse(List.of());
-            if (!evidenceGroups.isEmpty()
+            // 成员身份在私聊入口已查询。此开关仅控制第二次远端查询，发送时使用当前本地群策略。
+            if (reply.reviewQqMembership() && !evidenceGroups.isEmpty()
                     && !session.memberships(socket, incoming.senderId())
                             .containsAll(evidenceGroups)) throw new PolicyChanged();
             receipt =

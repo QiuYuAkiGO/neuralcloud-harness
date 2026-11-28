@@ -10,6 +10,7 @@ import com.google.gson.JsonPrimitive;
 import com.google.gson.Strictness;
 import neuralcloud.controlplane.master.Master;
 import neuralcloud.controlplane.memory.ConversationMemory.QueryKind;
+import neuralcloud.controlplane.memory.ChatReview;
 import neuralcloud.controlplane.memory.MemoryCall;
 import neuralcloud.controlplane.router.Route;
 import neuralcloud.controlplane.router.Router;
@@ -465,7 +466,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
             for (var quote : quotes) selected.add("已核实的群通知片段，请在回答中逐字保留：「" + quote + "」");
             materials = selected;
         }
-        memory.verifyEvidence();
+        memory.reviewChatEvidence(ChatReview.BEFORE_DRAFT);
         var reply = replyToTurn(turn, materials);
         if (reply.isPresent()) {
             memory.delivered();
@@ -473,7 +474,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
             var missing = quotes.stream().filter(q -> !draft.contains(q)).toList();
             if (!missing.isEmpty()) {
                 // 让撰稿的 Worker 自行补交。已选片段、来源与受众固定，未通过的草稿不能到达渠道。
-                memory.verifyEvidence();
+                memory.reviewChatEvidence(ChatReview.AFTER_DRAFT);
                 var correction = new ArrayList<>(materials);
                 correction.add("上一份草稿未通过逐字核验。请直接用下面这些完整引文回答，不得改写其中任何字或标点：\n"
                         + String.join("\n", quotes));
@@ -481,7 +482,7 @@ SELF_HISTORY：在本次 QQ 私聊中，用户问自己以往说过什么、曾�
                 String revised = reply.orElseThrow();
                 if (!quotes.stream().allMatch(revised::contains)) throw new IOException("Chat Worker 重提后仍缺少选定的群通知原文");
             }
-            memory.verifyEvidence();
+            memory.reviewChatEvidence(ChatReview.AFTER_DRAFT);
         }
         return reply;
     }
