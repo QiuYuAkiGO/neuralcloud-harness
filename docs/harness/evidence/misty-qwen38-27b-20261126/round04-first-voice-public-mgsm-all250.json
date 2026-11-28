@@ -1,0 +1,139 @@
+{
+  "dataset": "google-research-datasets/MGSM-Rev2",
+  "file": "MGSM-Rev2/mgsm_zh.tsv",
+  "matching_revision": "5f091edeae66ebc605ac4f98dca07a6c345f0060",
+  "models": {
+    "original-base": {
+      "adapter_sha256": null,
+      "all250": {
+        "correct": 241,
+        "length": 8,
+        "n": 250,
+        "unparseable": 8
+      },
+      "deployment_sha256": "2d642aeaf3c908d503de7470d3ef3cf15e0086fcd30b19d1dada7c9b11434422",
+      "first64": {
+        "correct": 63,
+        "length": 1,
+        "n": 64,
+        "unparseable": 1
+      },
+      "improved_rows_vs_original": [],
+      "ordered_raw_reply_hashes_sha256": "cc2a89a46a58921ce2053ff67c7bd361f050be71698948d8e8105fb4163bc94b",
+      "other186": {
+        "correct": 178,
+        "length": 7,
+        "n": 186,
+        "unparseable": 7
+      },
+      "regressed_rows_vs_original": []
+    },
+    "round04-dpo": {
+      "adapter_sha256": "8ec561a0324e8c95877699efe14c5ced65c425a0209b03e10d84b40303fe4753",
+      "all250": {
+        "correct": 242,
+        "length": 1,
+        "n": 250,
+        "unparseable": 1
+      },
+      "deployment_sha256": "cb5274251fd550ad921ee920b9ac11f2064a82c0c91e90ff58cebc5c1bffe20a",
+      "first64": {
+        "correct": 63,
+        "length": 0,
+        "n": 64,
+        "unparseable": 0
+      },
+      "improved_rows_vs_original": [
+        17,
+        42,
+        88,
+        154,
+        187,
+        202
+      ],
+      "ordered_raw_reply_hashes_sha256": "a4624a64c5c805ea79bb6fc5dd60826d592a33c04b36f40c4cc941de1cc327e5",
+      "other186": {
+        "correct": 179,
+        "length": 1,
+        "n": 186,
+        "unparseable": 1
+      },
+      "regressed_rows_vs_original": [
+        13,
+        99,
+        120,
+        163,
+        245
+      ]
+    },
+    "round04-first-voice-dpo": {
+      "adapter_sha256": "d9bb1cd01f32aba9a89c5185dc690fa26f5d6b541f2946b1d64a812aceb01c5f",
+      "all250": {
+        "correct": 241,
+        "length": 0,
+        "n": 250,
+        "unparseable": 1
+      },
+      "deployment_sha256": "952ca2fe5738a19077e44c147135e7fda293446ec814ab2d3beb40cf200f97b0",
+      "first64": {
+        "correct": 63,
+        "length": 0,
+        "n": 64,
+        "unparseable": 0
+      },
+      "improved_rows_vs_original": [
+        17,
+        42,
+        88,
+        154,
+        202
+      ],
+      "ordered_raw_reply_hashes_sha256": "4f06e13d4a0d0c7a13f08aeee2d0a1c4a71d8a20d49c6fa9ab87530d9184fd46",
+      "other186": {
+        "correct": 178,
+        "length": 0,
+        "n": 186,
+        "unparseable": 1
+      },
+      "regressed_rows_vs_original": [
+        13,
+        99,
+        120,
+        163,
+        245
+      ]
+    }
+  },
+  "number_of_added_real_generations": 250,
+  "official_100_weight": 0,
+  "protocols_sha256": {
+    "first64": "6e341480a0275c8a1577d4dfb58675bbfb89b06d4c724871af6878f6cc8c55ea",
+    "other186": "d107835e65a708c61b8c589f23ad412bfef57a4e59dacd57416cfe1648374564"
+  },
+  "scoring": "Independently rescored every last visible line at the original exact decimal parser, including empty and truncated replies.",
+  "selection": "The same full 250-row Chinese population. Original and fifth DPO replies are reused. All 250 controlled DPO replies are newly generated.",
+  "service_window": {
+    "after": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "argv_matches": null,
+    "before": {
+      "documented_processes": 0,
+      "port_listening": false
+    },
+    "end_unix": 1795837294.414915,
+    "entry_state_preserved": true,
+    "model": "kev-latest",
+    "pid": null,
+    "port": 18009,
+    "purpose": "evaluation",
+    "ready": false,
+    "start_unix": 1795836376.8289225,
+    "was_running": false
+  },
+  "source_rows": 250,
+  "source_sha256": "115c306f1a58810f5949784cf749c48a12716e79fff2aab8f2225e4f02e38d41",
+  "template_sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+  "verified_actual_replies": 750
+}
