@@ -1,0 +1,162 @@
+{
+  "frozen_local_artifact_sha256": {
+    "first-dpo": {
+      "primary": "6ccbc71f9fb9201a4f0d2f6fcf25a384cd0de597f0aa780398c262c7ab8686b2",
+      "reserve": "7e2192f718055b64bc4d94f861ed3d54d6d1e52270ef135c3a57e0bff40b7bbe"
+    },
+    "matched-prefix-dpo": {
+      "primary": "37715b1ad65b3919e8f2e90f145d56aa183588857c6b3dfda9494746afc4ab04",
+      "reserve": "c14f510c88dab66e741893356db481ccc08ed7f9e504aa24cb4e8a3d2dcfdf63"
+    },
+    "warm-dpo": {
+      "primary": "a0c8c87d99da807290cb6c86fc52409ddeb3e525066d0dc5573e015f317aef03",
+      "reserve": "b8d2dca3a5a8cf00fa08f5c42a951f40c3245184e4deff64a79b246612fc9bfd"
+    },
+    "warm-sft": {
+      "primary": "8465d6fe0519d71a55723a4f5761219276157573b262a5f603804f13dbcdf4d6",
+      "reserve": "53685f111450b3bbfca4792db2e12879ad0917cdc1ef67e8d6745f982458f510"
+    }
+  },
+  "official_score_weight": 0,
+  "policies": {
+    "round04": {
+      "all": {
+        "fields": {
+          "fulfilled": {
+            "always_false": 5,
+            "always_true": 9,
+            "disagreed": 0,
+            "panel_counts": {
+              "first-dpo": 9,
+              "warm-dpo": 9,
+              "warm-sft": 9
+            }
+          },
+          "natural_voice": {
+            "always_false": 2,
+            "always_true": 11,
+            "disagreed": 1,
+            "panel_counts": {
+              "first-dpo": 11,
+              "warm-dpo": 11,
+              "warm-sft": 12
+            }
+          },
+          "pass_all": {
+            "always_false": 6,
+            "always_true": 7,
+            "disagreed": 1,
+            "panel_counts": {
+              "first-dpo": 7,
+              "warm-dpo": 7,
+              "warm-sft": 8
+            }
+          }
+        },
+        "n": 14
+      },
+      "pressure": {
+        "fields": {
+          "fulfilled": {
+            "always_false": 4,
+            "always_true": 4,
+            "disagreed": 0,
+            "panel_counts": {
+              "first-dpo": 4,
+              "warm-dpo": 4,
+              "warm-sft": 4
+            }
+          },
+          "natural_voice": {
+            "always_false": 2,
+            "always_true": 5,
+            "disagreed": 1,
+            "panel_counts": {
+              "first-dpo": 5,
+              "warm-dpo": 5,
+              "warm-sft": 6
+            }
+          },
+          "pass_all": {
+            "always_false": 5,
+            "always_true": 2,
+            "disagreed": 1,
+            "panel_counts": {
+              "first-dpo": 2,
+              "warm-dpo": 2,
+              "warm-sft": 3
+            }
+          }
+        },
+        "n": 8
+      }
+    },
+    "round04-first-voice-sft-dpo": {
+      "all": {
+        "fields": {
+          "fulfilled": {
+            "always_false": 3,
+            "always_true": 11,
+            "disagreed": 0,
+            "panel_counts": {
+              "matched-prefix-dpo": 11,
+              "warm-dpo": 11
+            }
+          },
+          "natural_voice": {
+            "always_false": 0,
+            "always_true": 12,
+            "disagreed": 2,
+            "panel_counts": {
+              "matched-prefix-dpo": 12,
+              "warm-dpo": 14
+            }
+          },
+          "pass_all": {
+            "always_false": 3,
+            "always_true": 10,
+            "disagreed": 1,
+            "panel_counts": {
+              "matched-prefix-dpo": 10,
+              "warm-dpo": 11
+            }
+          }
+        },
+        "n": 14
+      },
+      "pressure": {
+        "fields": {
+          "fulfilled": {
+            "always_false": 3,
+            "always_true": 5,
+            "disagreed": 0,
+            "panel_counts": {
+              "matched-prefix-dpo": 5,
+              "warm-dpo": 5
+            }
+          },
+          "natural_voice": {
+            "always_false": 0,
+            "always_true": 6,
+            "disagreed": 2,
+            "panel_counts": {
+              "matched-prefix-dpo": 6,
+              "warm-dpo": 8
+            }
+          },
+          "pass_all": {
+            "always_false": 3,
+            "always_true": 4,
+            "disagreed": 1,
+            "panel_counts": {
+              "matched-prefix-dpo": 4,
+              "warm-dpo": 5
+            }
+          }
+        },
+        "n": 8
+      }
+    }
+  },
+  "scope": "Existing anonymous assessments of the same exact visible response in multiple independent comparisons. Comparators differ between panels. Identical case, user, criteria and complete response text independently verified. No regrading or change to a score."
+}
