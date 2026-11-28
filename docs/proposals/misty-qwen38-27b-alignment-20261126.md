@@ -49,6 +49,8 @@
 
 `python tools/train_misty27_alignment.py --stage sft|dpo --model DIR --data JSONL --output NEW_DIR` 使用本地 Dense Qwen3.5 架构的文本网络、CUDA NF4 和 BF16 计算。实验权重取自已逐片核验的 Qwen3.8-27B。训练数据为按该模型原生模板渲染的提示与续答，SFT 每行有 `prompt`、`completion`，DPO 每行有 `prompt`、`chosen`、`rejected`。字符串须非空，偏好对内容须不同。调用方生成的最终续答需含合成思考正文、闭合标记、最终答复和原生结束符；训练时屏蔽提示与填充。DPO 必须额外传 `--sft-adapter DIR`，以同一适配器初始化策略和冻结参考。SFT 不接收该参数。
 
+对已有监督检查点补训时，SFT 可以传入 `--sft-start-adapter DIR`，从该目录的 LoRA 权重开始新一段监督训练。输入须为本入口产生的 SFT 检查点，其 `training.json` 的阶段须为 `sft`，基础模型须与当前解析后的绝对路径一致，`adapter_sha256` 须等于父权重文件的实际 SHA-256。父检查点保持只读，新段使用本次传入的语料、学习率和轮数，新建优化器。新回执的 `initial_sft_adapter_sha256` 记录父权重文件摘要，`initial_sft_tensor_sha256` 记录首个优化步前实际载入的 LoRA 参数摘要，按既有 DPO 初始参考张量相同的规范计算。省略该参数时继续从基础模型新建 LoRA。DPO 传入此参数，或父检查点的阶段、基础模型、权重摘要不符，须返回非零，指出 `sft-start-adapter` 且不发布成品目录。
+
 输出目录须是新路径。成功后包含可由 PEFT 重载的 `adapter_config.json`、`adapter_model.safetensors` 和 `training.json`。回执的 `stage`、`steps`、`examples`、`data_sha256`、`adapter_sha256` 分别记录阶段、实跑更新步数、输入条数、输入与成品摘要。DPO 另记录输入 SFT 文件的 `sft_adapter_sha256`，验证参考适配器训练前后权值相同。输入违反约定或训练失败时返回非零且不发布成品。默认各跑一轮，LoRA 秩 16、尺度参数 32；`--learning-rate`、`--epochs`、`--accumulation` 可用于记录在案的后续轮次。
 
 ### 角色事实样本的每轮训练次数
